@@ -146,7 +146,7 @@ def _execute_action(doc: Document, action: RemediationAction) -> dict:
             if not alt:
                 return _action_dict(action, "failed", "Empty alt text")
 
-            result = set_alt_text(doc, para_idx, draw_idx, alt)
+            result = set_alt_text(doc, para_idx, alt, draw_idx)
             if result.success:
                 return _action_dict(action, "executed", f"Set alt text: {alt[:80]}")
             return _action_dict(action, "failed", result.error)

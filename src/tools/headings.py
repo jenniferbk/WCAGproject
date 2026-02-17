@@ -12,6 +12,8 @@ import logging
 from dataclasses import dataclass, field
 
 from docx.document import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Pt
 
 from src.models.document import ParagraphInfo
@@ -120,6 +122,63 @@ def get_fake_heading_candidates(
     return candidates
 
 
+def _ensure_heading_style(doc: Document, level: int) -> None:
+    """Ensure a heading style exists in the document.
+
+    Some document templates don't include heading styles. This creates
+    them with proper outline levels (needed for navigation and PDF bookmarks).
+    """
+    style_name = f"Heading {level}"
+    try:
+        doc.styles[style_name]
+        return  # already exists
+    except KeyError:
+        pass
+
+    # Create the heading style via XML
+    style_id = f"Heading{level}"
+    style_elem = OxmlElement("w:style")
+    style_elem.set(qn("w:type"), "paragraph")
+    style_elem.set(qn("w:styleId"), style_id)
+
+    name_elem = OxmlElement("w:name")
+    name_elem.set(qn("w:val"), style_name)
+    style_elem.append(name_elem)
+
+    based_on = OxmlElement("w:basedOn")
+    based_on.set(qn("w:val"), "Normal")
+    style_elem.append(based_on)
+
+    next_elem = OxmlElement("w:next")
+    next_elem.set(qn("w:val"), "Normal")
+    style_elem.append(next_elem)
+
+    # Outline level — critical for navigation and PDF bookmarks
+    pPr = OxmlElement("w:pPr")
+    outline = OxmlElement("w:outlineLvl")
+    outline.set(qn("w:val"), str(level - 1))
+    pPr.append(outline)
+    style_elem.append(pPr)
+
+    # Run formatting — bold + appropriate font size (in half-points)
+    rPr = OxmlElement("w:rPr")
+    bold_elem = OxmlElement("w:b")
+    rPr.append(bold_elem)
+
+    sizes_half_pt = {1: 32, 2: 26, 3: 24, 4: 24, 5: 20, 6: 20}
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), str(sizes_half_pt.get(level, 24)))
+    rPr.append(sz)
+    szCs = OxmlElement("w:szCs")
+    szCs.set(qn("w:val"), str(sizes_half_pt.get(level, 24)))
+    rPr.append(szCs)
+
+    style_elem.append(rPr)
+    doc.styles.element.append(style_elem)
+
+    logger.info("Created heading style: %s", style_name)
+
+
 def set_heading_level(
     doc: Document,
     paragraph_index: int,
@@ -151,7 +210,16 @@ def set_heading_level(
         old_style = paragraph.style.name if paragraph.style else "Normal"
         style_name = f"Heading {level}"
 
-        paragraph.style = doc.styles[style_name]
+        # Ensure the heading style definition exists
+        _ensure_heading_style(doc, level)
+
+        # Set the style reference directly via XML to avoid python-docx cache issues
+        pPr = paragraph._element.get_or_add_pPr()
+        pStyle = pPr.find(qn("w:pStyle"))
+        if pStyle is None:
+            pStyle = OxmlElement("w:pStyle")
+            pPr.insert(0, pStyle)
+        pStyle.set(qn("w:val"), f"Heading{level}")
 
         # Clear direct bold formatting since heading styles handle that
         for run in paragraph.runs:
@@ -162,11 +230,6 @@ def set_heading_level(
         logger.info(change)
         return HeadingResult(success=True, changes=[change])
 
-    except KeyError:
-        return HeadingResult(
-            success=False,
-            error=f"Heading style 'Heading {level}' not found in document",
-        )
     except Exception as e:
         return HeadingResult(success=False, error=f"Failed to set heading: {e}")
 

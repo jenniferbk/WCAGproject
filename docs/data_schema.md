@@ -318,6 +318,18 @@ These are `@dataclass` (not Pydantic) since they're internal to tool execution, 
 ### From `src/tools/validator.py`
 - **`CheckResult`**: Single WCAG criterion check (criterion, name, status, issues)
 - **`ValidationReport`**: Full audit (list of CheckResult, pass/fail/warn counts, summary)
+- **`MultiLayerReport`**: Combined three-layer validation (docx_report, axe_report, verapdf_report, total_issues, summary)
+
+### From `src/tools/html_builder.py`
+- **`HtmlBuildResult`**: Result of HTML generation (success, html, warnings, error)
+
+### From `src/tools/axe_checker.py`
+- **`AxeViolation`**: Single axe-core violation (rule_id, impact, description, help_text, wcag_criteria, affected_elements)
+- **`AxeCheckResult`**: Full axe-core result (violations, passes_count, violation_count, error)
+
+### From `src/tools/verapdf_checker.py`
+- **`PdfUaViolation`**: Single PDF/UA-1 failure (rule_id, clause, description, context)
+- **`VeraPdfResult`**: Full veraPDF result (compliant, violations, passed_rules, failed_rules, error)
 
 ### From `src/tools/contrast.py`
 - **`ContrastResult`**: Single contrast check (ratio, passes, required_ratio)
@@ -325,6 +337,18 @@ These are `@dataclass` (not Pydantic) since they're internal to tool execution, 
 
 ### From other tools
 Each tool has its own `*Result` dataclass (e.g. `AltTextResult`, `HeadingResult`, `TableResult`, `ListResult`, `MetadataResult`). All follow the pattern: `success: bool`, `changes: list[str]`, `error: str`.
+
+## Three-Layer Validation
+
+The validator supports three layers of WCAG compliance checking:
+
+| Layer | Tool | Input | What it checks |
+|-------|------|-------|----------------|
+| 1 | `validator.py` | `DocumentModel` | Custom docx-level: alt text, headings, structure, contrast, metadata, links |
+| 2 | `axe_checker.py` | HTML string | Industry-standard axe-core: full WCAG 2.1 AA against generated HTML |
+| 3 | `verapdf_checker.py` | PDF file | PDF/UA-1 (ISO 14289-1): structure tags, alt text, fonts, metadata |
+
+Use `validate_document()` for layer 1 only. Use `validate_full()` to orchestrate all available layers.
 
 ## ID Scheme
 

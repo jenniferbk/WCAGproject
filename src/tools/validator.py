@@ -1,10 +1,12 @@
 """WCAG 2.1 AA validation for document models.
 
-Checks the DocumentModel against all document-relevant WCAG criteria
-and produces a structured compliance report. This is a static analysis
-tool — it examines the parsed model, not the original file.
+Three-layer validation:
+1. Custom docx-level checks (this module) — fast, checks the parsed DocumentModel
+2. axe-core HTML checks (axe_checker.py) — industry-standard, checks generated HTML
+3. veraPDF PDF/UA checks (verapdf_checker.py) — PDF-specific, checks generated PDFs
 
-For PDFs, veraPDF integration will be added in Phase 2.
+The validate_document() function runs layer 1. For full multi-layer validation,
+use validate_full() which orchestrates all three layers.
 """
 
 from __future__ import annotations
@@ -314,6 +316,92 @@ def _check_3_1_1_language(doc: DocumentModel) -> CheckResult:
     )
 
 
+@dataclass
+class MultiLayerReport:
+    """Combined validation report from all three layers."""
+    docx_report: ValidationReport | None = None
+    axe_report: object | None = None       # AxeCheckResult (avoid circular import)
+    verapdf_report: object | None = None   # VeraPdfResult
+    total_issues: int = 0
+    summary: str = ""
+
+
+def validate_full(
+    doc_model: DocumentModel,
+    html_string: str = "",
+    pdf_path: str = "",
+    default_bg: str = "#FFFFFF",
+    axe_standard: str = "wcag2aa",
+) -> MultiLayerReport:
+    """Run all available validation layers.
+
+    Layer 1: Custom docx-level checks (always runs)
+    Layer 2: axe-core HTML checks (runs if html_string provided)
+    Layer 3: veraPDF PDF/UA checks (runs if pdf_path provided)
+
+    Args:
+        doc_model: Parsed document model.
+        html_string: Generated HTML to validate with axe-core.
+        pdf_path: Generated PDF path to validate with veraPDF.
+        default_bg: Default background color for contrast checks.
+        axe_standard: axe-core standard to check against.
+
+    Returns:
+        MultiLayerReport combining all layer results.
+    """
+    report = MultiLayerReport()
+    total_issues = 0
+    summary_parts = []
+
+    # Layer 1: Custom docx checks (always)
+    docx_report = validate_document(doc_model, default_bg)
+    report.docx_report = docx_report
+    total_issues += docx_report.failed
+    summary_parts.append(
+        f"Docx: {docx_report.summary}"
+    )
+
+    # Layer 2: axe-core HTML checks (if HTML provided)
+    if html_string:
+        try:
+            from src.tools.axe_checker import check_html_accessibility
+            axe_result = check_html_accessibility(html_string, axe_standard)
+            report.axe_report = axe_result
+            if axe_result.success:
+                total_issues += axe_result.violation_count
+                summary_parts.append(
+                    f"axe-core: {axe_result.violation_count} violations, "
+                    f"{axe_result.passes_count} passes"
+                )
+            else:
+                summary_parts.append(f"axe-core: {axe_result.error}")
+        except Exception as e:
+            logger.warning("axe-core check skipped: %s", e)
+            summary_parts.append(f"axe-core: skipped ({e})")
+
+    # Layer 3: veraPDF PDF/UA checks (if PDF provided)
+    if pdf_path:
+        try:
+            from src.tools.verapdf_checker import check_pdf_ua
+            vera_result = check_pdf_ua(pdf_path)
+            report.verapdf_report = vera_result
+            if vera_result.success:
+                total_issues += vera_result.violation_count
+                status = "compliant" if vera_result.compliant else "non-compliant"
+                summary_parts.append(
+                    f"veraPDF: {status}, {vera_result.violation_count} violations"
+                )
+            else:
+                summary_parts.append(f"veraPDF: {vera_result.error}")
+        except Exception as e:
+            logger.warning("veraPDF check skipped: %s", e)
+            summary_parts.append(f"veraPDF: skipped ({e})")
+
+    report.total_issues = total_issues
+    report.summary = " | ".join(summary_parts)
+    return report
+
+
 def format_report(report: ValidationReport) -> str:
     """Format a validation report as a human-readable string.
 
@@ -342,6 +430,44 @@ def format_report(report: ValidationReport) -> str:
         if check.issues:
             for issue in check.issues:
                 lines.append(f"       - {issue}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def format_multi_layer_report(report: MultiLayerReport) -> str:
+    """Format a multi-layer validation report as human-readable text."""
+    lines = [
+        "Multi-Layer WCAG Validation Report",
+        f"Total issues: {report.total_issues}",
+        f"Summary: {report.summary}",
+        "=" * 60,
+        "",
+    ]
+
+    # Layer 1: docx checks
+    if report.docx_report:
+        lines.append("--- Layer 1: Document Model Checks ---")
+        lines.append(format_report(report.docx_report))
+
+    # Layer 2: axe-core
+    if report.axe_report:
+        lines.append("--- Layer 2: axe-core HTML Checks ---")
+        try:
+            from src.tools.axe_checker import format_axe_report
+            lines.append(format_axe_report(report.axe_report))
+        except ImportError:
+            lines.append("(axe-core formatter not available)")
+        lines.append("")
+
+    # Layer 3: veraPDF
+    if report.verapdf_report:
+        lines.append("--- Layer 3: veraPDF PDF/UA Checks ---")
+        try:
+            from src.tools.verapdf_checker import format_verapdf_report
+            lines.append(format_verapdf_report(report.verapdf_report))
+        except ImportError:
+            lines.append("(veraPDF formatter not available)")
         lines.append("")
 
     return "\n".join(lines)

@@ -14,7 +14,15 @@ from src.models.document import (
     RunInfo,
 )
 from src.tools.docx_parser import parse_docx
-from src.tools.validator import CheckStatus, format_report, validate_document
+from src.tools.html_builder import build_html
+from src.tools.validator import (
+    CheckStatus,
+    MultiLayerReport,
+    format_multi_layer_report,
+    format_report,
+    validate_document,
+    validate_full,
+)
 
 
 class TestValidateDocument:
@@ -101,6 +109,36 @@ class TestValidateCleanDocument:
         report = validate_document(doc)
         assert report.overall_status == CheckStatus.PASS
         assert report.failed == 0
+
+
+class TestValidateFull:
+    """Test the multi-layer validate_full function."""
+
+    def test_docx_only(self, simple_docx: Path):
+        result = parse_docx(simple_docx)
+        report = validate_full(result.document)
+        assert isinstance(report, MultiLayerReport)
+        assert report.docx_report is not None
+        assert report.axe_report is None  # no HTML provided
+        assert report.verapdf_report is None  # no PDF provided
+        assert "Docx:" in report.summary
+
+    def test_with_html(self, simple_docx: Path):
+        parse_result = parse_docx(simple_docx)
+        html_result = build_html(parse_result.document)
+        assert html_result.success
+
+        report = validate_full(parse_result.document, html_string=html_result.html)
+        assert report.docx_report is not None
+        # axe_report may be None if playwright not installed, or populated if it is
+        assert "Docx:" in report.summary
+
+    def test_format_multi_layer(self, simple_docx: Path):
+        result = parse_docx(simple_docx)
+        report = validate_full(result.document)
+        text = format_multi_layer_report(report)
+        assert "Multi-Layer" in text
+        assert "Layer 1" in text
 
 
 class TestFormatReport:

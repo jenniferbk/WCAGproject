@@ -186,3 +186,73 @@ def contrast_docx(tmp_path: Path) -> Path:
     path = tmp_path / "contrast.docx"
     doc.save(str(path))
     return path
+
+
+@pytest.fixture
+def no_metadata_docx(tmp_path: Path) -> Path:
+    """A docx with no title or language set."""
+    doc = Document()
+    doc.add_paragraph("A document with no metadata.")
+    path = tmp_path / "no_metadata.docx"
+    doc.save(str(path))
+    return path
+
+
+@pytest.fixture
+def fake_lists_docx(tmp_path: Path) -> Path:
+    """A docx with fake lists: manual numbering and bullet characters."""
+    doc = Document()
+    doc.add_paragraph("Here is a list of items:")
+
+    # Fake numbered list
+    doc.add_paragraph("1. First item in the list")
+    doc.add_paragraph("2. Second item in the list")
+    doc.add_paragraph("3. Third item in the list")
+
+    doc.add_paragraph("And some bullet points:")
+
+    # Fake bulleted list
+    doc.add_paragraph("- Bullet one")
+    doc.add_paragraph("- Bullet two")
+    doc.add_paragraph("- Bullet three")
+
+    doc.add_paragraph("End of lists.")
+
+    path = tmp_path / "fake_lists.docx"
+    doc.save(str(path))
+    return path
+
+
+@pytest.fixture
+def table_no_header_docx(tmp_path: Path) -> Path:
+    """A docx with a table that has NO marked header row."""
+    doc = Document()
+    table = doc.add_table(rows=3, cols=2)
+    table.style = doc.styles["Table Grid"]
+    table.rows[0].cells[0].text = "Name"
+    table.rows[0].cells[1].text = "Value"
+    table.rows[1].cells[0].text = "Alpha"
+    table.rows[1].cells[1].text = "100"
+    table.rows[2].cells[0].text = "Beta"
+    table.rows[2].cells[1].text = "200"
+
+    path = tmp_path / "table_no_header.docx"
+    doc.save(str(path))
+    return path
+
+
+@pytest.fixture
+def skipped_headings_docx(tmp_path: Path) -> Path:
+    """A docx with skipped heading levels (H1 -> H3, no H2)."""
+    doc = Document()
+    doc.core_properties.title = "Skipped Headings"
+    doc.core_properties.language = "en"
+
+    doc.add_heading("Title", level=1)
+    doc.add_paragraph("Intro text.")
+    doc.add_heading("Deep Section", level=3)  # skips H2
+    doc.add_paragraph("Content.")
+
+    path = tmp_path / "skipped_headings.docx"
+    doc.save(str(path))
+    return path

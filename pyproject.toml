@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a11y-remediate"
+version = "0.1.0"
+description = "AI-powered WCAG 2.1 AA accessibility remediation for university course materials"
+requires-python = ">=3.11"
+dependencies = [
+    "python-docx>=1.1.0",
+    "lxml>=5.0",
+    "Pillow>=10.0",
+    "wcag-contrast-ratio>=0.9",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

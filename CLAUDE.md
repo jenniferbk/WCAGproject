@@ -1,0 +1,236 @@
+# A11y Remediation Agent
+
+AI-powered WCAG 2.1 AA accessibility remediation for university course materials (.docx and .pdf).
+
+## Project Context
+
+DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by **April 24, 2026**. Manual remediation costs $3-4/page. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist.
+
+**End user experience:** Professor sends a file → receives compliant file + report. No CLI, no technical knowledge required.
+
+## Architecture
+
+This is NOT a deterministic pipeline. It's an agentic system with deterministic tools.
+
+```
+Document In → Comprehend (Gemini) → Strategize (Claude) → Execute (agent + tools) → Self-Review (Claude) → Output
+```
+
+- **Tools are deterministic Python functions** that parse, modify, validate
+- **The agent decides** which tools to call, in what order, with what parameters
+- **Context matters:** A bold "Example 3.2" in a math textbook is a sub-heading; same bold in an email is emphasis. The agent reasons about this.
+
+### Model Allocation
+
+| Model | Role | Why |
+|-------|------|-----|
+| Gemini (2.5 Flash/Pro via google-genai SDK) | Multimodal document comprehension, PDF page analysis | Native PDF vision, 1M+ context, cost-effective for bulk visual work |
+| Claude (Sonnet/Opus via anthropic SDK) | Strategy, execution reasoning, alt text refinement, self-review | Best reasoning and judgment |
+| OpenAI GPT-4o | Fallback / specific subtasks | Available if needed |
+
+## Tech Stack
+
+- **Python 3.11+**
+- **python-docx** — .docx parsing and modification. NOTE: Alt text and table headers require raw XML manipulation via lxml; python-docx API doesn't expose these.
+- **PyMuPDF (pymupdf)** — PDF text/image extraction, page rendering. License: AGPL (acceptable for academic open-source use).
+- **WeasyPrint ≥68.0** — HTML→PDF/UA-1 generation. `pdf_variant='pdf/ua-1'`. Output not guaranteed fully valid; always validate.
+- **wcag-contrast-ratio** — WCAG contrast calculation (MIT).
+- **google-genai** — Gemini API client.
+- **anthropic** — Claude API client.
+- **veraPDF** — PDF/UA validation. Java CLI, called via subprocess. Returns JSON.
+- **Pillow** — Image processing for extraction/analysis.
+- **lxml** — XML manipulation for docx internals.
+
+## Project Structure
+
+```
+a11y-remediate/
+├── CLAUDE.md
+├── pyproject.toml
+├── .env                     # API keys (GEMINI_API_KEY, ANTHROPIC_API_KEY)
+├── src/
+│   ├── __init__.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── document.py      # DocumentModel, ImageInfo, TableInfo, etc.
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── docx_parser.py   # parse .docx → DocumentModel
+│   │   ├── pdf_parser.py    # parse .pdf → DocumentModel + page images
+│   │   ├── image_extract.py # extract images with context
+│   │   ├── alt_text.py      # read/write alt text (raw XML for docx)
+│   │   ├── headings.py      # detect fake headings, set heading levels
+│   │   ├── tables.py        # mark table headers (raw XML)
+│   │   ├── lists.py         # convert fake lists to real lists
+│   │   ├── metadata.py      # set title, language
+│   │   ├── contrast.py      # check and fix color contrast
+│   │   ├── links.py         # improve link text
+│   │   ├── html_builder.py  # structured content → semantic HTML
+│   │   ├── pdf_output.py    # WeasyPrint HTML → PDF/UA-1
+│   │   └── validator.py     # WCAG audit + veraPDF integration
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── comprehension.py # Gemini: "what IS this document?"
+│   │   ├── strategy.py      # Claude: "what does it NEED?"
+│   │   ├── executor.py      # Claude agent loop with tool calls
+│   │   ├── reviewer.py      # Claude: "did we do a good job?"
+│   │   └── orchestrator.py  # comprehend → strategize → execute → review
+│   ├── prompts/
+│   │   ├── comprehension.md
+│   │   ├── strategy.md
+│   │   ├── execution.md
+│   │   └── review.md
+│   └── cli.py               # CLI entry point
+├── tests/
+│   ├── test_docs/           # sample .docx and .pdf files
+│   ├── test_parser.py
+│   ├── test_tools.py
+│   └── test_agent.py
+└── docs/
+    └── wcag_criteria.md     # reference: WCAG 2.1 AA criteria for documents
+```
+
+## WCAG 2.1 AA Criteria (Document-Relevant)
+
+The tool targets these criteria. Every tool and agent decision maps back to one or more:
+
+| Criterion | Requirement | Tool |
+|-----------|-------------|------|
+| 1.1.1 | Alt text for non-decorative images; empty alt for decorative | alt_text.py |
+| 1.3.1 | Heading hierarchy, table structure, lists use semantic markup | headings.py, tables.py, lists.py |
+| 1.4.1 | Color not sole conveyor of meaning | (agent judgment) |
+| 1.4.3 | Contrast ≥4.5:1 normal text, ≥3:1 large text (≥18pt or ≥14pt bold) | contrast.py |
+| 2.4.1 | Mechanism to bypass repeated content | (headings provide this in docs) |
+| 2.4.2 | Document title in metadata | metadata.py |
+| 2.4.4 | Link purpose determinable from text | links.py |
+| 2.4.6 | Headings and labels describe topic/purpose | headings.py |
+| 3.1.1 | Document language set | metadata.py |
+| 3.1.2 | Language of parts identified | (flag for human review) |
+| 4.1.2 | Accessible names and roles for UI components | (structural via other tools) |
+
+For PDFs specifically: PDF/UA-1 (ISO 14289-1) compliance, validated via veraPDF.
+
+## Critical Implementation Details
+
+### Alt Text in .docx (Raw XML Required)
+
+```python
+# python-docx doesn't expose alt text. Access via lxml:
+WP_NS = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
+for para in doc.paragraphs:
+    for drawing in para._element.findall(f'.//{{{WP_NS}}}docPr'):
+        existing_alt = drawing.get('descr', '')
+        drawing.set('descr', new_alt_text)  # write alt text
+```
+
+### Table Headers in .docx (Raw XML Required)
+
+```python
+# Mark first row as header (repeats across pages):
+from docx.oxml.ns import qn
+for row in table.rows[:header_count]:
+    trPr = row._tr.get_or_add_trPr()
+    tblHeader = OxmlElement('w:tblHeader')
+    trPr.append(tblHeader)
+```
+
+### Fake Heading Detection Heuristic
+
+A paragraph is likely a fake heading if:
+- Style is Normal (not a Heading style)
+- All runs are bold
+- Font size > document body average by ≥2pt
+- Short text (< ~10 words)
+- Not inside a table cell
+- Followed by non-bold body text
+
+**The agent decides** whether these are actually headings based on document context.
+
+### PDF Pipeline (Extract → Comprehend → Regenerate)
+
+PDFs cannot be reliably remediated in-place. Instead:
+1. Extract content (PyMuPDF text + images; Gemini visual page analysis)
+2. Agent builds semantic model of document
+3. Generate accessible HTML with all fixes applied
+4. Render HTML → PDF/UA-1 via WeasyPrint
+5. Validate with veraPDF
+
+**Visual fidelity will differ from original.** Content and accessibility will be correct; aesthetics are best-effort.
+
+### WeasyPrint PDF/UA Requirements
+
+The HTML input must have:
+- `<html lang="en">` (or appropriate language)
+- `<title>` tag
+- Proper heading hierarchy
+- Alt text on all `<img>` tags
+- `<table>` with `<th scope="col|row">`
+- Logical source order = reading order
+
+```python
+from weasyprint import HTML
+HTML(string=html_string).write_pdf(output_path, pdf_variant='pdf/ua-1')
+```
+
+### veraPDF Integration
+
+```bash
+# Java CLI — call via subprocess
+verapdf -f ua1 --format json document.pdf
+```
+
+Returns JSON with pass/fail per rule. Parse and include in compliance report.
+
+## Coding Standards
+
+- **Type hints everywhere.** Use dataclasses or Pydantic for models.
+- **Each tool is a pure function** where possible. Input → output, no hidden state.
+- **Agent prompts live in `prompts/` as markdown files**, loaded at runtime.
+- **Tests use real sample documents** from `tests/test_docs/`. Do not mock document parsing — test against actual .docx and .pdf files.
+- **Error handling:** Tools should return structured results (success/failure + details), not raise exceptions that break the agent loop.
+- **Logging:** Use `logging` module. Each tool logs what it changed. The changes log feeds into the compliance report.
+
+## Common Commands
+
+```bash
+# Install dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest tests/ -v
+
+# Run on a single document
+python -m src.cli document.docx
+
+# Run on a directory
+python -m src.cli ./course_materials/ --output-dir ./accessible/
+
+# Run with both .docx and .pdf output for PDFs
+python -m src.cli lecture.pdf --format both
+```
+
+## Build Order
+
+**Phase 1 — .docx (Sessions 1-4):**
+1. Data models + docx parser + image extraction
+2. Remediation tools (alt text, headings, tables, lists, metadata, contrast, links, validator)
+3. Agent integration (Gemini comprehension, Claude strategy/execution/review, orchestrator)
+4. Test on real documents, tune prompts
+
+**Phase 2 — PDF (Sessions 5-7):**
+5. PDF parser + page rendering + extraction
+6. HTML builder + WeasyPrint PDF/UA output + veraPDF validation
+7. Test PDF pipeline on real documents, tune
+
+**Phase 3 — Deployment (Session 8+):**
+8. OpenClaw skill integration for messaging-based UX
+9. Mac Mini deployment, batch processing
+
+## Known Risks
+
+- **WeasyPrint PDF/UA output may not fully validate.** v66+ improved significantly (NLnet-funded rewrite) but open issues remain (#2482). Expect some veraPDF failures that need workarounds.
+- **PyMuPDF is AGPL.** Fine for open-source academic use. If this becomes a commercial product, need commercial license from Artifex.
+- **Gemini 2.0 Flash/Flash-Lite retire March 31, 2026.** Use Gemini 2.5 Flash or later.
+- **Complex tables** (merged cells, nested headers) will produce imperfect results. Flag for human review.
+- **Scanned/image-only PDFs** require OCR preprocessing. Gemini can help but out of scope for v1.
+- **Mathematical content** (LaTeX, MathType, equation images) needs special handling. Flag for review; MathML conversion is future work.

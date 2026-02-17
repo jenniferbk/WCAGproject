@@ -12,6 +12,10 @@ DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1
 
 **Testing:** Need 5–10 representative sample documents from real courses for development and validation.
 
+## Canonical Data Schema
+
+**`docs/data_schema.md` is the single source of truth for all data models.** Consult it before building any new feature, tool, or agent component. Update it whenever models change. All pipeline data — from faculty submission through remediated output — flows through the models defined there.
+
 ## Architecture
 
 This is NOT a deterministic pipeline. It's an agentic system with deterministic tools.

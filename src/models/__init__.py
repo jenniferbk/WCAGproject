@@ -1,5 +1,7 @@
 from .document import (
     CellInfo,
+    ContentOrderItem,
+    ContentType,
     ContrastIssue,
     DocumentModel,
     DocumentStats,
@@ -11,8 +13,20 @@ from .document import (
     RunInfo,
     TableInfo,
 )
+from .pipeline import (
+    ComprehensionResult,
+    CourseContext,
+    DocumentType,
+    ElementPurpose,
+    RemediationAction,
+    RemediationRequest,
+    RemediationResult,
+    RemediationStrategy,
+    ReviewFinding,
+)
 
 __all__ = [
+    # Document models
     "RunInfo",
     "LinkInfo",
     "ImageInfo",
@@ -22,6 +36,18 @@ __all__ = [
     "ParagraphInfo",
     "MetadataInfo",
     "ContrastIssue",
+    "ContentType",
+    "ContentOrderItem",
     "DocumentModel",
     "DocumentStats",
+    # Pipeline models
+    "CourseContext",
+    "DocumentType",
+    "RemediationRequest",
+    "ElementPurpose",
+    "ComprehensionResult",
+    "RemediationAction",
+    "RemediationStrategy",
+    "ReviewFinding",
+    "RemediationResult",
 ]

@@ -1,24 +1,36 @@
 # A11y Remediation Agent
 
-AI-powered WCAG 2.1 AA accessibility remediation for university course materials (.docx and .pdf).
+AI-powered WCAG 2.1 AA accessibility remediation for university course materials (.docx, .pdf, and eventually .pptx).
 
 ## Project Context
 
-DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by **April 24, 2026**. Manual remediation costs $3-4/page. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist.
+DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by **April 24, 2026**. Manual remediation costs $3-4/page. Existing automated tools apply generic fixes without understanding document context and don't get the job done well. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist. The core distinction is this agentic layer — the system makes context-dependent judgments that traditional deterministic pipelines cannot.
 
-**End user experience:** Professor sends a file → receives compliant file + report. No CLI, no technical knowledge required.
+**End user experience:** Faculty email a document (plus course context) to `remediate@jenkleiman.com` → receive the remediated file + compliance report back. No CLI, no technical knowledge required. Course context matters: knowing a document is a calculus syllabus vs. an art history lecture changes how elements are interpreted.
+
+**API costs:** Estimated ~$15–40 per semester of documents per class.
+
+**Testing:** Need 5–10 representative sample documents from real courses for development and validation.
 
 ## Architecture
 
 This is NOT a deterministic pipeline. It's an agentic system with deterministic tools.
 
 ```
-Document In → Comprehend (Gemini) → Strategize (Claude) → Execute (agent + tools) → Self-Review (Claude) → Output
+Document + Course Context In → Comprehend (Gemini + validators) → Strategize (Claude) → Execute (agent + tools) → Review (Claude + validators) → Output
 ```
 
 - **Tools are deterministic Python functions** that parse, modify, validate
 - **The agent decides** which tools to call, in what order, with what parameters
 - **Context matters:** A bold "Example 3.2" in a math textbook is a sub-heading; same bold in an email is emphasis. The agent reasons about this.
+- **Course context flows through the pipeline:** Faculty provide the course name/subject when submitting, and the comprehension and strategy phases use it to make better decisions.
+
+### The Four Phases
+
+1. **Comprehend** (Gemini + compliance utilities): Analyze the document holistically — identify type, structure, and purpose of every element, within the context of the course it belongs to. Also run the compliance-checking validator to flag existing issues.
+2. **Strategize** (Claude): Generate a remediation strategy specific to that document, distinguishing a decorative image from a data-bearing graph, or bold emphasis from a missing heading.
+3. **Execute** (deterministic tools): Apply fixes — alt text, heading structure, table headers, contrast, metadata, link text, etc. — to produce a remediated version.
+4. **Review** (Claude + compliance utilities): Evaluate the result from a screen reader user's perspective, rerun the compliance-checking utilities, and flag uncertain or unremediated items for human review.
 
 ### Model Allocation
 
@@ -52,7 +64,8 @@ a11y-remediate/
 │   ├── __init__.py
 │   ├── models/
 │   │   ├── __init__.py
-│   │   └── document.py      # DocumentModel, ImageInfo, TableInfo, etc.
+│   │   ├── document.py      # DocumentModel, ImageInfo, TableInfo, etc.
+│   │   └── pipeline.py      # RemediationRequest, CourseContext, ComprehensionResult, etc.
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── docx_parser.py   # parse .docx → DocumentModel
@@ -70,23 +83,25 @@ a11y-remediate/
 │   │   └── validator.py     # WCAG audit + veraPDF integration
 │   ├── agent/
 │   │   ├── __init__.py
-│   │   ├── comprehension.py # Gemini: "what IS this document?"
+│   │   ├── comprehension.py # Gemini + validators: "what IS this document?"
 │   │   ├── strategy.py      # Claude: "what does it NEED?"
 │   │   ├── executor.py      # Claude agent loop with tool calls
-│   │   ├── reviewer.py      # Claude: "did we do a good job?"
+│   │   ├── reviewer.py      # Claude + validators: screen reader perspective review
 │   │   └── orchestrator.py  # comprehend → strategize → execute → review
 │   ├── prompts/
 │   │   ├── comprehension.md
 │   │   ├── strategy.md
 │   │   ├── execution.md
 │   │   └── review.md
-│   └── cli.py               # CLI entry point
+│   ├── cli.py               # CLI entry point
+│   └── email_handler.py     # Email ingestion (remediate@jenkleiman.com)
 ├── tests/
 │   ├── test_docs/           # sample .docx and .pdf files
 │   ├── test_parser.py
 │   ├── test_tools.py
 │   └── test_agent.py
 └── docs/
+    ├── data_schema.md       # **canonical data model reference** — update when models change
     └── wcag_criteria.md     # reference: WCAG 2.1 AA criteria for documents
 ```
 
@@ -189,6 +204,7 @@ Returns JSON with pass/fail per rule. Parse and include in compliance report.
 - **Tests use real sample documents** from `tests/test_docs/`. Do not mock document parsing — test against actual .docx and .pdf files.
 - **Error handling:** Tools should return structured results (success/failure + details), not raise exceptions that break the agent loop.
 - **Logging:** Use `logging` module. Each tool logs what it changed. The changes log feeds into the compliance report.
+- **Data schema:** `docs/data_schema.md` is the canonical reference for all models. When adding or modifying Pydantic models or tool result dataclasses, update the schema doc. All pipeline data flows through the models defined there.
 
 ## Common Commands
 
@@ -222,9 +238,12 @@ python -m src.cli lecture.pdf --format both
 6. HTML builder + WeasyPrint PDF/UA output + veraPDF validation
 7. Test PDF pipeline on real documents, tune
 
-**Phase 3 — Deployment (Session 8+):**
-8. OpenClaw skill integration for messaging-based UX
-9. Mac Mini deployment, batch processing
+**Phase 3 — Additional Formats (Session 8+):**
+8. PowerPoint (.pptx) remediation support
+
+**Phase 4 — Deployment:**
+9. Email ingestion (remediate@jenkleiman.com) + OpenClaw skill integration
+10. Mac Mini on-premises deployment, batch processing
 
 ## Known Risks
 

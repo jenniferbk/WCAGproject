@@ -120,8 +120,31 @@ def validate_document(
     )
 
 
+_AUTO_ALT_PATTERNS = [
+    "description automatically generated",
+    "a close up of",
+    "a picture containing",
+    "a screenshot of",
+    "a group of",
+    "a close-up of",
+    "a blurry photo of",
+    "a photo of a",
+]
+
+
+def _is_auto_generated_alt(alt_text: str) -> bool:
+    """Check if alt text looks auto-generated (e.g., Microsoft's AI captions)."""
+    lower = alt_text.lower().strip()
+    return any(pattern in lower for pattern in _AUTO_ALT_PATTERNS)
+
+
 def _check_1_1_1_alt_text(doc: DocumentModel) -> CheckResult:
-    """1.1.1 Non-text Content: All images must have alt text."""
+    """1.1.1 Non-text Content: All images must have alt text.
+
+    Also flags auto-generated alt text (e.g., 'A close up of text on a
+    white background Description automatically generated') as these
+    do not meaningfully describe the image content.
+    """
     if not doc.images:
         return CheckResult(
             criterion="1.1.1",
@@ -131,19 +154,29 @@ def _check_1_1_1_alt_text(doc: DocumentModel) -> CheckResult:
         )
 
     missing = [img for img in doc.images if not img.alt_text and not img.is_decorative]
+    auto_gen = [
+        img for img in doc.images
+        if img.alt_text and not img.is_decorative and _is_auto_generated_alt(img.alt_text)
+    ]
+
     issues = [
         f"{img.id} (in {img.paragraph_id}): missing alt text"
         for img in missing
     ]
+    issues.extend(
+        f"{img.id} (in {img.paragraph_id}): auto-generated alt text needs replacement"
+        for img in auto_gen
+    )
 
-    status = CheckStatus.PASS if not missing else CheckStatus.FAIL
+    problem_count = len(missing) + len(auto_gen)
+    status = CheckStatus.PASS if not problem_count else CheckStatus.FAIL
     return CheckResult(
         criterion="1.1.1",
         name="Non-text Content",
         status=status,
         issues=issues,
         item_count=len(doc.images),
-        issue_count=len(missing),
+        issue_count=problem_count,
     )
 
 

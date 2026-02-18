@@ -73,6 +73,7 @@ class ComprehensionResult(BaseModel, frozen=True):
     document_summary: str = ""   # 1-3 sentence summary of the document
     audience: str = ""           # e.g. "undergraduate students"
     element_purposes: list[ElementPurpose] = Field(default_factory=list)
+    image_descriptions: dict[str, str] = Field(default_factory=dict)  # img_id -> detailed description from Gemini vision
     validation_summary: str = "" # summary of pre-remediation validation
     validation_issues_count: int = 0
     raw_validation_report: str = ""  # full validator output for reference

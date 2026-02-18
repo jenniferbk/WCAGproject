@@ -164,7 +164,7 @@ def strategize(
         client = Anthropic(api_key=api_key, max_retries=5)
         response = client.messages.create(
             model=model,
-            max_tokens=8192,
+            max_tokens=16384,
             system=(
                 "You are a WCAG 2.1 AA accessibility remediation planner. "
                 "Respond with ONLY valid JSON matching the requested schema. "

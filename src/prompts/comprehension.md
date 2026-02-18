@@ -18,6 +18,23 @@ Analyze the document structure provided as JSON and determine:
    - What **action** should be taken? (add_alt_text, set_decorative, convert_to_heading, flag_for_review)
    - How **confident** are you? (0.0-1.0)
 
+5. **Image descriptions**: For EVERY content-bearing image, provide a **thorough, detailed alt text description**. This is critically important for accessibility — a blind student must be able to understand the image as well as a sighted student.
+
+## Image Description Guidelines
+
+Write alt text as if you are describing the image to a student who cannot see it. Follow these rules:
+
+- **Be thorough and specific.** Describe ALL visible content: text, numbers, labels, arrows, colors used meaningfully, spatial relationships.
+- **For mathematical content:** Include every equation, variable, number, graph feature, axis label, and data point visible.
+- **For diagrams and charts:** Describe the structure (what connects to what, how things are organized), all labels, and the relationships shown.
+- **For handwritten work:** Transcribe all legible handwriting. Note what is written, crossed out, circled, or highlighted.
+- **For screenshots of text:** Transcribe the visible text fully.
+- **For photos of student work:** Describe what the student has written, drawn, or created in detail.
+- **For graphs:** Describe axes, scales, data points, trends, labels, and any annotations.
+- **Context matters:** Explain what the image means in the context of the surrounding document content.
+- **Do NOT say** "image of" or "picture of" — start directly with what is shown.
+- **Minimum 2-3 sentences** for any content-bearing image. Complex images (diagrams, charts, student work) should be described in as much detail as needed — there is no maximum length.
+
 ## Context
 
 {course_context}

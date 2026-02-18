@@ -145,7 +145,7 @@ def generate_report_html(result: RemediationResult) -> str:
         <td>{_esc(action_label)}</td>
         <td>{_esc(a.element_id)}</td>
         <td>{_esc(criterion)} {_esc(criterion_name)}</td>
-        <td>{_esc(detail[:150])}</td>
+        <td>{_esc(detail)}</td>
       </tr>
 """
 
@@ -155,12 +155,12 @@ def generate_report_html(result: RemediationResult) -> str:
         review_html = "<ul>\n"
         for f in failures:
             criterion_name = wcag_names.get(f.criterion, "")
-            review_html += f'  <li class="finding-failure">&#10060; <strong>{_esc(f.element_id)}</strong> ({_esc(f.criterion)} {_esc(criterion_name)}): {_esc(f.detail[:200])}</li>\n'
+            review_html += f'  <li class="finding-failure">&#10060; <strong>{_esc(f.element_id)}</strong> ({_esc(f.criterion)} {_esc(criterion_name)}): {_esc(f.detail)}</li>\n'
         for f in concerns:
             criterion_name = wcag_names.get(f.criterion, "")
-            review_html += f'  <li class="finding-concern">&#9888;&#65039; <strong>{_esc(f.element_id)}</strong> ({_esc(f.criterion)} {_esc(criterion_name)}): {_esc(f.detail[:200])}</li>\n'
+            review_html += f'  <li class="finding-concern">&#9888;&#65039; <strong>{_esc(f.element_id)}</strong> ({_esc(f.criterion)} {_esc(criterion_name)}): {_esc(f.detail)}</li>\n'
         for f in human_review:
-            review_html += f'  <li class="finding-human">&#128269; {_esc(f.detail[:200])}</li>\n'
+            review_html += f'  <li class="finding-human">&#128269; {_esc(f.detail)}</li>\n'
         review_html += "</ul>\n"
 
     # ── Human review items ──

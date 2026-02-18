@@ -148,7 +148,7 @@ def _execute_action(doc: Document, action: RemediationAction) -> dict:
 
             result = set_alt_text(doc, para_idx, alt, draw_idx)
             if result.success:
-                return _action_dict(action, "executed", f"Set alt text: {alt[:80]}")
+                return _action_dict(action, "executed", f"Set alt text: {alt}")
             return _action_dict(action, "failed", result.error)
 
         elif action_type == "set_decorative":

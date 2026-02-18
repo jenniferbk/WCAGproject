@@ -161,7 +161,7 @@ def strategize(
     }
 
     try:
-        client = Anthropic(api_key=api_key)
+        client = Anthropic(api_key=api_key, max_retries=5)
         response = client.messages.create(
             model=model,
             max_tokens=8192,

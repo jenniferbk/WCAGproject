@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A11y Remediation — Document Accessibility</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --border: #e2e5ea;
+      --text: #1a1d23;
+      --text-secondary: #5f6672;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #16a34a;
+      --success-bg: #f0fdf4;
+      --warning: #d97706;
+      --warning-bg: #fffbeb;
+      --error: #dc2626;
+      --error-bg: #fef2f2;
+      --radius: 10px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .header-icon {
+      width: 32px; height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-weight: 700; font-size: 1rem;
+    }
+
+    .header h1 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .header-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-left: auto;
+    }
+
+    /* Main layout */
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    /* Upload zone */
+    .upload-section {
+      background: var(--surface);
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin-bottom: 2rem;
+    }
+
+    .upload-section:hover, .upload-section.drag-over {
+      border-color: var(--accent);
+      background: #f8faff;
+    }
+
+    .upload-icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.75rem;
+      opacity: 0.6;
+    }
+
+    .upload-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .upload-hint {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .upload-section input[type="file"] {
+      display: none;
+    }
+
+    /* Course context form */
+    .context-bar {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .context-bar input {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .context-bar input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    /* Jobs list */
+    .section-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin-bottom: 0.75rem;
+    }
+
+    .jobs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .job-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto;
+      gap: 0.25rem 1rem;
+      align-items: center;
+      box-shadow: var(--shadow);
+      transition: box-shadow 0.2s;
+    }
+
+    .job-card:hover {
+      box-shadow: var(--shadow-lg);
+    }
+
+    .job-filename {
+      font-weight: 600;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .job-meta {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      grid-column: 1;
+    }
+
+    .job-actions {
+      grid-row: 1 / 3;
+      grid-column: 2;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    /* Status badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge-queued { background: #f3f4f6; color: #6b7280; }
+    .badge-processing { background: #eff6ff; color: #2563eb; }
+    .badge-completed { background: var(--success-bg); color: var(--success); }
+    .badge-failed { background: var(--error-bg); color: var(--error); }
+
+    .badge-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .badge-processing .badge-dot {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Issue stats */
+    .stats {
+      display: flex;
+      gap: 0.75rem;
+      font-size: 0.8rem;
+    }
+
+    .stat { display: flex; align-items: center; gap: 0.25rem; }
+    .stat-value { font-weight: 700; }
+    .stat-fixed { color: var(--success); }
+    .stat-remaining { color: var(--warning); }
+    .stat-review { color: var(--accent); }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: var(--bg);
+      border-color: #c9cdd4;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-secondary);
+    }
+
+    .empty-state-icon { font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.4; }
+    .empty-state-text { font-size: 0.9rem; }
+
+    /* Report modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border-radius: 12px;
+      width: 90vw;
+      max-width: 960px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-header h2 {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      cursor: pointer;
+      color: var(--text-secondary);
+      padding: 0.25rem;
+    }
+
+    .modal-body {
+      flex: 1;
+      overflow: auto;
+    }
+
+    .modal-body iframe {
+      width: 100%;
+      height: 70vh;
+      border: none;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: var(--text);
+      color: white;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      transform: translateY(120%);
+      transition: transform 0.3s ease;
+      z-index: 200;
+    }
+
+    .toast.visible { transform: translateY(0); }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .container { padding: 1rem; }
+      .context-bar { flex-direction: column; }
+      .job-card { grid-template-columns: 1fr; }
+      .job-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-icon">A</div>
+  <h1>A11y Remediation</h1>
+  <span class="header-subtitle">WCAG 2.1 AA Document Accessibility</span>
+</div>
+
+<div class="container">
+  <!-- Course context -->
+  <div class="context-bar">
+    <input type="text" id="courseName" placeholder="Course name (e.g., EMAT 8030)">
+    <input type="text" id="department" placeholder="Department (e.g., Mathematics Education)">
+  </div>
+
+  <!-- Upload -->
+  <div class="upload-section" id="dropZone">
+    <div class="upload-icon">&#128196;</div>
+    <div class="upload-title">Drop files here or click to upload</div>
+    <div class="upload-hint">Accepts .docx, .pdf, and .pptx files</div>
+    <input type="file" id="fileInput" accept=".docx,.pdf,.pptx" multiple>
+  </div>
+
+  <!-- Jobs -->
+  <div class="section-title">Documents</div>
+  <div class="jobs-list" id="jobsList">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-state-icon">&#128203;</div>
+      <div class="empty-state-text">No documents yet. Upload a file to get started.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Report modal -->
+<div class="modal-overlay" id="reportModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="reportTitle">Compliance Report</h2>
+      <button class="modal-close" onclick="closeReport()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <iframe id="reportFrame" title="Compliance Report"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';  // same origin
+let pollTimer = null;
+
+// ── Upload handling ──
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('drag-over');
+});
+
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', () => {
+  handleFiles(fileInput.files);
+  fileInput.value = '';
+});
+
+async function handleFiles(files) {
+  const courseName = document.getElementById('courseName').value;
+  const department = document.getElementById('department').value;
+
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('course_name', courseName);
+    formData.append('department', department);
+
+    try {
+      const res = await fetch(`${API}/api/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        showToast(err.error || 'Upload failed');
+        continue;
+      }
+
+      const data = await res.json();
+      showToast(`Uploaded: ${file.name}`);
+    } catch (e) {
+      showToast(`Error uploading ${file.name}`);
+    }
+  }
+
+  refreshJobs();
+  startPolling();
+}
+
+// ── Jobs list ──
+
+async function refreshJobs() {
+  try {
+    const res = await fetch(`${API}/api/jobs`);
+    const data = await res.json();
+    renderJobs(data.jobs);
+
+    // Stop polling if no active jobs
+    const hasActive = data.jobs.some(j => j.status === 'queued' || j.status === 'processing');
+    if (!hasActive && pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  } catch (e) {
+    console.error('Failed to fetch jobs', e);
+  }
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(refreshJobs, 3000);
+}
+
+function renderJobs(jobs) {
+  const list = document.getElementById('jobsList');
+  const empty = document.getElementById('emptyState');
+
+  if (jobs.length === 0) {
+    list.innerHTML = '';
+    list.appendChild(empty);
+    return;
+  }
+
+  list.innerHTML = jobs.map(job => {
+    const badge = statusBadge(job.status);
+    const meta = buildMeta(job);
+    const actions = buildActions(job);
+
+    return `
+      <div class="job-card">
+        <div class="job-filename">${esc(job.filename)}</div>
+        <div class="job-actions">${badge}${actions}</div>
+        <div class="job-meta">${meta}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function statusBadge(status) {
+  const labels = {
+    queued: 'Queued',
+    processing: 'Processing',
+    completed: 'Completed',
+    failed: 'Failed',
+  };
+  return `<span class="badge badge-${status}"><span class="badge-dot"></span>${labels[status] || status}</span>`;
+}
+
+function buildMeta(job) {
+  const parts = [];
+  if (job.course_name) parts.push(job.course_name);
+  if (job.status === 'completed') {
+    parts.push(`${job.processing_time}s`);
+    parts.push(`<span class="stats">
+      <span class="stat"><span class="stat-value stat-fixed">${job.issues_fixed}</span> fixed</span>
+      <span class="stat"><span class="stat-value stat-remaining">${job.issues_after}</span> remaining</span>
+      <span class="stat"><span class="stat-value stat-review">${job.human_review_count}</span> review</span>
+    </span>`);
+  }
+  if (job.status === 'failed' && job.error) {
+    parts.push(`<span style="color:var(--error)">${esc(job.error.substring(0, 80))}</span>`);
+  }
+  return parts.join(' &middot; ');
+}
+
+function buildActions(job) {
+  if (job.status !== 'completed') return '';
+  return `
+    <button class="btn" onclick="viewReport('${job.id}', '${esc(job.filename)}')">Report</button>
+    <a class="btn btn-primary" href="${API}/api/jobs/${job.id}/download">Download</a>
+  `;
+}
+
+// ── Report viewer ──
+
+function viewReport(jobId, filename) {
+  document.getElementById('reportTitle').textContent = `Report — ${filename}`;
+  document.getElementById('reportFrame').src = `${API}/api/jobs/${jobId}/report`;
+  document.getElementById('reportModal').classList.add('active');
+}
+
+function closeReport() {
+  document.getElementById('reportModal').classList.remove('active');
+  document.getElementById('reportFrame').src = '';
+}
+
+document.getElementById('reportModal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeReport();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeReport();
+});
+
+// ── Helpers ──
+
+function esc(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('visible');
+  setTimeout(() => toast.classList.remove('visible'), 3000);
+}
+
+// Initial load
+refreshJobs();
+</script>
+</body>
+</html>

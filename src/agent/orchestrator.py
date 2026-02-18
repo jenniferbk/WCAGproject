@@ -17,6 +17,7 @@ from src.models.pipeline import (
     RemediationStrategy,
 )
 from src.tools.docx_parser import parse_docx
+from src.tools.report_generator import generate_report_html
 from src.tools.validator import format_report, validate_document
 
 from .comprehension import comprehend
@@ -181,9 +182,9 @@ def process(request: RemediationRequest) -> RemediationResult:
     )
 
     elapsed = time.time() - start_time
-    logger.info("Pipeline complete in %.1fs: %s", elapsed, exec_result.output_path)
 
-    return RemediationResult(
+    # ── Generate compliance report ──────────────────────────────────
+    final_result = RemediationResult(
         success=True,
         input_path=doc_path,
         output_path=exec_result.output_path,
@@ -198,3 +199,18 @@ def process(request: RemediationRequest) -> RemediationResult:
         items_for_human_review=human_review_items,
         processing_time_seconds=elapsed,
     )
+
+    # Write HTML compliance report
+    report_path = Path(exec_result.output_path).with_suffix(".html")
+    try:
+        report_html = generate_report_html(final_result)
+        report_path.write_text(report_html)
+        final_result = RemediationResult(
+            **{**final_result.model_dump(), "report_path": str(report_path)}
+        )
+        logger.info("Report saved: %s", report_path)
+    except Exception as e:
+        logger.warning("Failed to generate report: %s", e)
+
+    logger.info("Pipeline complete in %.1fs: %s", elapsed, exec_result.output_path)
+    return final_result

@@ -73,6 +73,7 @@ class Job:
     processing_time: float
     created_at: str
     updated_at: str
+    user_id: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -93,18 +94,23 @@ class Job:
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:
-    return Job(**dict(row))
+    d = dict(row)
+    # user_id may not exist in old databases before migration
+    d.setdefault("user_id", "")
+    return Job(**d)
 
 
-def create_job(filename: str, original_path: str, course_name: str = "", department: str = "") -> Job:
+def create_job(
+    filename: str, original_path: str, course_name: str = "", department: str = "", user_id: str = "",
+) -> Job:
     """Create a new job record."""
     conn = _get_conn()
     job_id = uuid.uuid4().hex[:12]
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        """INSERT INTO jobs (id, filename, original_path, course_name, department, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (job_id, filename, original_path, course_name, department, now, now),
+        """INSERT INTO jobs (id, filename, original_path, course_name, department, user_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (job_id, filename, original_path, course_name, department, user_id, now, now),
     )
     conn.commit()
     return get_job(job_id)
@@ -117,12 +123,18 @@ def get_job(job_id: str) -> Job | None:
     return _row_to_job(row) if row else None
 
 
-def list_jobs(limit: int = 50) -> list[Job]:
-    """List recent jobs, newest first."""
+def list_jobs(limit: int = 50, user_id: str = "") -> list[Job]:
+    """List recent jobs, newest first. Filter by user_id if provided."""
     conn = _get_conn()
-    rows = conn.execute(
-        "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
-    ).fetchall()
+    if user_id:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
     return [_row_to_job(row) for row in rows]
 
 

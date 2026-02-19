@@ -1,0 +1,36 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+application {
+    mainClass = 'a11y.PdfTagger'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.itextpdf:itext-core:9.1.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
+}
+
+// Fat JAR task
+tasks.register('fatJar', Jar) {
+    archiveBaseName = 'itext-tagger'
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': 'a11y.PdfTagger'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    with jar
+}

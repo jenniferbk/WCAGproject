@@ -58,6 +58,45 @@ def set_language(doc: Document, language: str) -> MetadataResult:
         return MetadataResult(success=False, error=f"Failed to set language: {e}")
 
 
+def set_title_pptx(prs, title: str) -> MetadataResult:
+    """Set the presentation title in core properties (WCAG 2.4.2)."""
+    if not title.strip():
+        return MetadataResult(success=False, error="Title cannot be empty")
+
+    try:
+        old_title = prs.core_properties.title or ""
+        prs.core_properties.title = title.strip()
+        change = f"Title: {old_title!r} -> {title.strip()!r}" if old_title else f"Title set: {title.strip()!r}"
+        logger.info(change)
+        return MetadataResult(success=True, changes=[change])
+    except Exception as e:
+        return MetadataResult(success=False, error=f"Failed to set pptx title: {e}")
+
+
+def set_language_pptx(prs, language: str) -> MetadataResult:
+    """Set the presentation language (WCAG 3.1.1).
+
+    Sets core_properties.language and adds xml:lang to the
+    presentation XML root element.
+    """
+    if not language.strip():
+        return MetadataResult(success=False, error="Language cannot be empty")
+
+    try:
+        old_lang = prs.core_properties.language or ""
+        prs.core_properties.language = language.strip()
+
+        # Also set xml:lang on the presentation element
+        prs_elem = prs._element
+        prs_elem.set("{http://www.w3.org/XML/1998/namespace}lang", language.strip())
+
+        change = f"Language: {old_lang!r} -> {language.strip()!r}" if old_lang else f"Language set: {language.strip()!r}"
+        logger.info(change)
+        return MetadataResult(success=True, changes=[change])
+    except Exception as e:
+        return MetadataResult(success=False, error=f"Failed to set pptx language: {e}")
+
+
 def fix_metadata(doc: Document, title: str = "", language: str = "en") -> MetadataResult:
     """Fix document metadata, setting title and language if missing.
 

@@ -15,6 +15,52 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
+# ── API pricing (per million tokens) ────────────────────────────
+# Update these when model pricing changes. Single source of truth.
+_PRICING = {
+    "gemini": {"input": 0.15, "output": 0.60},    # Gemini 2.5 Flash
+    "claude": {"input": 3.0, "output": 15.0},      # Claude Sonnet 4.5
+}
+
+
+def estimate_usage_cost(usage: ApiUsage) -> float:
+    """Estimate USD cost for a single API usage record."""
+    model_lower = usage.model.lower()
+    for key, rates in _PRICING.items():
+        if key in model_lower:
+            return (
+                usage.input_tokens * rates["input"] / 1_000_000
+                + usage.output_tokens * rates["output"] / 1_000_000
+            )
+    return 0.0
+
+
+class ApiUsage(BaseModel, frozen=True):
+    """Token usage from a single API call."""
+    phase: str = ""              # "comprehension", "strategy", "review"
+    model: str = ""              # e.g. "gemini-2.5-flash", "claude-sonnet-4-5-20250929"
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class CostSummary(BaseModel, frozen=True):
+    """Aggregated API cost data for a pipeline run."""
+    usage_records: list[ApiUsage] = Field(default_factory=list)
+
+    @property
+    def total_input_tokens(self) -> int:
+        return sum(u.input_tokens for u in self.usage_records)
+
+    @property
+    def total_output_tokens(self) -> int:
+        return sum(u.output_tokens for u in self.usage_records)
+
+    @property
+    def estimated_cost_usd(self) -> float:
+        """Estimate total cost based on published API pricing."""
+        return round(sum(estimate_usage_cost(u) for u in self.usage_records), 4)
+
+
 class CourseContext(BaseModel, frozen=True):
     """Context about the course a document belongs to.
 
@@ -72,11 +118,15 @@ class ComprehensionResult(BaseModel, frozen=True):
     document_type: DocumentType = DocumentType.OTHER
     document_summary: str = ""   # 1-3 sentence summary of the document
     audience: str = ""           # e.g. "undergraduate students"
+    suggested_title: str = ""    # Gemini's suggested document title
+    suggested_language: str = "" # Gemini's detected document language (e.g. "en")
     element_purposes: list[ElementPurpose] = Field(default_factory=list)
     image_descriptions: dict[str, str] = Field(default_factory=dict)  # img_id -> detailed description from Gemini vision
     validation_summary: str = "" # summary of pre-remediation validation
     validation_issues_count: int = 0
     raw_validation_report: str = ""  # full validator output for reference
+    scanned_page_numbers: list[int] = Field(default_factory=list)  # PDF pages that are scanned (image-only)
+    api_usage: list[ApiUsage] = Field(default_factory=list)
 
 
 class RemediationAction(BaseModel, frozen=True):
@@ -98,6 +148,7 @@ class RemediationStrategy(BaseModel, frozen=True):
     actions: list[RemediationAction] = Field(default_factory=list)
     items_for_human_review: list[str] = Field(default_factory=list)
     strategy_summary: str = ""   # high-level description of the approach
+    api_usage: list[ApiUsage] = Field(default_factory=list)
 
 
 class ReviewFinding(BaseModel, frozen=True):
@@ -117,6 +168,7 @@ class RemediationResult(BaseModel, frozen=True):
     success: bool = False
     input_path: str = ""
     output_path: str = ""        # path to remediated document
+    companion_output_path: str = ""  # path to companion HTML (PDF only)
     report_path: str = ""        # path to compliance report
 
     # Pipeline artifacts
@@ -136,3 +188,4 @@ class RemediationResult(BaseModel, frozen=True):
 
     error: str = ""
     processing_time_seconds: float = 0.0
+    cost_summary: CostSummary = Field(default_factory=CostSummary)

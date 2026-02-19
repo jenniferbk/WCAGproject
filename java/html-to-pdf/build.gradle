@@ -1,0 +1,38 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+application {
+    mainClass = 'a11y.HtmlToPdfUa'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.github.openhtmltopdf:openhtmltopdf-pdfbox:1.1.37'
+    implementation 'io.github.openhtmltopdf:openhtmltopdf-slf4j:1.1.37'
+    implementation 'org.jsoup:jsoup:1.18.3'
+    implementation 'org.slf4j:slf4j-simple:2.0.16'
+}
+
+// Fat JAR task
+tasks.register('fatJar', Jar) {
+    archiveBaseName = 'html-to-pdf'
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': 'a11y.HtmlToPdfUa'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    with jar
+}

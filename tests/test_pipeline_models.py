@@ -4,7 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from src.models.pipeline import (
+    ApiUsage,
     ComprehensionResult,
+    CostSummary,
     CourseContext,
     DocumentType,
     ElementPurpose,
@@ -172,3 +174,135 @@ class TestRemediationResult:
         assert restored.comprehension.document_type == DocumentType.LECTURE_NOTES
         assert restored.strategy.actions[0].status == "executed"
         assert restored.review_findings[0].finding_type == "pass"
+
+
+class TestApiUsage:
+    def test_create(self):
+        usage = ApiUsage(
+            phase="comprehension",
+            model="gemini-2.5-flash",
+            input_tokens=1000,
+            output_tokens=500,
+        )
+        assert usage.phase == "comprehension"
+        assert usage.input_tokens == 1000
+
+    def test_defaults(self):
+        usage = ApiUsage()
+        assert usage.phase == ""
+        assert usage.input_tokens == 0
+
+
+class TestCostSummary:
+    def test_empty(self):
+        cost = CostSummary()
+        assert cost.total_input_tokens == 0
+        assert cost.total_output_tokens == 0
+        assert cost.estimated_cost_usd == 0.0
+
+    def test_gemini_cost(self):
+        cost = CostSummary(usage_records=[
+            ApiUsage(phase="comprehension", model="gemini-2.5-flash",
+                     input_tokens=100_000, output_tokens=10_000),
+        ])
+        assert cost.total_input_tokens == 100_000
+        assert cost.total_output_tokens == 10_000
+        # 100k * $0.15/MTok + 10k * $0.60/MTok
+        expected = 100_000 * 0.15 / 1_000_000 + 10_000 * 0.60 / 1_000_000
+        assert cost.estimated_cost_usd == round(expected, 4)
+
+    def test_claude_cost(self):
+        cost = CostSummary(usage_records=[
+            ApiUsage(phase="strategy", model="claude-sonnet-4-5-20250929",
+                     input_tokens=50_000, output_tokens=5_000),
+        ])
+        # 50k * $3/MTok + 5k * $15/MTok
+        expected = 50_000 * 3.0 / 1_000_000 + 5_000 * 15.0 / 1_000_000
+        assert cost.estimated_cost_usd == round(expected, 4)
+
+    def test_mixed_models(self):
+        cost = CostSummary(usage_records=[
+            ApiUsage(phase="comprehension", model="gemini-2.5-flash",
+                     input_tokens=200_000, output_tokens=20_000),
+            ApiUsage(phase="strategy", model="claude-sonnet-4-5-20250929",
+                     input_tokens=50_000, output_tokens=5_000),
+            ApiUsage(phase="review", model="claude-sonnet-4-5-20250929",
+                     input_tokens=30_000, output_tokens=3_000),
+        ])
+        assert cost.total_input_tokens == 280_000
+        assert cost.total_output_tokens == 28_000
+        assert cost.estimated_cost_usd > 0
+
+    def test_result_with_cost(self):
+        result = RemediationResult(
+            success=True,
+            cost_summary=CostSummary(usage_records=[
+                ApiUsage(phase="strategy", model="claude-sonnet-4-5-20250929",
+                         input_tokens=10_000, output_tokens=1_000),
+            ]),
+        )
+        assert result.cost_summary.total_input_tokens == 10_000
+        # Verify serialization roundtrip
+        restored = RemediationResult.model_validate_json(result.model_dump_json())
+        assert restored.cost_summary.total_input_tokens == 10_000
+
+
+class TestReportCostSection:
+    def test_cost_section_renders(self):
+        from src.tools.report_generator import generate_report_html
+        result = RemediationResult(
+            success=True,
+            input_path="/test/doc.pdf",
+            output_path="/test/doc_remediated.pdf",
+            cost_summary=CostSummary(usage_records=[
+                ApiUsage(phase="comprehension", model="gemini-2.5-flash",
+                         input_tokens=100_000, output_tokens=10_000),
+                ApiUsage(phase="strategy", model="claude-sonnet-4-5-20250929",
+                         input_tokens=50_000, output_tokens=5_000),
+            ]),
+        )
+        html = generate_report_html(result)
+        assert "Processing Details" in html
+        assert "Document Analysis" in html
+        assert "Remediation Planning" in html
+        assert "$" in html
+
+    def test_no_cost_section_when_empty(self):
+        from src.tools.report_generator import generate_report_html
+        result = RemediationResult(
+            success=True,
+            input_path="/test/doc.pdf",
+            output_path="/test/doc_remediated.pdf",
+        )
+        html = generate_report_html(result)
+        assert "Processing Details" not in html
+
+
+class TestLenientJsonParser:
+    def test_valid_json_passes(self):
+        from src.utils.json_repair import parse_json_lenient
+        result = parse_json_lenient('{"findings": [], "overall_assessment": "ok"}')
+        assert result["overall_assessment"] == "ok"
+
+    def test_trailing_comma(self):
+        from src.utils.json_repair import parse_json_lenient
+        result = parse_json_lenient('{"findings": [{"a": 1,},], "overall_assessment": "ok",}')
+        assert result["overall_assessment"] == "ok"
+
+    def test_markdown_fences(self):
+        from src.utils.json_repair import parse_json_lenient
+        text = '```json\n{"findings": [], "overall_assessment": "ok"}\n```'
+        result = parse_json_lenient(text)
+        assert result["overall_assessment"] == "ok"
+
+    def test_embedded_json_block(self):
+        from src.utils.json_repair import parse_json_lenient
+        text = 'Here is my response:\n{"findings": [], "overall_assessment": "ok"}\nDone.'
+        result = parse_json_lenient(text)
+        assert result["overall_assessment"] == "ok"
+
+    def test_invalid_json_raises(self):
+        from src.utils.json_repair import parse_json_lenient
+        import json
+        with pytest.raises(json.JSONDecodeError):
+            parse_json_lenient("this is not json at all")

@@ -41,6 +41,8 @@ class LinkInfo(BaseModel, frozen=True):
     text: str
     url: str
     paragraph_id: str
+    bbox: tuple[float, float, float, float] | None = None  # PDF: (x0, y0, x1, y1) in points
+    page_number: int | None = None  # PDF: 0-based page number
 
 
 class ImageInfo(BaseModel, frozen=True):
@@ -55,6 +57,11 @@ class ImageInfo(BaseModel, frozen=True):
     relationship_id: str = ""  # rId from docx relationships
     paragraph_id: str = ""  # which paragraph contains this image
     is_decorative: bool = False
+    slide_index: int | None = None  # PPTX: which slide (0-based)
+    shape_index: int | None = None  # PPTX: which shape on the slide (0-based)
+    page_number: int | None = None  # PDF: which page (0-based)
+    xref: int | None = None  # PDF: XObject cross-reference number
+    bbox: tuple[float, float, float, float] | None = None  # PDF: (x0, y0, x1, y1) in points
 
 
 class CellInfo(BaseModel, frozen=True):
@@ -74,6 +81,8 @@ class TableInfo(BaseModel, frozen=True):
     style_name: str = ""
     row_count: int = 0
     col_count: int = 0
+    bbox: tuple[float, float, float, float] | None = None  # PDF: (x0, y0, x1, y1) in points
+    page_number: int | None = None  # PDF: 0-based page number
 
 
 class FakeHeadingSignals(BaseModel, frozen=True):
@@ -88,6 +97,7 @@ class FakeHeadingSignals(BaseModel, frozen=True):
     is_short: bool = False  # < ~10 words
     followed_by_non_bold: bool = False
     not_in_table: bool = True
+    distinct_font: bool = False  # uses a different font family from body text
     score: float = 0.0  # weighted 0-1 composite
 
 
@@ -104,6 +114,8 @@ class ParagraphInfo(BaseModel, frozen=True):
     is_list_item: bool = False
     list_level: int | None = None
     fake_heading_signals: FakeHeadingSignals | None = None
+    bbox: tuple[float, float, float, float] | None = None  # PDF: (x0, y0, x1, y1) in points
+    page_number: int | None = None  # PDF: 0-based page number
 
 
 class MetadataInfo(BaseModel, frozen=True):

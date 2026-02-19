@@ -10,18 +10,20 @@ import time
 from pathlib import Path
 
 from src.models.pipeline import (
-    ComprehensionResult,
+    CostSummary,
     RemediationAction,
     RemediationRequest,
     RemediationResult,
     RemediationStrategy,
 )
 from src.tools.docx_parser import parse_docx
+from src.tools.pdf_parser import parse_pdf
+from src.tools.pptx_parser import parse_pptx
 from src.tools.report_generator import generate_report_html
 from src.tools.validator import format_report, validate_document
 
 from .comprehension import comprehend
-from .executor import execute
+from .executor import execute, execute_pdf
 from .reviewer import review
 from .strategy import strategize
 
@@ -53,17 +55,22 @@ def process(request: RemediationRequest) -> RemediationResult:
         )
 
     suffix = path.suffix.lower()
-    if suffix not in (".docx",):
+    if suffix not in (".docx", ".pptx", ".pdf"):
         return RemediationResult(
             success=False,
             input_path=doc_path,
-            error=f"Unsupported format: {suffix}. Currently only .docx is supported.",
+            error=f"Unsupported format: {suffix}. Currently .docx, .pptx, and .pdf are supported.",
             processing_time_seconds=time.time() - start_time,
         )
 
     # ── Phase 0: Parse ──────────────────────────────────────────────
     logger.info("Phase 0: Parsing document")
-    parse_result = parse_docx(doc_path)
+    if suffix == ".pptx":
+        parse_result = parse_pptx(doc_path)
+    elif suffix == ".pdf":
+        parse_result = parse_pdf(doc_path)
+    else:
+        parse_result = parse_docx(doc_path)
     if not parse_result.success:
         return RemediationResult(
             success=False,
@@ -111,7 +118,10 @@ def process(request: RemediationRequest) -> RemediationResult:
     # ── Phase 3: Execute ────────────────────────────────────────────
     logger.info("Phase 3: Execution")
     output_dir = request.output_dir or str(path.parent)
-    exec_result = execute(strategy, doc_path, output_dir)
+    if suffix == ".pdf":
+        exec_result = execute_pdf(strategy, doc_model, output_dir)
+    else:
+        exec_result = execute(strategy, doc_path, output_dir, paragraphs=doc_model.paragraphs)
 
     if not exec_result.success:
         return RemediationResult(
@@ -130,12 +140,19 @@ def process(request: RemediationRequest) -> RemediationResult:
         exec_result.actions_failed,
         exec_result.actions_skipped,
     )
+    if exec_result.companion_html_path:
+        logger.info("Companion HTML: %s", exec_result.companion_html_path)
 
     # ── Phase 4: Review (Claude) ────────────────────────────────────
     logger.info("Phase 4: Review (Claude)")
 
     # Re-parse the remediated document
-    post_parse = parse_docx(exec_result.output_path)
+    if suffix == ".pptx":
+        post_parse = parse_pptx(exec_result.output_path)
+    elif suffix == ".pdf":
+        post_parse = parse_pdf(exec_result.output_path)
+    else:
+        post_parse = parse_docx(exec_result.output_path)
     if post_parse.success:
         post_doc = post_parse.document
         post_report = validate_document(post_doc)
@@ -147,7 +164,7 @@ def process(request: RemediationRequest) -> RemediationResult:
         issues_after = issues_before
 
     # Run Claude review
-    review_findings = review(post_doc, exec_result.updated_actions)
+    review_findings, review_usage = review(post_doc, exec_result.updated_actions)
 
     logger.info(
         "Review: %d findings. Issues: %d → %d (fixed %d)",
@@ -183,11 +200,24 @@ def process(request: RemediationRequest) -> RemediationResult:
 
     elapsed = time.time() - start_time
 
+    # ── Aggregate API costs ──────────────────────────────────────────
+    all_usage = []
+    all_usage.extend(comprehension.api_usage)
+    all_usage.extend(strategy.api_usage)
+    all_usage.extend(review_usage)
+    cost_summary = CostSummary(usage_records=all_usage)
+    logger.info(
+        "API costs: %d calls, %d input tokens, %d output tokens, ~$%.4f",
+        len(all_usage), cost_summary.total_input_tokens,
+        cost_summary.total_output_tokens, cost_summary.estimated_cost_usd,
+    )
+
     # ── Generate compliance report ──────────────────────────────────
     final_result = RemediationResult(
         success=True,
         input_path=doc_path,
         output_path=exec_result.output_path,
+        companion_output_path=exec_result.companion_html_path,
         comprehension=comprehension,
         strategy=updated_strategy,
         review_findings=review_findings,
@@ -198,6 +228,7 @@ def process(request: RemediationRequest) -> RemediationResult:
         issues_fixed=max(0, issues_before - issues_after),
         items_for_human_review=human_review_items,
         processing_time_seconds=elapsed,
+        cost_summary=cost_summary,
     )
 
     # Write HTML compliance report

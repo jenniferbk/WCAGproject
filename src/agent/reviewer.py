@@ -16,10 +16,12 @@ from dotenv import load_dotenv
 
 from src.models.document import DocumentModel
 from src.models.pipeline import (
+    ApiUsage,
     RemediationStrategy,
     ReviewFinding,
 )
 from src.tools.validator import format_report, validate_document
+from src.utils.json_repair import parse_json_lenient
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ def review(
     doc: DocumentModel,
     updated_actions: list[dict],
     model: str = "claude-sonnet-4-5-20250929",
-) -> list[ReviewFinding]:
+) -> tuple[list[ReviewFinding], list[ApiUsage]]:
     """Review the remediated document.
 
     Args:
@@ -80,7 +82,7 @@ def review(
         model: Claude model ID.
 
     Returns:
-        List of ReviewFinding objects.
+        Tuple of (list of ReviewFinding, list of ApiUsage).
     """
     load_dotenv()
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -89,7 +91,7 @@ def review(
         return [ReviewFinding(
             finding_type="failure",
             detail="ANTHROPIC_API_KEY not configured",
-        )]
+        )], []
 
     # Run post-remediation validation
     validation_report = validate_document(doc)
@@ -147,12 +149,19 @@ def review(
             ],
         )
 
+        review_usage = ApiUsage(
+            phase="review",
+            model=model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+        )
+
         response_text = response.content[0].text.strip()
         if response_text.startswith("```"):
             lines = response_text.split("\n")
             response_text = "\n".join(lines[1:-1])
 
-        result_data = json.loads(response_text)
+        result_data = parse_json_lenient(response_text)
         logger.info("Review complete: %d findings", len(result_data.get("findings", [])))
 
     except Exception as e:
@@ -160,7 +169,7 @@ def review(
         return [ReviewFinding(
             finding_type="failure",
             detail=f"Review failed: {e}",
-        )]
+        )], []
 
     # Parse findings
     findings = []
@@ -179,4 +188,4 @@ def review(
             detail=item,
         ))
 
-    return findings
+    return findings, [review_usage]

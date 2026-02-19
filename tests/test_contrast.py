@@ -6,7 +6,9 @@ from src.models.document import ParagraphInfo, RunInfo
 from src.tools.contrast import (
     FixStrategy,
     analyze_document_contrast,
+    apply_contrast_fix,
     check_contrast,
+    fix_all_document_contrast,
     fix_contrast,
     hex_to_rgb,
     is_large_text,
@@ -186,3 +188,102 @@ class TestAnalyzeDocumentContrast:
         ]
         issues = analyze_document_contrast(paragraphs)
         assert len(issues) == 0
+
+
+class TestApplyContrastFix:
+    def _make_doc_with_gray_text(self):
+        """Create a docx Document with a gray text run for testing."""
+        import docx
+        from docx.shared import RGBColor as RGB
+
+        doc = docx.Document()
+        para = doc.add_paragraph()
+        run = para.add_run("Gray text")
+        run.font.color.rgb = RGB(0xAA, 0xAA, 0xAA)
+        return doc
+
+    def test_apply_fixes_color(self):
+        doc = self._make_doc_with_gray_text()
+        result = apply_contrast_fix(doc, 0, 0, "#4A4A4A")
+        assert result.success
+        assert "4A4A4A" in result.change
+        # Verify color was actually changed
+        actual = f"#{doc.paragraphs[0].runs[0].font.color.rgb}"
+        assert actual == "#4A4A4A"
+
+    def test_apply_out_of_range_paragraph(self):
+        doc = self._make_doc_with_gray_text()
+        result = apply_contrast_fix(doc, 99, 0, "#000000")
+        assert not result.success
+        assert "out of range" in result.error
+
+    def test_apply_out_of_range_run(self):
+        doc = self._make_doc_with_gray_text()
+        result = apply_contrast_fix(doc, 0, 99, "#000000")
+        assert not result.success
+        assert "out of range" in result.error
+
+
+class TestFixAllDocumentContrast:
+    def _make_doc_with_issues(self):
+        """Create a docx Document with multiple contrast issues."""
+        import docx
+        from docx.shared import RGBColor as RGB
+
+        doc = docx.Document()
+        # First paragraph: gray text
+        p1 = doc.add_paragraph()
+        r1 = p1.add_run("Light gray text")
+        r1.font.color.rgb = RGB(0xAA, 0xAA, 0xAA)
+        # Second paragraph: another gray run
+        p2 = doc.add_paragraph()
+        r2 = p2.add_run("Another gray run")
+        r2.font.color.rgb = RGB(0xBB, 0xBB, 0xBB)
+
+        # Matching ParagraphInfo models
+        paragraphs = [
+            ParagraphInfo(
+                id="p_0",
+                text="Light gray text",
+                runs=[RunInfo(text="Light gray text", color="#AAAAAA", font_size_pt=12.0)],
+            ),
+            ParagraphInfo(
+                id="p_1",
+                text="Another gray run",
+                runs=[RunInfo(text="Another gray run", color="#BBBBBB", font_size_pt=12.0)],
+            ),
+        ]
+        return doc, paragraphs
+
+    def test_fixes_all_issues(self):
+        doc, paragraphs = self._make_doc_with_issues()
+        result = fix_all_document_contrast(doc, paragraphs)
+        assert result.fixes_applied == 2
+        assert result.fixes_failed == 0
+        assert len(result.changes) == 2
+
+        # Verify both colors now pass contrast
+        for para in doc.paragraphs:
+            for run in para.runs:
+                if run.font.color and run.font.color.rgb:
+                    fg_hex = f"#{run.font.color.rgb}"
+                    check = check_contrast(fg_hex, "#FFFFFF")
+                    assert check.passes, f"Color {fg_hex} still fails contrast"
+
+    def test_no_issues_returns_success(self):
+        import docx
+
+        doc = docx.Document()
+        doc.add_paragraph("Black text")  # default black = passes
+
+        paragraphs = [
+            ParagraphInfo(
+                id="p_0",
+                text="Black text",
+                runs=[RunInfo(text="Black text", font_size_pt=12.0)],
+            ),
+        ]
+        result = fix_all_document_contrast(doc, paragraphs)
+        assert result.success
+        assert result.fixes_applied == 0
+        assert "No contrast issues" in result.changes[0]

@@ -19,6 +19,9 @@ build/
 *.swp
 *.swo
 
+# Gradle
+.gradle/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -33,3 +36,8 @@ output/
 accessible/
 temp/
 data/
+testdocs/
+*.db
+
+# Production secrets
+.env.production

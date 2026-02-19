@@ -34,8 +34,33 @@
       min-height: 100vh;
     }
 
+    /* Skip nav */
+    .skip-nav {
+      position: absolute;
+      top: -100%;
+      left: 0;
+      background: var(--accent);
+      color: white;
+      padding: 0.5rem 1rem;
+      z-index: 300;
+      font-size: 0.85rem;
+      text-decoration: none;
+      border-radius: 0 0 6px 0;
+    }
+    .skip-nav:focus {
+      top: 0;
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Focus indicators */
+    *:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
     /* Header */
-    .header {
+    header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       padding: 1rem 2rem;
@@ -52,26 +77,254 @@
       color: white; font-weight: 700; font-size: 1rem;
     }
 
-    .header h1 {
+    header h1 {
       font-size: 1.1rem;
       font-weight: 600;
       letter-spacing: -0.01em;
     }
 
+    .header-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
     .header-subtitle {
       font-size: 0.8rem;
       color: var(--text-secondary);
-      margin-left: auto;
+    }
+
+    .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    .user-menu-name {
+      font-weight: 500;
+    }
+
+    .btn-logout {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: var(--text-secondary);
+      transition: all 0.15s;
+    }
+    .btn-logout:hover {
+      background: var(--bg);
+      color: var(--text);
     }
 
     /* Main layout */
-    .container {
+    main {
       max-width: 960px;
       margin: 0 auto;
       padding: 2rem;
     }
 
-    /* Upload zone */
+    /* ── Auth views ─────────────────────────────── */
+    .auth-container {
+      max-width: 400px;
+      margin: 4rem auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      box-shadow: var(--shadow);
+    }
+
+    .auth-container h2 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 0.3rem;
+      color: var(--text);
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 0.55rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.9rem;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .form-error {
+      font-size: 0.8rem;
+      color: var(--error);
+      margin-top: 0.5rem;
+      min-height: 1.2em;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 0.6rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-top: 0.5rem;
+    }
+
+    .btn-submit:hover { background: var(--accent-hover); }
+    .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.25rem 0;
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+    }
+
+    .auth-divider::before,
+    .auth-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .btn-oauth {
+      width: 100%;
+      padding: 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.15s;
+      margin-bottom: 0.5rem;
+    }
+
+    .btn-oauth:hover {
+      background: var(--bg);
+      border-color: #c9cdd4;
+    }
+
+    .auth-toggle {
+      text-align: center;
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .auth-toggle a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .auth-toggle a:hover {
+      text-decoration: underline;
+    }
+
+    /* ── Usage bar ──────────────────────────────── */
+    .usage-bar-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .usage-label {
+      font-size: 0.85rem;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .usage-track {
+      flex: 1;
+      height: 8px;
+      background: var(--bg);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .usage-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .usage-fill.full {
+      background: var(--error);
+    }
+
+    .usage-count {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    /* ── Limit reached overlay ──────────────────── */
+    .limit-reached {
+      background: var(--warning-bg);
+      border: 2px dashed var(--warning);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .limit-reached-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--warning);
+    }
+
+    .limit-reached-text {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .limit-reached-text a {
+      color: var(--accent);
+    }
+
+    /* ── Upload zone ───────────────────────────── */
     .upload-section {
       background: var(--surface);
       border: 2px dashed var(--border);
@@ -116,8 +369,20 @@
       margin-bottom: 1.5rem;
     }
 
-    .context-bar input {
+    .context-field {
       flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .context-field label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .context-field input {
       padding: 0.5rem 0.75rem;
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -126,7 +391,7 @@
       color: var(--text);
     }
 
-    .context-bar input:focus {
+    .context-field input:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
@@ -357,54 +622,171 @@
 
     .toast.visible { transform: translateY(0); }
 
+    /* View toggle */
+    .hidden { display: none !important; }
+
     /* Responsive */
     @media (max-width: 640px) {
-      .container { padding: 1rem; }
+      main { padding: 1rem; }
       .context-bar { flex-direction: column; }
       .job-card { grid-template-columns: 1fr; }
       .job-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+      .auth-container { margin: 2rem 1rem; }
     }
   </style>
 </head>
 <body>
 
-<div class="header">
-  <div class="header-icon">A</div>
+<a class="skip-nav" href="#main-content">Skip to main content</a>
+
+<header>
+  <div class="header-icon" aria-hidden="true">A</div>
   <h1>A11y Remediation</h1>
-  <span class="header-subtitle">WCAG 2.1 AA Document Accessibility</span>
-</div>
-
-<div class="container">
-  <!-- Course context -->
-  <div class="context-bar">
-    <input type="text" id="courseName" placeholder="Course name (e.g., EMAT 8030)">
-    <input type="text" id="department" placeholder="Department (e.g., Mathematics Education)">
-  </div>
-
-  <!-- Upload -->
-  <div class="upload-section" id="dropZone">
-    <div class="upload-icon">&#128196;</div>
-    <div class="upload-title">Drop files here or click to upload</div>
-    <div class="upload-hint">Accepts .docx, .pdf, and .pptx files</div>
-    <input type="file" id="fileInput" accept=".docx,.pdf,.pptx" multiple>
-  </div>
-
-  <!-- Jobs -->
-  <div class="section-title">Documents</div>
-  <div class="jobs-list" id="jobsList">
-    <div class="empty-state" id="emptyState">
-      <div class="empty-state-icon">&#128203;</div>
-      <div class="empty-state-text">No documents yet. Upload a file to get started.</div>
+  <div class="header-right">
+    <span class="header-subtitle" id="headerSubtitle">WCAG 2.1 AA Document Accessibility</span>
+    <div class="user-menu hidden" id="userMenu">
+      <span class="user-menu-name" id="userDisplayName"></span>
+      <button class="btn-logout" onclick="handleLogout()" aria-label="Sign out">Sign out</button>
     </div>
   </div>
-</div>
+</header>
+
+<main id="main-content">
+
+  <!-- ══ Auth View ══════════════════════════════════ -->
+  <div id="authView" class="hidden">
+    <!-- Login form -->
+    <div class="auth-container" id="loginForm">
+      <h2>Sign in</h2>
+      <form onsubmit="handleLogin(event)" novalidate>
+        <div class="form-group">
+          <label for="loginEmail">Email address</label>
+          <input type="email" id="loginEmail" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" autocomplete="current-password" required>
+        </div>
+        <div class="form-error" id="loginError" role="alert" aria-live="assertive"></div>
+        <button type="submit" class="btn-submit" id="loginBtn">Sign in</button>
+      </form>
+
+      <div class="auth-divider">or</div>
+
+      <button class="btn-oauth" onclick="oauthLogin('google')">
+        Sign in with Google
+      </button>
+      <button class="btn-oauth" onclick="oauthLogin('microsoft')">
+        Sign in with Microsoft
+      </button>
+
+      <div class="auth-toggle">
+        Don't have an account? <a href="#" onclick="toggleAuthForm(event, 'signup')">Create one</a>
+      </div>
+    </div>
+
+    <!-- Signup form -->
+    <div class="auth-container hidden" id="signupForm">
+      <h2>Create account</h2>
+      <form onsubmit="handleSignup(event)" novalidate>
+        <div class="form-group">
+          <label for="signupName">Display name</label>
+          <input type="text" id="signupName" autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label for="signupEmail">Email address</label>
+          <input type="email" id="signupEmail" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label for="signupPassword">Password</label>
+          <input type="password" id="signupPassword" autocomplete="new-password" required
+                 aria-describedby="passwordHint">
+          <div id="passwordHint" style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem">
+            At least 8 characters
+          </div>
+        </div>
+        <div class="form-error" id="signupError" role="alert" aria-live="assertive"></div>
+        <button type="submit" class="btn-submit" id="signupBtn">Create account</button>
+      </form>
+
+      <div class="auth-divider">or</div>
+
+      <button class="btn-oauth" onclick="oauthLogin('google')">
+        Sign up with Google
+      </button>
+      <button class="btn-oauth" onclick="oauthLogin('microsoft')">
+        Sign up with Microsoft
+      </button>
+
+      <div class="auth-toggle">
+        Already have an account? <a href="#" onclick="toggleAuthForm(event, 'login')">Sign in</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ App View ═══════════════════════════════════ -->
+  <div id="appView" class="hidden">
+
+    <!-- Usage bar -->
+    <div class="usage-bar-container" id="usageBar">
+      <span class="usage-label">Documents</span>
+      <div class="usage-track" role="progressbar" id="usageProgress"
+           aria-valuenow="0" aria-valuemin="0" aria-valuemax="3"
+           aria-label="Document usage">
+        <div class="usage-fill" id="usageFill" style="width: 0%"></div>
+      </div>
+      <span class="usage-count" id="usageCount">0 of 3 used</span>
+    </div>
+
+    <!-- Limit reached -->
+    <div class="limit-reached hidden" id="limitReached">
+      <div class="limit-reached-title">Document limit reached</div>
+      <div class="limit-reached-text">
+        You've used all your free documents.
+        Contact <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a> for early access to more.
+      </div>
+    </div>
+
+    <!-- Course context -->
+    <div class="context-bar" id="contextBar">
+      <div class="context-field">
+        <label for="courseName">Course name</label>
+        <input type="text" id="courseName" placeholder="e.g., EMAT 8030">
+      </div>
+      <div class="context-field">
+        <label for="department">Department</label>
+        <input type="text" id="department" placeholder="e.g., Mathematics Education">
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="upload-section" id="dropZone" role="button" tabindex="0"
+         aria-label="Upload area. Drop files here or press Enter to browse.">
+      <div class="upload-icon" aria-hidden="true">&#128196;</div>
+      <div class="upload-title">Drop files here or click to upload</div>
+      <div class="upload-hint">Accepts .docx, .pdf, and .pptx files</div>
+      <input type="file" id="fileInput" accept=".docx,.pdf,.pptx" multiple
+             aria-label="Choose files to upload">
+    </div>
+
+    <!-- Jobs -->
+    <h2 class="section-title">Documents</h2>
+    <div class="jobs-list" id="jobsList" aria-live="polite">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon" aria-hidden="true">&#128203;</div>
+        <div class="empty-state-text">No documents yet. Upload a file to get started.</div>
+      </div>
+    </div>
+  </div>
+
+</main>
 
 <!-- Report modal -->
-<div class="modal-overlay" id="reportModal">
+<div class="modal-overlay" id="reportModal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
   <div class="modal">
     <div class="modal-header">
       <h2 id="reportTitle">Compliance Report</h2>
-      <button class="modal-close" onclick="closeReport()">&times;</button>
+      <button class="modal-close" onclick="closeReport()" aria-label="Close report">&times;</button>
     </div>
     <div class="modal-body">
       <iframe id="reportFrame" title="Compliance Report"></iframe>
@@ -413,11 +795,198 @@
 </div>
 
 <!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const API = '';  // same origin
 let pollTimer = null;
+let currentUser = null;
+
+// ── Auth state ──
+
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API}/api/auth/me`, { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = data.user;
+      showAppView();
+    } else {
+      currentUser = null;
+      showAuthView();
+    }
+  } catch (e) {
+    currentUser = null;
+    showAuthView();
+  }
+}
+
+function showAuthView() {
+  document.getElementById('authView').classList.remove('hidden');
+  document.getElementById('appView').classList.add('hidden');
+  document.getElementById('userMenu').classList.add('hidden');
+  document.getElementById('headerSubtitle').classList.remove('hidden');
+}
+
+function showAppView() {
+  document.getElementById('authView').classList.add('hidden');
+  document.getElementById('appView').classList.remove('hidden');
+  document.getElementById('headerSubtitle').classList.add('hidden');
+  document.getElementById('userMenu').classList.remove('hidden');
+  document.getElementById('userDisplayName').textContent = currentUser.display_name || currentUser.email;
+  updateUsageBar();
+  refreshJobs();
+}
+
+function updateUsageBar() {
+  if (!currentUser) return;
+  const used = currentUser.documents_used;
+  const max = currentUser.max_documents;
+  const pct = Math.min(100, (used / max) * 100);
+  const fill = document.getElementById('usageFill');
+  const progress = document.getElementById('usageProgress');
+  const count = document.getElementById('usageCount');
+
+  fill.style.width = pct + '%';
+  fill.classList.toggle('full', used >= max);
+  progress.setAttribute('aria-valuenow', used);
+  progress.setAttribute('aria-valuemax', max);
+  count.textContent = `${used} of ${max} used`;
+
+  // Toggle upload vs limit-reached
+  const limitReached = used >= max;
+  document.getElementById('limitReached').classList.toggle('hidden', !limitReached);
+  document.getElementById('dropZone').classList.toggle('hidden', limitReached);
+  document.getElementById('contextBar').classList.toggle('hidden', limitReached);
+}
+
+function toggleAuthForm(e, target) {
+  e.preventDefault();
+  document.getElementById('loginForm').classList.toggle('hidden', target !== 'login');
+  document.getElementById('signupForm').classList.toggle('hidden', target !== 'signup');
+  // Clear errors
+  document.getElementById('loginError').textContent = '';
+  document.getElementById('signupError').textContent = '';
+}
+
+// ── Auth actions ──
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+
+  if (!email || !password) {
+    errEl.textContent = 'Email and password are required.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+
+  try {
+    const res = await fetch(`${API}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      currentUser = data.user;
+      showAppView();
+    } else {
+      errEl.textContent = data.error || 'Login failed.';
+    }
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+}
+
+async function handleSignup(e) {
+  e.preventDefault();
+  const btn = document.getElementById('signupBtn');
+  const errEl = document.getElementById('signupError');
+  errEl.textContent = '';
+
+  const display_name = document.getElementById('signupName').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const password = document.getElementById('signupPassword').value;
+
+  if (!email || !password) {
+    errEl.textContent = 'Email and password are required.';
+    return;
+  }
+
+  if (password.length < 8) {
+    errEl.textContent = 'Password must be at least 8 characters.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating account...';
+
+  try {
+    const res = await fetch(`${API}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email, password, display_name }),
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      currentUser = data.user;
+      showAppView();
+    } else {
+      errEl.textContent = data.error || 'Registration failed.';
+    }
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create account';
+  }
+}
+
+async function handleLogout() {
+  try {
+    await fetch(`${API}/api/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+  } catch (e) {
+    // Ignore network errors on logout
+  }
+  currentUser = null;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  showAuthView();
+}
+
+async function oauthLogin(provider) {
+  try {
+    const res = await fetch(`${API}/api/auth/${provider}`, { credentials: 'include' });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      showToast(data.error || `${provider} login not available`);
+    }
+  } catch (e) {
+    showToast(`${provider} login not available`);
+  }
+}
 
 // ── Upload handling ──
 
@@ -425,6 +994,12 @@ const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 
 dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    fileInput.click();
+  }
+});
 
 dropZone.addEventListener('dragover', (e) => {
   e.preventDefault();
@@ -447,10 +1022,22 @@ fileInput.addEventListener('change', () => {
 });
 
 async function handleFiles(files) {
+  // Pre-flight usage check
+  if (currentUser && currentUser.documents_used >= currentUser.max_documents) {
+    showToast('Document limit reached.');
+    return;
+  }
+
   const courseName = document.getElementById('courseName').value;
   const department = document.getElementById('department').value;
 
   for (const file of files) {
+    // Client-side size check
+    if (currentUser && file.size > currentUser.max_file_size_mb * 1024 * 1024) {
+      showToast(`${file.name} exceeds ${currentUser.max_file_size_mb}MB limit`);
+      continue;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('course_name', courseName);
@@ -460,7 +1047,13 @@ async function handleFiles(files) {
       const res = await fetch(`${API}/api/upload`, {
         method: 'POST',
         body: formData,
+        credentials: 'include',
       });
+
+      if (res.status === 401) {
+        showAuthView();
+        return;
+      }
 
       if (!res.ok) {
         const err = await res.json();
@@ -475,7 +1068,8 @@ async function handleFiles(files) {
     }
   }
 
-  refreshJobs();
+  // Refresh user data (usage count) and jobs
+  await checkAuth();
   startPolling();
 }
 
@@ -483,7 +1077,11 @@ async function handleFiles(files) {
 
 async function refreshJobs() {
   try {
-    const res = await fetch(`${API}/api/jobs`);
+    const res = await fetch(`${API}/api/jobs`, { credentials: 'include' });
+    if (res.status === 401) {
+      showAuthView();
+      return;
+    }
     const data = await res.json();
     renderJobs(data.jobs);
 
@@ -535,7 +1133,7 @@ function statusBadge(status) {
     completed: 'Completed',
     failed: 'Failed',
   };
-  return `<span class="badge badge-${status}"><span class="badge-dot"></span>${labels[status] || status}</span>`;
+  return `<span class="badge badge-${status}"><span class="badge-dot" aria-hidden="true"></span>${labels[status] || status}</span>`;
 }
 
 function buildMeta(job) {
@@ -599,8 +1197,8 @@ function showToast(msg) {
   setTimeout(() => toast.classList.remove('visible'), 3000);
 }
 
-// Initial load
-refreshJobs();
+// ── Initial load ──
+checkAuth();
 </script>
 </body>
 </html>

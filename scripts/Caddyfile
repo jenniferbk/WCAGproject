@@ -1,0 +1,16 @@
+# A11y Remediation - Caddy reverse proxy config
+#
+# Replace YOUR_DOMAIN with your actual domain, e.g.:
+#   remediate.jenkleiman.com
+#
+# Install: sudo cp scripts/Caddyfile /etc/caddy/Caddyfile
+# Reload:  sudo systemctl reload caddy
+
+YOUR_DOMAIN {
+    reverse_proxy localhost:8000
+
+    # 25MB upload limit (20MB file + overhead)
+    request_body {
+        max_size 25MB
+    }
+}

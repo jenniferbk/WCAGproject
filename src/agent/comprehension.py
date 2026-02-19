@@ -18,12 +18,17 @@ import os
 import time
 from pathlib import Path
 
+from src.utils.json_repair import parse_json_lenient
+
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+import fitz  # PyMuPDF — for converting unsupported image formats (WMF, EMF) to PNG
+
 from src.models.document import DocumentModel, ImageInfo
 from src.models.pipeline import (
+    ApiUsage,
     ComprehensionResult,
     DocumentType,
     ElementPurpose,
@@ -114,8 +119,40 @@ For EACH image below, write a **thorough, detailed alt text description**. This 
 The following images are from the document. Each image is preceded by its ID and context.
 """
 
-# Max images per batch to stay within rate limits
-IMAGES_PER_BATCH = 8
+# MIME types Gemini supports natively
+_GEMINI_SUPPORTED_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+# Batching and rate limit settings
+IMAGES_PER_BATCH = 4           # Smaller batches = less tokens per request
+DELAY_BETWEEN_BATCHES = 20     # Seconds between image batches
+DELAY_BEFORE_COMPREHENSION = 15  # Seconds after images before text comprehension
+MAX_RETRIES = 3                # Max retries per Gemini call
+INITIAL_BACKOFF = 30           # Seconds for first retry backoff (doubles each retry)
+
+
+def _convert_image_to_png(image_data: bytes, content_type: str) -> tuple[bytes, str]:
+    """Convert unsupported image formats (WMF, EMF, etc.) to PNG via PyMuPDF.
+
+    Returns:
+        Tuple of (image_bytes, mime_type). If already supported, returns input unchanged.
+    """
+    if content_type in _GEMINI_SUPPORTED_MIMES:
+        return image_data, content_type
+
+    # Derive filetype hint from MIME (e.g. "image/x-wmf" -> "wmf")
+    filetype = content_type.split("/")[-1].replace("x-", "")
+
+    try:
+        doc = fitz.open(stream=image_data, filetype=filetype)
+        page = doc[0]
+        pix = page.get_pixmap(dpi=150)
+        png_bytes = pix.tobytes("png")
+        doc.close()
+        logger.info("Converted %s (%d bytes) to PNG (%d bytes)", content_type, len(image_data), len(png_bytes))
+        return png_bytes, "image/png"
+    except Exception as e:
+        logger.warning("Failed to convert %s to PNG: %s", content_type, e)
+        return image_data, content_type
 
 
 def _load_prompt() -> str:
@@ -177,19 +214,22 @@ def _describe_images_batch(
     images: list[ImageInfo],
     course_context: str,
     model: str,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], ApiUsage]:
     """Describe a batch of images using Gemini vision.
 
     Returns:
-        Dict mapping image_id to detailed alt text.
+        Tuple of (dict mapping image_id to detailed alt text, ApiUsage).
     """
     prompt = IMAGE_DESC_PROMPT.replace("{course_context}", course_context)
 
     content_parts: list = [prompt]
     for img in images:
         mime = img.content_type or "image/png"
+        data = img.image_data
+        # Convert unsupported formats (WMF, EMF) to PNG
+        data, mime = _convert_image_to_png(data, mime)
         content_parts.append(
-            types.Part.from_bytes(data=img.image_data, mime_type=mime)
+            types.Part.from_bytes(data=data, mime_type=mime)
         )
         context = ""
         if img.surrounding_text:
@@ -208,14 +248,81 @@ def _describe_images_batch(
         ),
     )
 
-    result = json.loads(response.text)
+    usage = _extract_gemini_usage(response, "comprehension_images", model)
+
+    resp_text = response.text
+    if resp_text is None:
+        logger.warning("Gemini returned empty text for image batch (possible safety block)")
+        return {}, usage
+    result = parse_json_lenient(resp_text)
     descriptions = {}
     for desc in result.get("descriptions", []):
         img_id = desc.get("image_id", "")
         alt = desc.get("alt_text", "")
         if img_id and alt and not desc.get("is_decorative", False):
             descriptions[img_id] = alt
-    return descriptions
+    return descriptions, usage
+
+
+def _extract_gemini_usage(response, phase: str, model: str) -> ApiUsage:
+    """Extract token usage from a Gemini response."""
+    try:
+        meta = response.usage_metadata
+        return ApiUsage(
+            phase=phase,
+            model=model,
+            input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+            output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+        )
+    except Exception:
+        return ApiUsage(phase=phase, model=model)
+
+
+def _is_rate_limit_error(error: Exception) -> bool:
+    """Check if an exception is a Gemini rate limit error."""
+    err_str = str(error)
+    return "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+
+
+def _call_with_retry(func, label: str, max_retries: int = MAX_RETRIES):
+    """Call a function with exponential backoff on rate limit errors.
+
+    Args:
+        func: Zero-arg callable that makes the Gemini API call.
+        label: Human-readable label for logging (e.g. "image batch 2/4").
+        max_retries: Maximum number of retries on rate limit errors.
+
+    Returns:
+        The return value of func().
+
+    Raises:
+        The last exception if all retries are exhausted, or any
+        non-rate-limit exception immediately.
+    """
+    last_error = None
+    for attempt in range(1 + max_retries):
+        try:
+            return func()
+        except Exception as e:
+            last_error = e
+            if not _is_rate_limit_error(e):
+                # Not a rate limit — don't retry
+                logger.warning("%s failed (non-retryable): %s", label, e)
+                raise
+
+            if attempt < max_retries:
+                backoff = INITIAL_BACKOFF * (2 ** attempt)
+                logger.warning(
+                    "%s rate limited (attempt %d/%d), waiting %ds before retry: %s",
+                    label, attempt + 1, max_retries + 1, backoff, e,
+                )
+                time.sleep(backoff)
+            else:
+                logger.error(
+                    "%s failed after %d attempts (all rate limited): %s",
+                    label, max_retries + 1, e,
+                )
+    raise last_error  # type: ignore[misc]
 
 
 def _describe_all_images(
@@ -223,11 +330,15 @@ def _describe_all_images(
     doc: DocumentModel,
     course_context: str,
     model: str,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], list[ApiUsage]]:
     """Describe all content-bearing images, batching to avoid rate limits.
 
+    Uses exponential backoff: if a batch is rate-limited, waits 30s, 60s, 120s
+    before retries (up to MAX_RETRIES). Pauses DELAY_BETWEEN_BATCHES seconds
+    between successful batches to stay under Gemini's RPM/TPM limits.
+
     Returns:
-        Dict mapping image_id to detailed alt text.
+        Tuple of (dict mapping image_id to alt text, list of ApiUsage records).
     """
     # Filter to images with actual data that aren't decorative
     content_images = [
@@ -236,15 +347,16 @@ def _describe_all_images(
     ]
 
     if not content_images:
-        return {}
+        return {}, []
 
     all_descriptions: dict[str, str] = {}
+    all_usage: list[ApiUsage] = []
+    total_batches = (len(content_images) + IMAGES_PER_BATCH - 1) // IMAGES_PER_BATCH
 
     # Process in batches
     for batch_start in range(0, len(content_images), IMAGES_PER_BATCH):
         batch = content_images[batch_start:batch_start + IMAGES_PER_BATCH]
         batch_num = batch_start // IMAGES_PER_BATCH + 1
-        total_batches = (len(content_images) + IMAGES_PER_BATCH - 1) // IMAGES_PER_BATCH
 
         logger.info(
             "Describing images batch %d/%d (%d images: %s)",
@@ -253,24 +365,25 @@ def _describe_all_images(
         )
 
         try:
-            batch_descs = _describe_images_batch(client, batch, course_context, model)
+            batch_descs, batch_usage = _call_with_retry(
+                lambda b=batch: _describe_images_batch(client, b, course_context, model),
+                label=f"Image batch {batch_num}/{total_batches}",
+            )
             all_descriptions.update(batch_descs)
+            all_usage.append(batch_usage)
             logger.info("Batch %d: got %d descriptions", batch_num, len(batch_descs))
-
-            # Rate limit pause between batches
-            if batch_start + IMAGES_PER_BATCH < len(content_images):
-                time.sleep(5)
-
         except Exception as e:
-            logger.warning("Image batch %d failed: %s", batch_num, e)
-            # Continue with remaining batches
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                logger.info("Rate limited, waiting 60s before next batch")
-                time.sleep(60)
+            logger.error("Image batch %d failed permanently: %s", batch_num, e)
+            # Continue with remaining batches — partial results better than none
+
+        # Rate limit pause between batches (not after last batch)
+        if batch_start + IMAGES_PER_BATCH < len(content_images):
+            logger.info("Waiting %ds before next batch...", DELAY_BETWEEN_BATCHES)
+            time.sleep(DELAY_BETWEEN_BATCHES)
 
     logger.info("Image descriptions complete: %d/%d images described",
                 len(all_descriptions), len(content_images))
-    return all_descriptions
+    return all_descriptions, all_usage
 
 
 def comprehend(
@@ -313,10 +426,12 @@ def comprehend(
 
     # ── Step 1: Describe images ─────────────────────────────────
     image_descriptions: dict[str, str] = {}
+    usage_records: list[ApiUsage] = []
     if doc.images:
         logger.info("Step 1: Describing %d images via Gemini vision", len(doc.images))
         try:
-            image_descriptions = _describe_all_images(client, doc, course_context, model)
+            image_descriptions, img_usage = _describe_all_images(client, doc, course_context, model)
+            usage_records.extend(img_usage)
         except Exception as e:
             logger.warning("Image description failed: %s", e)
 
@@ -329,27 +444,34 @@ def comprehend(
     prompt = prompt.replace("{image_descriptions}", _build_image_descriptions(doc))
     prompt = prompt.replace("{validation_summary}", validation_text)
 
-    # Text-only call — no images, just structure analysis
+    # Text-only call — no images, just structure analysis (with retry)
     try:
         # Rate limit buffer if we just did image calls
-        if image_descriptions:
-            time.sleep(3)
+        if doc.images:
+            logger.info("Waiting %ds before comprehension call...", DELAY_BEFORE_COMPREHENSION)
+            time.sleep(DELAY_BEFORE_COMPREHENSION)
 
-        response = client.models.generate_content(
-            model=model,
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=COMPREHENSION_SCHEMA,
-                temperature=0.2,
-            ),
-        )
+        def _comprehension_call():
+            resp = client.models.generate_content(
+                model=model,
+                contents=[prompt],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=COMPREHENSION_SCHEMA,
+                    temperature=0.2,
+                ),
+            )
+            resp_text = resp.text
+            if resp_text is None:
+                raise ValueError("Gemini returned empty response (possible safety block)")
+            return parse_json_lenient(resp_text), _extract_gemini_usage(resp, "comprehension", model)
 
-        result_data = json.loads(response.text)
+        result_data, comp_usage = _call_with_retry(_comprehension_call, label="Document comprehension")
+        usage_records.append(comp_usage)
         logger.info("Gemini comprehension complete: %s", result_data.get("document_type"))
 
     except Exception as e:
-        logger.exception("Gemini comprehension failed")
+        logger.exception("Gemini comprehension failed after all retries")
         return ComprehensionResult(
             document_summary=f"Comprehension failed: {e}",
             image_descriptions=image_descriptions,
@@ -380,9 +502,12 @@ def comprehend(
         document_type=doc_type,
         document_summary=result_data.get("document_summary", ""),
         audience=result_data.get("audience", ""),
+        suggested_title=result_data.get("suggested_title", ""),
+        suggested_language=result_data.get("suggested_language", ""),
         element_purposes=element_purposes,
         image_descriptions=image_descriptions,
         validation_summary=validation_text,
         validation_issues_count=validation_report.failed,
         raw_validation_report=validation_text,
+        api_usage=usage_records,
     )

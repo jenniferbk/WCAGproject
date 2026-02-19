@@ -20,6 +20,8 @@ Create an ordered list of remediation actions. Each action must specify:
 | `mark_header_rows` | `{"table_index": int, "header_count": int}` | 1.3.1 |
 | `set_title` | `{"title": "..."}` | 2.4.2 |
 | `set_language` | `{"language": "..."}` | 3.1.1 |
+| `set_link_text` | `{"new_text": "descriptive text"}` | 2.4.4 |
+| `fix_all_contrast` | `{"default_bg": "#FFFFFF"}` | 1.4.3 |
 
 ## Image Alt Text — CRITICAL
 
@@ -31,12 +33,39 @@ The comprehension analysis includes an `image_descriptions` field containing **d
 
 If an image is decorative (logos, dividers, backgrounds), use `set_decorative` instead.
 
+**IMPORTANT: `drawing_index` for images in .docx documents.** Each image in the document summary includes a `drawing_index` field that indicates which drawing element it corresponds to within its paragraph. You MUST include this value in the parameters for `set_alt_text` and `set_decorative` actions. Without the correct `drawing_index`, images in multi-image paragraphs will get the wrong alt text. If `drawing_index` is not shown in the image data, use `0`.
+
+## Contrast Fixing
+
+If the validation report shows contrast failures (criterion 1.4.3), add a single `fix_all_contrast` action. This will automatically scan and fix every low-contrast text run in the document by darkening the foreground color. You do NOT need to create individual actions for each contrast issue — `fix_all_contrast` handles them all in one pass.
+
+## Link Text — WCAG 2.4.4
+
+The document summary includes a `links` section listing all hyperlinks found. For any link where the display text is a raw URL (e.g., "http://www.plagiarism.org/article/what-is-"), create a `set_link_text` action with descriptive text that conveys the link's purpose. Use the URL path, surrounding paragraph context, and common sense to generate clear, concise link text.
+
+**Examples:**
+- `http://www.plagiarism.org/article/what-is-` → "What Is Plagiarism? (Plagiarism.org)"
+- `https://ovpi.uga.edu/academic-honesty/` → "UGA Academic Honesty Policy"
+- `http://catalog.uga.edu/content.php?catoid=21&navoid=3035` → "UGA Course Catalog"
+- `mailto:student@uga.edu` → skip (mailto links are self-descriptive)
+
+Do NOT create `set_link_text` for links that already have descriptive text (non-URL text). Only fix links where the visible text IS the URL.
+
+## Metadata — Title and Language
+
+The comprehension analysis includes `suggested_title` and `suggested_language` fields from the multimodal AI's analysis. **Always create `set_title` and `set_language` actions** using these values (or reasonable defaults):
+- If `suggested_title` is non-empty, use it for `set_title`
+- If `suggested_language` is non-empty, use it for `set_language`
+- If `suggested_language` is empty, default to `"en"` for English-language documents
+
 ## Ordering Rules
 
 1. **Metadata first** (title, language) — these are quick wins
-2. **Structure next** (headings, table headers) — these affect navigation
-3. **Content last** (alt text) — these are the most work
-4. If unsure about an element, add it to `items_for_human_review`
+2. **Contrast fix** (fix_all_contrast) — bulk fix, run early
+3. **Link text** (set_link_text) — fix raw URL links
+4. **Structure next** (headings, table headers) — these affect navigation
+5. **Content last** (alt text) — these are the most work
+6. If unsure about an element, add it to `items_for_human_review`
 
 ## Comprehension Analysis
 

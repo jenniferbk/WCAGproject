@@ -1,14 +1,18 @@
 # A11y Remediation Agent
 
-AI-powered WCAG 2.1 AA accessibility remediation for university course materials (.docx, .pdf, and eventually .pptx).
+AI-powered WCAG 2.1 AA accessibility remediation for university course materials (.docx, .pdf, .pptx).
 
 ## Project Context
 
 DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by **April 24, 2026**. Manual remediation costs $3-4/page. Existing automated tools apply generic fixes without understanding document context and don't get the job done well. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist. The core distinction is this agentic layer — the system makes context-dependent judgments that traditional deterministic pipelines cannot.
 
-**End user experience:** Faculty email a document (plus course context) to `remediate@jenkleiman.com` → receive the remediated file + compliance report back. No CLI, no technical knowledge required. Course context matters: knowing a document is a calculus syllabus vs. an art history lecture changes how elements are interpreted.
+**End user experience:** Faculty log in to a web interface, upload a document (with optional course context), and receive the remediated file + compliance report. No CLI or technical knowledge required. Course context matters: knowing a document is a calculus syllabus vs. an art history lecture changes how elements are interpreted.
+
+**Deployment:** Oracle Cloud free tier instance (ARM, Ubuntu). Future: university Mac Mini for on-premises.
 
 **API costs:** Estimated ~$15–40 per semester of documents per class.
+
+**Free tier:** 3 documents per user, 20MB each. Per-user accounts with usage tracking.
 
 **Testing:** Need 5–10 representative sample documents from real courses for development and validation.
 
@@ -56,6 +60,10 @@ Document + Course Context In → Comprehend (Gemini + validators) → Strategize
 - **veraPDF** — PDF/UA validation. Java CLI, called via subprocess. Returns JSON.
 - **Pillow** — Image processing for extraction/analysis.
 - **lxml** — XML manipulation for docx internals.
+- **FastAPI + uvicorn** — Web application and API server.
+- **bcrypt** — Password hashing. NOTE: Do NOT use passlib — incompatible with bcrypt 5.x.
+- **PyJWT** — JWT token creation/verification for session cookies.
+- **authlib + httpx** — OAuth2 client for Google/Microsoft SSO.
 
 ## Project Structure
 
@@ -63,7 +71,7 @@ Document + Course Context In → Comprehend (Gemini + validators) → Strategize
 a11y-remediate/
 ├── CLAUDE.md
 ├── pyproject.toml
-├── .env                     # API keys (GEMINI_API_KEY, ANTHROPIC_API_KEY)
+├── .env                     # API keys (GEMINI_API_KEY, ANTHROPIC_API_KEY, JWT_SECRET)
 ├── src/
 │   ├── __init__.py
 │   ├── models/
@@ -74,6 +82,7 @@ a11y-remediate/
 │   │   ├── __init__.py
 │   │   ├── docx_parser.py   # parse .docx → DocumentModel
 │   │   ├── pdf_parser.py    # parse .pdf → DocumentModel + page images
+│   │   ├── pptx_parser.py   # parse .pptx → DocumentModel
 │   │   ├── image_extract.py # extract images with context
 │   │   ├── alt_text.py      # read/write alt text (raw XML for docx)
 │   │   ├── headings.py      # detect fake headings, set heading levels
@@ -84,6 +93,8 @@ a11y-remediate/
 │   │   ├── links.py         # improve link text
 │   │   ├── html_builder.py  # structured content → semantic HTML
 │   │   ├── pdf_output.py    # WeasyPrint HTML → PDF/UA-1
+│   │   ├── pdf_writer.py    # in-place PDF modification (metadata, alt text)
+│   │   ├── itext_tagger.py  # iText Java CLI wrapper (structure tagging)
 │   │   └── validator.py     # WCAG audit + veraPDF integration
 │   ├── agent/
 │   │   ├── __init__.py
@@ -92,17 +103,32 @@ a11y-remediate/
 │   │   ├── executor.py      # Claude agent loop with tool calls
 │   │   ├── reviewer.py      # Claude + validators: screen reader perspective review
 │   │   └── orchestrator.py  # comprehend → strategize → execute → review
+│   ├── web/
+│   │   ├── __init__.py
+│   │   ├── app.py           # FastAPI application, API endpoints
+│   │   ├── jobs.py          # Job tracking with SQLite
+│   │   ├── users.py         # User accounts, usage limits
+│   │   ├── auth.py          # Password hashing, JWT, cookies
+│   │   ├── middleware.py    # FastAPI auth dependencies
+│   │   ├── oauth.py         # Google/Microsoft OAuth2
+│   │   └── static/
+│   │       └── index.html   # Single-page frontend (vanilla JS)
 │   ├── prompts/
 │   │   ├── comprehension.md
 │   │   ├── strategy.md
 │   │   ├── execution.md
 │   │   └── review.md
-│   ├── cli.py               # CLI entry point
-│   └── email_handler.py     # Email ingestion (remediate@jenkleiman.com)
+│   └── cli.py               # CLI entry point
+├── java/
+│   ├── itext-tagger/        # iText 9 structure tagging CLI
+│   └── html-to-pdf/         # OpenHTMLtoPDF conversion CLI
 ├── tests/
-│   ├── test_docs/           # sample .docx and .pdf files
+│   ├── test_docs/           # sample .docx, .pdf, .pptx files
 │   ├── test_parser.py
 │   ├── test_tools.py
+│   ├── test_users.py
+│   ├── test_auth.py
+│   ├── test_web_auth.py
 │   └── test_agent.py
 └── docs/
     ├── data_schema.md       # **canonical data model reference** — update when models change
@@ -219,35 +245,60 @@ pip install -e ".[dev]"
 # Run tests
 pytest tests/ -v
 
-# Run on a single document
+# Run the web app (development)
+uvicorn src.web.app:app --reload --port 8000
+
+# Run on a single document (CLI)
 python -m src.cli document.docx
 
-# Run on a directory
+# Run on a directory (CLI)
 python -m src.cli ./course_materials/ --output-dir ./accessible/
+```
 
-# Run with both .docx and .pdf output for PDFs
-python -m src.cli lecture.pdf --format both
+## Environment Variables
+
+```bash
+# Required for remediation pipeline
+GEMINI_API_KEY=...
+ANTHROPIC_API_KEY=...
+
+# Required for web app auth (generate with: python -c "import secrets; print(secrets.token_hex(32))")
+JWT_SECRET=...
+
+# Optional: OAuth (web app Google/Microsoft SSO)
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+MICROSOFT_CLIENT_ID=...
+MICROSOFT_CLIENT_SECRET=...
 ```
 
 ## Build Order
 
-**Phase 1 — .docx (Sessions 1-4):**
+**Phase 1 — .docx (Sessions 1-4): DONE**
 1. Data models + docx parser + image extraction
 2. Remediation tools (alt text, headings, tables, lists, metadata, contrast, links, validator)
 3. Agent integration (Gemini comprehension, Claude strategy/execution/review, orchestrator)
 4. Test on real documents, tune prompts
 
-**Phase 2 — PDF (Sessions 5-7):**
+**Phase 2 — PDF (Sessions 5-7): DONE**
 5. PDF parser + page rendering + extraction
 6. HTML builder + WeasyPrint PDF/UA output + veraPDF validation
 7. Test PDF pipeline on real documents, tune
 
-**Phase 3 — Additional Formats (Session 8+):**
+**Phase 3 — Additional Formats (Session 8+): DONE**
 8. PowerPoint (.pptx) remediation support
 
-**Phase 4 — Deployment:**
-9. Email ingestion (remediate@jenkleiman.com) + OpenClaw skill integration
-10. Mac Mini on-premises deployment, batch processing
+**Phase 4 — Web Application: DONE**
+9. FastAPI web app with upload, job tracking, compliance reports
+10. User auth (registration, login, httpOnly JWT cookies, Google/Microsoft OAuth)
+11. Per-user job isolation, free tier limits (3 docs, 20MB each)
+
+**Phase 5 — Deployment (current):**
+12. Deploy to Oracle Cloud free tier (ARM Ubuntu)
+13. Production hardening (HTTPS/TLS, real JWT_SECRET, systemd service, reverse proxy)
+14. End-to-end testing with real faculty documents, prompt tuning
+15. Admin tooling (user management, tier upgrades)
+16. Future: Mac Mini on-premises deployment for university
 
 ## Known Risks
 

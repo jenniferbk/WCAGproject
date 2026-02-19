@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import colorsys
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 import wcag_contrast_ratio as wcag
+
+from docx.document import Document
+from docx.shared import RGBColor
 
 from src.models.document import ContrastIssue, ParagraphInfo
 
@@ -272,3 +275,133 @@ def analyze_document_contrast(
                 ))
 
     return issues
+
+
+@dataclass
+class ApplyContrastResult:
+    """Result of applying a contrast fix to a single run."""
+    success: bool
+    change: str = ""
+    error: str = ""
+
+
+@dataclass
+class BulkContrastResult:
+    """Result of fixing all contrast issues in a document."""
+    success: bool
+    fixes_applied: int = 0
+    fixes_failed: int = 0
+    changes: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+def apply_contrast_fix(
+    doc: Document,
+    paragraph_index: int,
+    run_index: int,
+    new_color: str,
+) -> ApplyContrastResult:
+    """Apply a contrast fix to a single run in the document.
+
+    Args:
+        doc: python-docx Document (opened for modification).
+        paragraph_index: Index of the paragraph containing the run.
+        run_index: Index of the run within the paragraph.
+        new_color: Hex color to set (e.g. '#4A4A4A').
+
+    Returns:
+        ApplyContrastResult with success/failure.
+    """
+    try:
+        if paragraph_index >= len(doc.paragraphs):
+            return ApplyContrastResult(
+                success=False,
+                error=f"Paragraph index {paragraph_index} out of range (doc has {len(doc.paragraphs)} paragraphs)",
+            )
+
+        para = doc.paragraphs[paragraph_index]
+        if run_index >= len(para.runs):
+            return ApplyContrastResult(
+                success=False,
+                error=f"Run index {run_index} out of range (paragraph has {len(para.runs)} runs)",
+            )
+
+        run = para.runs[run_index]
+        old_color = f"#{run.font.color.rgb}" if run.font.color and run.font.color.rgb else "default"
+
+        # Parse hex and set RGBColor
+        h = new_color.lstrip("#")
+        run.font.color.rgb = RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+        preview = run.text[:40]
+        change = f"p{paragraph_index} run{run_index}: {old_color} -> {new_color} ({preview!r})"
+        logger.info("Contrast fix: %s", change)
+        return ApplyContrastResult(success=True, change=change)
+
+    except Exception as e:
+        return ApplyContrastResult(success=False, error=f"Failed to apply contrast fix: {e}")
+
+
+def fix_all_document_contrast(
+    doc: Document,
+    paragraphs: list[ParagraphInfo],
+    default_bg: str = "#FFFFFF",
+) -> BulkContrastResult:
+    """Analyze and fix all contrast issues in a document in one pass.
+
+    Finds every run that fails WCAG AA contrast, computes a minimal fix
+    (darken foreground), and applies it to the python-docx document.
+
+    Args:
+        doc: python-docx Document (opened for modification).
+        paragraphs: Parsed paragraph models (for analysis).
+        default_bg: Default background color.
+
+    Returns:
+        BulkContrastResult with counts and change log.
+    """
+    issues = analyze_document_contrast(paragraphs, default_bg)
+
+    if not issues:
+        return BulkContrastResult(success=True, changes=["No contrast issues found"])
+
+    fixes_applied = 0
+    fixes_failed = 0
+    changes: list[str] = []
+    errors: list[str] = []
+
+    for issue in issues:
+        # Compute the fixed color
+        fix_result = fix_contrast(
+            issue.foreground,
+            issue.background,
+            issue.font_size_pt,
+            issue.is_bold,
+            strategy=FixStrategy.DARKEN_FOREGROUND,
+        )
+
+        # Find the paragraph index from paragraph_id (p_0 -> 0)
+        para_idx = int(issue.paragraph_id.split("_")[1])
+
+        # Apply the fix
+        apply_result = apply_contrast_fix(doc, para_idx, issue.run_index, fix_result.fixed_color)
+
+        if apply_result.success:
+            fixes_applied += 1
+            changes.append(apply_result.change)
+        else:
+            fixes_failed += 1
+            errors.append(apply_result.error)
+
+    logger.info(
+        "Bulk contrast fix: %d applied, %d failed out of %d issues",
+        fixes_applied, fixes_failed, len(issues),
+    )
+
+    return BulkContrastResult(
+        success=fixes_failed == 0,
+        fixes_applied=fixes_applied,
+        fixes_failed=fixes_failed,
+        changes=changes,
+        errors=errors,
+    )

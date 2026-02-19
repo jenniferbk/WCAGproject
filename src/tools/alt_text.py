@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass, field
 
 from docx.document import Document
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -199,3 +200,67 @@ def set_alt_text_by_rel_id(
 
     except Exception as e:
         return AltTextResult(success=False, error=f"Failed to set alt text: {e}")
+
+
+# PPTX namespace
+_PPTX_NS = {
+    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+}
+
+
+def set_alt_text_pptx(
+    prs,
+    slide_index: int,
+    shape_index: int,
+    alt_text: str,
+) -> AltTextResult:
+    """Set alt text on a PPTX image shape.
+
+    Args:
+        prs: python-pptx Presentation object.
+        slide_index: 0-based slide index.
+        shape_index: 0-based shape index on the slide.
+        alt_text: The alt text to set.
+
+    Returns:
+        AltTextResult with success/failure.
+    """
+    try:
+        slides = list(prs.slides)
+        if slide_index >= len(slides):
+            return AltTextResult(
+                success=False,
+                error=f"Slide index {slide_index} out of range (pres has {len(slides)} slides)",
+            )
+
+        slide = slides[slide_index]
+        shapes = list(slide.shapes)
+        if shape_index >= len(shapes):
+            return AltTextResult(
+                success=False,
+                error=f"Shape index {shape_index} out of range (slide has {len(shapes)} shapes)",
+            )
+
+        shape = shapes[shape_index]
+
+        # Find p:cNvPr in the shape's XML
+        cNvPr = shape._element.find(f".//{{{_PPTX_NS['p']}}}cNvPr")
+        if cNvPr is None:
+            return AltTextResult(
+                success=False,
+                error=f"No cNvPr element found on shape {shape_index} of slide {slide_index}",
+            )
+
+        old_alt = cNvPr.get("descr", "")
+        cNvPr.set("descr", alt_text)
+
+        if alt_text:
+            change = f"slide {slide_index} shape {shape_index}: alt text set to {alt_text[:80]!r} (was {old_alt!r})"
+        else:
+            change = f"slide {slide_index} shape {shape_index}: marked as decorative (was {old_alt!r})"
+
+        logger.info(change)
+        return AltTextResult(success=True, changes=[change])
+
+    except Exception as e:
+        return AltTextResult(success=False, error=f"Failed to set alt text on pptx: {e}")

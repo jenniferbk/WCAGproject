@@ -7,6 +7,14 @@ Source files:
 - `src/models/pipeline.py` — pipeline flow models (request → result)
 - `src/tools/validator.py` — validation result models (dataclasses)
 - `src/tools/contrast.py` — contrast result models (dataclasses)
+- `src/tools/pdf_parser.py` — PDF → DocumentModel parser (PyMuPDF)
+- `src/tools/pdf_writer.py` — in-place PDF modification (Tier 1 only: metadata, alt text)
+- `src/tools/itext_tagger.py` — Python wrapper for iText 7 Java CLI (position-based structure tagging)
+- `src/tools/gemini_html.py` — Gemini multimodal PDF → semantic HTML
+- `src/tools/html_to_pdf.py` — Python wrapper for OpenHTMLtoPDF Java CLI (HTML → PDF/UA)
+- `src/tools/pdf_output.py` — HTML → PDF/UA-1 renderer (WeasyPrint, companion HTML)
+- `src/web/users.py` — User accounts, usage tracking, tier limits
+- `src/web/jobs.py` — Job tracking with user ownership
 
 ## Model Hierarchy
 
@@ -39,19 +47,22 @@ ComprehensionResult             # Phase 1 output
 ├── document_type               # syllabus, lecture_notes, exam, etc.
 ├── document_summary
 ├── ElementPurpose[]            # Per-element purpose judgments
-└── validation_summary          # Pre-remediation validator results
+├── validation_summary          # Pre-remediation validator results
+└── api_usage: ApiUsage[]       # Token usage from Gemini calls
 
 RemediationStrategy             # Phase 2 output
 ├── RemediationAction[]         # Planned actions with rationale
 ├── items_for_human_review[]
-└── strategy_summary
+├── strategy_summary
+└── api_usage: ApiUsage[]       # Token usage from Claude strategy call
 
 RemediationResult               # Final output
 ├── ComprehensionResult
 ├── RemediationStrategy
 ├── ReviewFinding[]             # Phase 4 output
 ├── issues_before / issues_after / issues_fixed
-└── items_for_human_review[]
+├── items_for_human_review[]
+└── cost_summary: CostSummary   # Aggregated API costs
 ```
 
 ## Document Content Models (`src/models/document.py`)
@@ -96,6 +107,10 @@ An image extracted from the document.
 | `relationship_id` | `str` | rId from docx relationships |
 | `paragraph_id` | `str` | Which paragraph contains this image |
 | `is_decorative` | `bool` | Decorative images get empty alt text |
+| `slide_index` | `int \| None` | PPTX only: 0-based slide index |
+| `shape_index` | `int \| None` | PPTX only: 0-based shape index on slide |
+| `page_number` | `int \| None` | PDF only: 0-based page number |
+| `xref` | `int \| None` | PDF only: XObject cross-reference number |
 
 ### CellInfo
 A single table cell.
@@ -118,6 +133,8 @@ A single table cell.
 | `style_name` | `str` | |
 | `row_count` | `int` | |
 | `col_count` | `int` | |
+| `bbox` | `tuple[float,float,float,float] \| None` | PDF only: bounding box (x0, y0, x1, y1) in points |
+| `page_number` | `int \| None` | PDF only: 0-based page number |
 
 ### FakeHeadingSignals
 Heuristic signals populated by the parser. The **agent decides** whether these are actually headings.
@@ -130,7 +147,8 @@ Heuristic signals populated by the parser. The **agent decides** whether these a
 | `is_short` | `bool` | < ~10 words |
 | `followed_by_non_bold` | `bool` | Next non-empty paragraph isn't all-bold |
 | `not_in_table` | `bool` | Always True for paragraph-level items |
-| `score` | `float` | Weighted composite 0-1. Weights: bold=0.3, font=0.25, short=0.2, followed_by=0.15, not_in_table=0.1 |
+| `distinct_font` | `bool` | Uses a different font family from the document's dominant body font (PDF only) |
+| `score` | `float` | Weighted composite 0-1. Docx weights: bold=0.3, font=0.25, short=0.2, followed_by=0.15, not_in_table=0.1. PDF weights: bold=0.25, font=0.2, short=0.2, followed_by=0.1, not_in_table=0.1, distinct_font=0.15 |
 
 ### ParagraphInfo
 
@@ -147,6 +165,8 @@ Heuristic signals populated by the parser. The **agent decides** whether these a
 | `is_list_item` | `bool` | Has `w:numPr` in XML |
 | `list_level` | `int \| None` | 0-based indentation level |
 | `fake_heading_signals` | `FakeHeadingSignals \| None` | Only set on candidates |
+| `bbox` | `tuple[float,float,float,float] \| None` | PDF only: bounding box (x0, y0, x1, y1) in points |
+| `page_number` | `int \| None` | PDF only: 0-based page number |
 
 ### MetadataInfo
 
@@ -258,6 +278,7 @@ Output of Phase 1. Combines Gemini's analysis with validator results.
 | `validation_summary` | `str` | Pre-remediation validator summary |
 | `validation_issues_count` | `int` | |
 | `raw_validation_report` | `str` | Full validator output |
+| `scanned_page_numbers` | `list[int]` | PDF only: pages that are scanned (image-only, <20 chars text) |
 
 ### RemediationAction
 A single planned or executed fix.
@@ -279,6 +300,7 @@ Output of Phase 2. Claude's plan.
 | `actions` | `list[RemediationAction]` | Ordered list of fixes |
 | `items_for_human_review` | `list[str]` | Things the agent can't fix |
 | `strategy_summary` | `str` | High-level approach description |
+| `api_usage` | `list[ApiUsage]` | Token usage from Claude strategy call |
 
 ### ReviewFinding
 A single finding from Phase 4.
@@ -297,7 +319,9 @@ Final pipeline output.
 |-------|------|-------|
 | `success` | `bool` | |
 | `input_path` | `str` | |
-| `output_path` | `str` | Remediated document |
+| `output_path` | `str` | Remediated document (Track 1: tagged original PDF, or modified docx/pptx) |
+| `accessible_pdf_path` | `str` | PDF only: rebuilt PDF/UA via Gemini+OpenHTMLtoPDF (Track 2) |
+| `companion_output_path` | `str` | PDF only: companion accessible HTML |
 | `report_path` | `str` | Compliance report |
 | `comprehension` | `ComprehensionResult` | Phase 1 artifact |
 | `strategy` | `RemediationStrategy` | Phase 2 artifact |
@@ -310,6 +334,29 @@ Final pipeline output.
 | `items_for_human_review` | `list[str]` | Combined from strategy + review |
 | `error` | `str` | If pipeline failed |
 | `processing_time_seconds` | `float` | |
+| `cost_summary` | `CostSummary` | Aggregated API costs |
+
+### ApiUsage
+Token usage from a single API call.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `phase` | `str` | `"comprehension"`, `"comprehension_images"`, `"strategy"`, `"review"`, `"gemini_html"` |
+| `model` | `str` | e.g. `"gemini-2.5-flash"`, `"claude-sonnet-4-5-20250929"` |
+| `input_tokens` | `int` | |
+| `output_tokens` | `int` | |
+
+### CostSummary
+Aggregated API cost data for a pipeline run. Computed properties calculate totals and estimated USD cost.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `usage_records` | `list[ApiUsage]` | All API calls in this run |
+| `total_input_tokens` | `int` (property) | Sum of all input tokens |
+| `total_output_tokens` | `int` (property) | Sum of all output tokens |
+| `estimated_cost_usd` | `float` (property) | Cost estimate based on API pricing |
+
+**Pricing used:** Gemini 2.5 Flash: $0.15/MTok input, $0.60/MTok output. Claude Sonnet 4.5: $3/MTok input, $15/MTok output.
 
 ## Tool Result Models
 
@@ -334,6 +381,29 @@ These are `@dataclass` (not Pydantic) since they're internal to tool execution, 
 ### From `src/tools/contrast.py`
 - **`ContrastResult`**: Single contrast check (ratio, passes, required_ratio)
 - **`ContrastFixResult`**: Result of fixing a color (original/fixed colors, strategy used)
+- **`ApplyContrastResult`**: Result of applying a fix to a single run (success, change, error)
+- **`BulkContrastResult`**: Result of fixing all contrast issues (fixes_applied, fixes_failed, changes, errors)
+
+### From `src/tools/pdf_parser.py`
+- **`ParseResult`**: Same pattern as docx (success, document, error, warnings, scanned_page_numbers)
+
+### From `src/tools/pdf_output.py`
+- **`PdfOutputResult`**: Result of WeasyPrint rendering (success, output_path, warnings, error)
+
+### From `src/tools/pdf_writer.py`
+- **`PdfWriteResult`**: Result of in-place PDF modification (success, output_path, changes, warnings, errors, heading_tags_applied, contrast_fixes_applied). Tier 1 only — heading/contrast via content stream is superseded by iText tagger.
+
+### From `src/tools/itext_tagger.py`
+- **`TaggingResult`**: Result of iText Java CLI tagging (success, output_path, tags_applied, changes, warnings, errors)
+
+### From `src/tools/gemini_html.py`
+- **`GeminiHtmlResult`**: Result of Gemini multimodal HTML generation (success, html, html_path, pages_processed, warnings, error)
+
+### From `src/tools/html_to_pdf.py`
+- **`ConversionResult`**: Result of OpenHTMLtoPDF conversion (success, output_path, changes, warnings, errors)
+
+### From `src/tools/pptx_parser.py`
+- Reuses **`ParseResult`** from `docx_parser.py`
 
 ### From other tools
 Each tool has its own `*Result` dataclass (e.g. `AltTextResult`, `HeadingResult`, `TableResult`, `ListResult`, `MetadataResult`). All follow the pattern: `success: bool`, `changes: list[str]`, `error: str`.
@@ -360,6 +430,39 @@ All IDs are sequential per-parse, stable within a single parse run:
 | `img_` | ImageInfo | `img_0`, `img_1` |
 | `tbl_` | TableInfo | `tbl_0`, `tbl_1` |
 | `link_` | LinkInfo | `link_0`, `link_1` |
+
+## Web Application Models (`src/web/`)
+
+These are plain `@dataclass` (not Pydantic) for the web layer. Source files: `src/web/users.py`, `src/web/jobs.py`.
+
+### User
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | `str` | 12-char hex UUID |
+| `email` | `str` | Unique, case-insensitive lookup |
+| `password_hash` | `str` | bcrypt hash (empty for OAuth-only users) |
+| `display_name` | `str` | Shown in UI |
+| `auth_provider` | `str` | `"local"`, `"google"`, `"microsoft"` |
+| `oauth_provider_id` | `str` | Provider's user ID |
+| `documents_used` | `int` | Atomically incremented on upload |
+| `max_documents` | `int` | Default: 3 (free tier) |
+| `max_file_size_mb` | `int` | Default: 20 |
+| `tier` | `str` | `"free"`, `"paid"` |
+| `created_at` | `str` | ISO 8601 |
+| `updated_at` | `str` | ISO 8601 |
+
+`to_dict()` excludes `password_hash`, `oauth_provider_id`, `updated_at` — safe for API responses.
+
+### Job (updated)
+
+Added field:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `user_id` | `str` | FK to `users.id`. Empty string for legacy pre-auth jobs. |
+
+`list_jobs(user_id=)` filters by owner. All API endpoints check `job.user_id == user.id`.
 
 ## Serialization Notes
 

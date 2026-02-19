@@ -8,7 +8,7 @@ set -uo pipefail
 export SUPPRESS_LABEL_WARNING=True
 
 TENANCY="ocid1.tenancy.oc1..aaaaaaaa7rfcqld5epuahpyp6khxzhrga62c3h3xgrgxwojlo7abop4kek4a"
-SUBNET_ID="ocid1.subnet.oc1.iad.aaaaaaaazssdpfvoihusazamobbh6adeugu4durreffc2v5lgqsozsahslga"
+SUBNET_ID="ocid1.subnet.oc1.iad.aaaaaaaa4lsdixpwy7xcg3ui7x4xb3oraru6nq3gasloehbf7hgmt73a5nva"
 IMAGE_ID="ocid1.image.oc1.iad.aaaaaaaa5hgxi6voge43kultiindj3cbcnsimyatvlmq7wt5sbm6voo2ln3a"
 SSH_KEY="$HOME/.ssh/id_ed25519.pub"
 ADS=("TRTc:US-ASHBURN-AD-1" "TRTc:US-ASHBURN-AD-2" "TRTc:US-ASHBURN-AD-3")

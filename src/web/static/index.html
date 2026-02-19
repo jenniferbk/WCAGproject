@@ -4,35 +4,69 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>A11y Remediation — Document Accessibility</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --border: #e2e5ea;
-      --text: #1a1d23;
-      --text-secondary: #5f6672;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
-      --success: #16a34a;
-      --success-bg: #f0fdf4;
-      --warning: #d97706;
-      --warning-bg: #fffbeb;
-      --error: #dc2626;
-      --error-bg: #fef2f2;
-      --radius: 10px;
-      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-      --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+      --bg: #F8F6F2;
+      --bg-warm: #F3F0EA;
+      --surface: #FFFFFF;
+      --surface-raised: #FFFEFA;
+      --border: #E4DED5;
+      --border-light: #EDE9E2;
+      --text: #2D2A26;
+      --text-secondary: #7A7267;
+      --text-tertiary: #A39B8F;
+      --accent: #1B6B5A;
+      --accent-hover: #145A4B;
+      --accent-light: #E8F5F0;
+      --accent-muted: #2D8F79;
+      --success: #2D8659;
+      --success-bg: #EEF7F1;
+      --warning: #B86E14;
+      --warning-bg: #FFF6EA;
+      --error: #C43D3D;
+      --error-bg: #FDF0F0;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 2px rgba(45,42,38,0.04), 0 2px 8px rgba(45,42,38,0.03);
+      --shadow-md: 0 2px 4px rgba(45,42,38,0.05), 0 4px 16px rgba(45,42,38,0.04);
+      --shadow-lg: 0 4px 8px rgba(45,42,38,0.06), 0 8px 32px rgba(45,42,38,0.06);
+      --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+      --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-family: var(--font-body);
       background: var(--bg);
       color: var(--text);
-      line-height: 1.5;
+      line-height: 1.55;
       min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
+
+    main { flex: 1; }
+
+    /* Subtle warm grain texture */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      opacity: 0.25;
+      pointer-events: none;
+      z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+
+    body > * { position: relative; z-index: 1; }
 
     /* Skip nav */
     .skip-nav {
@@ -41,11 +75,13 @@
       left: 0;
       background: var(--accent);
       color: white;
-      padding: 0.5rem 1rem;
+      padding: 0.6rem 1.2rem;
       z-index: 300;
       font-size: 0.85rem;
+      font-weight: 500;
       text-decoration: none;
-      border-radius: 0 0 6px 0;
+      border-radius: 0 0 var(--radius-sm) 0;
+      transition: top 0.2s;
     }
     .skip-nav:focus {
       top: 0;
@@ -56,31 +92,43 @@
     /* Focus indicators */
     *:focus-visible {
       outline: 2px solid var(--accent);
-      outline-offset: 2px;
+      outline-offset: 3px;
+      border-radius: 2px;
     }
 
-    /* Header */
+    /* ── Header ─────────────────────────────────── */
     header {
       background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      padding: 1rem 2rem;
+      border-bottom: 1px solid var(--border-light);
+      padding: 0.9rem 2rem;
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      box-shadow: 0 1px 3px rgba(45,42,38,0.03);
     }
 
     .header-icon {
-      width: 32px; height: 32px;
-      background: var(--accent);
-      border-radius: 8px;
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-muted) 100%);
+      border-radius: 10px;
       display: flex; align-items: center; justify-content: center;
       color: white; font-weight: 700; font-size: 1rem;
+      font-family: var(--font-display);
+      box-shadow: 0 2px 8px rgba(27,107,90,0.25);
+      transition: transform 0.3s var(--ease-spring), box-shadow 0.3s;
+    }
+
+    .header-icon:hover {
+      transform: scale(1.05);
     }
 
     header h1 {
-      font-size: 1.1rem;
+      font-family: var(--font-display);
+      font-size: 1.15rem;
       font-weight: 600;
-      letter-spacing: -0.01em;
+      letter-spacing: -0.02em;
+      font-optical-sizing: auto;
+      color: var(--text);
     }
 
     .header-right {
@@ -91,87 +139,129 @@
     }
 
     .header-subtitle {
-      font-size: 0.8rem;
-      color: var(--text-secondary);
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      letter-spacing: 0.02em;
+      font-weight: 400;
     }
 
     .user-menu {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.6rem;
       font-size: 0.85rem;
     }
 
     .user-menu-name {
       font-weight: 500;
+      color: var(--text);
     }
 
     .btn-logout {
       background: none;
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.3rem 0.6rem;
-      font-size: 0.8rem;
+      border-radius: var(--radius-sm);
+      padding: 0.3rem 0.7rem;
+      font-size: 0.78rem;
+      font-family: var(--font-body);
+      font-weight: 500;
       cursor: pointer;
       color: var(--text-secondary);
-      transition: all 0.15s;
+      transition: all 0.2s;
     }
     .btn-logout:hover {
-      background: var(--bg);
+      background: var(--bg-warm);
       color: var(--text);
+      border-color: var(--border);
     }
 
-    /* Main layout */
+    /* ── Main layout ────────────────────────────── */
     main {
-      max-width: 960px;
+      max-width: 880px;
       margin: 0 auto;
-      padding: 2rem;
+      padding: 2.5rem 2rem;
     }
 
     /* ── Auth views ─────────────────────────────── */
     .auth-container {
       max-width: 400px;
-      margin: 4rem auto;
+      margin: 3.5rem auto;
       background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 2rem;
-      box-shadow: var(--shadow);
+      border: 1px solid var(--border-light);
+      border-radius: 16px;
+      padding: 2.25rem 2rem 2rem;
+      box-shadow: var(--shadow-md);
+      position: relative;
+      overflow: hidden;
+      animation: authFadeIn 0.5s var(--ease-out-expo) both;
+    }
+
+    /* Accent bar at top of auth card */
+    .auth-container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-muted), var(--accent));
+      opacity: 0.8;
+    }
+
+    @keyframes authFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .auth-container h2 {
-      font-size: 1.2rem;
-      font-weight: 600;
-      margin-bottom: 1.5rem;
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      font-weight: 500;
+      margin-bottom: 1.75rem;
       text-align: center;
+      letter-spacing: -0.02em;
+      color: var(--text);
     }
 
     .form-group {
-      margin-bottom: 1rem;
+      margin-bottom: 1.1rem;
     }
 
     .form-group label {
       display: block;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 500;
-      margin-bottom: 0.3rem;
+      margin-bottom: 0.35rem;
       color: var(--text);
+      letter-spacing: 0.01em;
     }
 
     .form-group input {
       width: 100%;
-      padding: 0.55rem 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      padding: 0.6rem 0.85rem;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
       font-size: 0.9rem;
+      font-family: var(--font-body);
       background: var(--surface);
       color: var(--text);
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     .form-group input:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      box-shadow: 0 0 0 3px rgba(27, 107, 90, 0.1);
+    }
+
+    .form-group input::placeholder {
+      color: var(--text-tertiary);
     }
 
     .form-error {
@@ -183,28 +273,38 @@
 
     .btn-submit {
       width: 100%;
-      padding: 0.6rem;
+      padding: 0.65rem;
       background: var(--accent);
       color: white;
       border: none;
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       font-size: 0.9rem;
+      font-family: var(--font-body);
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
       margin-top: 0.5rem;
+      letter-spacing: 0.01em;
     }
 
-    .btn-submit:hover { background: var(--accent-hover); }
-    .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-submit:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 2px 8px rgba(27, 107, 90, 0.2);
+    }
+    .btn-submit:active {
+      transform: scale(0.985);
+    }
+    .btn-submit:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
     .auth-divider {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      margin: 1.25rem 0;
-      color: var(--text-secondary);
-      font-size: 0.8rem;
+      gap: 0.85rem;
+      margin: 1.5rem 0;
+      color: var(--text-tertiary);
+      font-size: 0.78rem;
+      text-transform: lowercase;
+      letter-spacing: 0.03em;
     }
 
     .auth-divider::before,
@@ -212,35 +312,37 @@
       content: '';
       flex: 1;
       height: 1px;
-      background: var(--border);
+      background: var(--border-light);
     }
 
     .btn-oauth {
       width: 100%;
-      padding: 0.55rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      padding: 0.6rem;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
       background: var(--surface);
       color: var(--text);
       font-size: 0.85rem;
+      font-family: var(--font-body);
       font-weight: 500;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 0.5rem;
-      transition: all 0.15s;
-      margin-bottom: 0.5rem;
+      transition: all 0.2s;
+      margin-bottom: 0.6rem;
     }
 
     .btn-oauth:hover {
       background: var(--bg);
-      border-color: #c9cdd4;
+      border-color: var(--border);
+      box-shadow: var(--shadow);
     }
 
     .auth-toggle {
       text-align: center;
-      margin-top: 1.25rem;
+      margin-top: 1.5rem;
       font-size: 0.85rem;
       color: var(--text-secondary);
     }
@@ -248,60 +350,70 @@
     .auth-toggle a {
       color: var(--accent);
       text-decoration: none;
-      font-weight: 500;
+      font-weight: 600;
+      transition: color 0.15s;
     }
 
     .auth-toggle a:hover {
+      color: var(--accent-hover);
       text-decoration: underline;
+      text-underline-offset: 2px;
     }
 
     /* ── Usage bar ──────────────────────────────── */
     .usage-bar-container {
       background: var(--surface);
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-light);
       border-radius: var(--radius);
-      padding: 1rem 1.25rem;
-      margin-bottom: 1.5rem;
+      padding: 0.85rem 1.25rem;
+      margin-bottom: 1.75rem;
       display: flex;
       align-items: center;
       gap: 1rem;
+      box-shadow: var(--shadow);
+      animation: slideUp 0.4s var(--ease-out-expo) both;
     }
 
     .usage-label {
-      font-size: 0.85rem;
-      font-weight: 500;
+      font-size: 0.82rem;
+      font-weight: 600;
       white-space: nowrap;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      font-size: 0.72rem;
     }
 
     .usage-track {
       flex: 1;
-      height: 8px;
-      background: var(--bg);
-      border-radius: 4px;
+      height: 6px;
+      background: var(--bg-warm);
+      border-radius: 3px;
       overflow: hidden;
     }
 
     .usage-fill {
       height: 100%;
-      background: var(--accent);
-      border-radius: 4px;
-      transition: width 0.3s ease;
+      background: linear-gradient(90deg, var(--accent), var(--accent-muted));
+      border-radius: 3px;
+      transition: width 0.5s var(--ease-out-expo);
     }
 
     .usage-fill.full {
-      background: var(--error);
+      background: linear-gradient(90deg, var(--error), #d45555);
     }
 
     .usage-count {
-      font-size: 0.8rem;
-      color: var(--text-secondary);
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
       white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
 
-    /* ── Limit reached overlay ──────────────────── */
+    /* ── Limit reached ─────────────────────────── */
     .limit-reached {
       background: var(--warning-bg);
-      border: 2px dashed var(--warning);
+      border: 1.5px solid rgba(184, 110, 20, 0.2);
       border-radius: var(--radius);
       padding: 2.5rem;
       text-align: center;
@@ -309,8 +421,9 @@
     }
 
     .limit-reached-title {
-      font-size: 1.05rem;
-      font-weight: 600;
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 500;
       margin-bottom: 0.5rem;
       color: var(--warning);
     }
@@ -318,129 +431,169 @@
     .limit-reached-text {
       font-size: 0.85rem;
       color: var(--text-secondary);
+      line-height: 1.6;
     }
 
     .limit-reached-text a {
       color: var(--accent);
+      font-weight: 500;
     }
 
     /* ── Upload zone ───────────────────────────── */
     .upload-section {
       background: var(--surface);
       border: 2px dashed var(--border);
-      border-radius: var(--radius);
-      padding: 2.5rem;
+      border-radius: 16px;
+      padding: 3rem 2rem;
       text-align: center;
       cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      margin-bottom: 2rem;
+      transition: border-color 0.3s, background 0.3s, box-shadow 0.3s, transform 0.2s;
+      margin-bottom: 2.5rem;
+      position: relative;
+      animation: slideUp 0.45s var(--ease-out-expo) both;
+      animation-delay: 0.05s;
     }
 
-    .upload-section:hover, .upload-section.drag-over {
+    .upload-section:hover {
       border-color: var(--accent);
-      background: #f8faff;
+      background: var(--accent-light);
+      box-shadow: 0 0 0 4px rgba(27, 107, 90, 0.06);
+      transform: translateY(-1px);
+    }
+
+    .upload-section.drag-over {
+      border-color: var(--accent);
+      background: var(--accent-light);
+      box-shadow: 0 0 0 4px rgba(27, 107, 90, 0.1), var(--shadow-md);
+      transform: scale(1.005);
     }
 
     .upload-icon {
-      font-size: 2.5rem;
-      margin-bottom: 0.75rem;
-      opacity: 0.6;
+      font-size: 2.25rem;
+      margin-bottom: 0.85rem;
+      opacity: 0.5;
+      transition: transform 0.3s var(--ease-spring), opacity 0.3s;
+    }
+
+    .upload-section:hover .upload-icon {
+      transform: translateY(-3px);
+      opacity: 0.7;
     }
 
     .upload-title {
+      font-family: var(--font-display);
       font-size: 1.05rem;
-      font-weight: 600;
-      margin-bottom: 0.25rem;
+      font-weight: 500;
+      margin-bottom: 0.3rem;
+      color: var(--text);
     }
 
     .upload-hint {
-      font-size: 0.85rem;
-      color: var(--text-secondary);
+      font-size: 0.82rem;
+      color: var(--text-tertiary);
     }
 
     .upload-section input[type="file"] {
       display: none;
     }
 
-    /* Course context form */
+    /* Course context */
     .context-bar {
       display: flex;
-      gap: 0.75rem;
-      margin-bottom: 1.5rem;
+      gap: 0.85rem;
+      margin-bottom: 1.75rem;
+      animation: slideUp 0.4s var(--ease-out-expo) both;
+      animation-delay: 0.03s;
     }
 
     .context-field {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 0.3rem;
+      gap: 0.35rem;
     }
 
     .context-field label {
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: var(--text-secondary);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
 
     .context-field input {
-      padding: 0.5rem 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      padding: 0.55rem 0.8rem;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
       font-size: 0.85rem;
+      font-family: var(--font-body);
       background: var(--surface);
       color: var(--text);
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     .context-field input:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      box-shadow: 0 0 0 3px rgba(27, 107, 90, 0.1);
     }
 
-    /* Jobs list */
+    .context-field input::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    /* ── Jobs list ──────────────────────────────── */
     .section-title {
-      font-size: 0.8rem;
-      font-weight: 600;
+      font-size: 0.72rem;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-secondary);
-      margin-bottom: 0.75rem;
+      letter-spacing: 0.08em;
+      color: var(--text-tertiary);
+      margin-bottom: 0.85rem;
+      animation: slideUp 0.4s var(--ease-out-expo) both;
+      animation-delay: 0.08s;
     }
 
     .jobs-list {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.6rem;
     }
 
     .job-card {
       background: var(--surface);
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-light);
       border-radius: var(--radius);
-      padding: 1rem 1.25rem;
+      padding: 1rem 1.25rem 1rem 1.1rem;
       display: grid;
       grid-template-columns: 1fr auto;
       grid-template-rows: auto auto;
-      gap: 0.25rem 1rem;
+      gap: 0.2rem 1rem;
       align-items: center;
       box-shadow: var(--shadow);
-      transition: box-shadow 0.2s;
+      transition: box-shadow 0.25s, transform 0.2s, border-color 0.25s;
+      position: relative;
+      border-left: 3px solid var(--border);
+      animation: cardSlideIn 0.35s var(--ease-out-expo) both;
     }
 
     .job-card:hover {
-      box-shadow: var(--shadow-lg);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+      border-color: var(--border);
     }
 
     .job-filename {
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      color: var(--text);
     }
 
     .job-meta {
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: var(--text-secondary);
       grid-column: 1;
     }
@@ -449,76 +602,110 @@
       grid-row: 1 / 3;
       grid-column: 2;
       display: flex;
-      gap: 0.5rem;
+      gap: 0.45rem;
       align-items: center;
     }
 
-    /* Status badges */
+    /* ── Status badges ─────────────────────────── */
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
-      padding: 0.2rem 0.6rem;
+      gap: 0.35rem;
+      padding: 0.25rem 0.7rem;
       border-radius: 20px;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 600;
       white-space: nowrap;
+      letter-spacing: 0.01em;
     }
 
-    .badge-queued { background: #f3f4f6; color: #6b7280; }
-    .badge-processing { background: #eff6ff; color: #2563eb; }
-    .badge-completed { background: var(--success-bg); color: var(--success); }
-    .badge-failed { background: var(--error-bg); color: var(--error); }
+    .badge-queued {
+      background: var(--bg-warm);
+      color: var(--text-secondary);
+    }
+
+    .badge-processing {
+      background: var(--accent-light);
+      color: var(--accent);
+    }
+
+    .badge-completed {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .badge-failed {
+      background: var(--error-bg);
+      color: var(--error);
+    }
 
     .badge-dot {
       width: 6px; height: 6px;
       border-radius: 50%;
       background: currentColor;
+      flex-shrink: 0;
     }
 
     .badge-processing .badge-dot {
-      animation: pulse 1.5s ease-in-out infinite;
+      animation: processingPulse 1.8s ease-in-out infinite;
     }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
+    @keyframes processingPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.3; transform: scale(0.8); }
     }
 
-    /* Issue stats */
+    /* Left border accent per status */
+    .job-card:has(.badge-queued) { border-left-color: var(--text-tertiary); }
+    .job-card:has(.badge-processing) { border-left-color: var(--accent); }
+    .job-card:has(.badge-completed) { border-left-color: var(--success); }
+    .job-card:has(.badge-failed) { border-left-color: var(--error); }
+
+    /* ── Issue stats ───────────────────────────── */
     .stats {
-      display: flex;
-      gap: 0.75rem;
-      font-size: 0.8rem;
+      display: inline-flex;
+      gap: 0.65rem;
+      font-size: 0.78rem;
     }
 
-    .stat { display: flex; align-items: center; gap: 0.25rem; }
-    .stat-value { font-weight: 700; }
+    .stat {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+    }
+    .stat-value { font-weight: 700; font-variant-numeric: tabular-nums; }
     .stat-fixed { color: var(--success); }
     .stat-remaining { color: var(--warning); }
     .stat-review { color: var(--accent); }
 
-    /* Buttons */
+    /* ── Buttons ───────────────────────────────── */
     .btn {
       display: inline-flex;
       align-items: center;
       gap: 0.35rem;
-      padding: 0.4rem 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      font-size: 0.8rem;
+      padding: 0.4rem 0.8rem;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      font-family: var(--font-body);
       font-weight: 500;
       background: var(--surface);
       color: var(--text);
       cursor: pointer;
       text-decoration: none;
-      transition: all 0.15s;
+      transition: all 0.2s;
       white-space: nowrap;
     }
 
     .btn:hover {
       background: var(--bg);
-      border-color: #c9cdd4;
+      border-color: var(--border);
+      box-shadow: var(--shadow);
+      transform: translateY(-0.5px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
     }
 
     .btn-primary {
@@ -530,67 +717,135 @@
     .btn-primary:hover {
       background: var(--accent-hover);
       border-color: var(--accent-hover);
+      box-shadow: 0 2px 8px rgba(27, 107, 90, 0.2);
     }
 
     .btn:disabled {
-      opacity: 0.5;
+      opacity: 0.45;
       cursor: not-allowed;
+      transform: none;
     }
 
-    /* Empty state */
+    /* ── Batch grouping ────────────────────────── */
+    .batch-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .batch-header {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      padding: 0.6rem 0 0.15rem;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .batch-header-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border-light);
+    }
+
+    /* ── Empty state ───────────────────────────── */
     .empty-state {
       text-align: center;
-      padding: 3rem 1rem;
+      padding: 3.5rem 1rem;
+      color: var(--text-tertiary);
+    }
+
+    .empty-state-icon {
+      font-size: 2.25rem;
+      margin-bottom: 0.6rem;
+      opacity: 0.35;
+    }
+
+    .empty-state-text {
+      font-size: 0.88rem;
       color: var(--text-secondary);
     }
 
-    .empty-state-icon { font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.4; }
-    .empty-state-text { font-size: 0.9rem; }
-
-    /* Report modal */
+    /* ── Report modal ──────────────────────────── */
     .modal-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.5);
+      background: rgba(45, 42, 38, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       z-index: 100;
       align-items: center;
       justify-content: center;
     }
 
-    .modal-overlay.active { display: flex; }
+    .modal-overlay.active {
+      display: flex;
+      animation: overlayIn 0.25s ease both;
+    }
+
+    @keyframes overlayIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
 
     .modal {
       background: var(--surface);
-      border-radius: 12px;
+      border-radius: 16px;
       width: 90vw;
       max-width: 960px;
       max-height: 85vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      box-shadow: 0 24px 80px rgba(45, 42, 38, 0.18), 0 8px 24px rgba(45, 42, 38, 0.08);
+      animation: modalSlideUp 0.35s var(--ease-out-expo) both;
+      overflow: hidden;
+    }
+
+    @keyframes modalSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
     }
 
     .modal-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 1rem 1.25rem;
-      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border-light);
     }
 
     .modal-header h2 {
-      font-size: 1rem;
-      font-weight: 600;
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: var(--text);
     }
 
     .modal-close {
       background: none;
       border: none;
-      font-size: 1.25rem;
+      font-size: 1.35rem;
       cursor: pointer;
-      color: var(--text-secondary);
+      color: var(--text-tertiary);
       padding: 0.25rem;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+      line-height: 1;
+    }
+
+    .modal-close:hover {
+      color: var(--text);
+      background: var(--bg-warm);
     }
 
     .modal-body {
@@ -604,34 +859,610 @@
       border: none;
     }
 
-    /* Toast */
+    /* ── Toast ─────────────────────────────────── */
     .toast {
       position: fixed;
       bottom: 2rem;
       right: 2rem;
       background: var(--text);
-      color: white;
-      padding: 0.75rem 1.25rem;
-      border-radius: 8px;
+      color: #FAF8F5;
+      padding: 0.8rem 1.35rem;
+      border-radius: var(--radius);
       font-size: 0.85rem;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      transform: translateY(120%);
-      transition: transform 0.3s ease;
+      font-weight: 500;
+      box-shadow: 0 8px 32px rgba(45, 42, 38, 0.2);
+      transform: translateY(calc(100% + 3rem));
+      transition: transform 0.4s var(--ease-spring);
       z-index: 200;
+      max-width: 360px;
     }
 
-    .toast.visible { transform: translateY(0); }
+    .toast.visible {
+      transform: translateY(0);
+    }
 
-    /* View toggle */
+    /* ── View toggle ──────────────────────────── */
     .hidden { display: none !important; }
 
-    /* Responsive */
+    /* ── Animations ───────────────────────────── */
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes cardSlideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    /* ── Responsive ───────────────────────────── */
     @media (max-width: 640px) {
-      main { padding: 1rem; }
+      main { padding: 1.5rem 1rem; }
       .context-bar { flex-direction: column; }
-      .job-card { grid-template-columns: 1fr; }
-      .job-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }
-      .auth-container { margin: 2rem 1rem; }
+      .job-card { grid-template-columns: 1fr; padding: 0.85rem 1rem 0.85rem 0.9rem; }
+      .job-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-top: 0.4rem; }
+      .auth-container { margin: 2rem 0.75rem; padding: 1.75rem 1.5rem 1.5rem; }
+      header { padding: 0.9rem 1rem; }
+      .upload-section { padding: 2rem 1.25rem; }
+    }
+
+    /* ── Footer ───────────────────────────────── */
+    .site-footer {
+      margin-top: auto;
+      padding: 2rem 2rem 1.5rem;
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      position: relative;
+      z-index: 1;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.5rem;
+    }
+
+    .footer-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .footer-links a:hover {
+      color: var(--accent);
+      background: var(--accent-light);
+    }
+
+    .footer-sep {
+      color: var(--border);
+      user-select: none;
+    }
+
+    .footer-copy {
+      font-size: 0.72rem;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Info modal (TOS, Privacy, About, Credits) ── */
+    .info-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(45, 42, 38, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .info-modal-overlay.active {
+      display: flex;
+      animation: overlayIn 0.25s ease both;
+    }
+
+    .info-modal {
+      background: var(--surface);
+      border-radius: 16px;
+      width: 90vw;
+      max-width: 640px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 80px rgba(45, 42, 38, 0.18), 0 8px 24px rgba(45, 42, 38, 0.08);
+      animation: modalSlideUp 0.35s var(--ease-out-expo) both;
+      overflow: hidden;
+    }
+
+    .info-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.1rem 1.5rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .info-modal-header h2 {
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .info-modal-close {
+      background: none;
+      border: none;
+      font-size: 1.35rem;
+      cursor: pointer;
+      color: var(--text-tertiary);
+      padding: 0.25rem;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+      line-height: 1;
+    }
+
+    .info-modal-close:hover {
+      color: var(--text);
+      background: var(--bg-warm);
+    }
+
+    .info-modal-body {
+      flex: 1;
+      overflow: auto;
+      padding: 1.75rem 1.75rem 2rem;
+      font-size: 0.88rem;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    .info-modal-body h3 {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 1.5rem 0 0.5rem;
+      color: var(--text);
+    }
+
+    .info-modal-body h3:first-child {
+      margin-top: 0;
+    }
+
+    .info-modal-body p {
+      margin-bottom: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .info-modal-body ul {
+      margin: 0.35rem 0 0.75rem 1.25rem;
+      color: var(--text-secondary);
+    }
+
+    .info-modal-body li {
+      margin-bottom: 0.3rem;
+    }
+
+    .info-modal-body a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .info-modal-body a:hover {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .info-modal-body .credit-name {
+      font-family: var(--font-display);
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+
+    .info-modal-body .credit-role {
+      font-size: 0.82rem;
+      color: var(--text-tertiary);
+      margin-bottom: 0.5rem;
+    }
+
+    /* ── Admin panel ──────────────────────────── */
+    .admin-link {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      padding: 0.3rem 0.7rem;
+      border-radius: var(--radius-sm);
+      transition: background 0.15s, color 0.15s;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .admin-link:hover {
+      background: var(--accent-light);
+      border-color: var(--border-light);
+    }
+
+    .admin-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-decoration: none;
+      cursor: pointer;
+      margin-bottom: 1.25rem;
+      transition: color 0.15s;
+    }
+    .admin-back:hover { color: var(--accent); }
+
+    .admin-title {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.5rem;
+      color: var(--text);
+    }
+
+    .admin-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.85rem;
+      margin-bottom: 2rem;
+    }
+
+    .admin-stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 1.1rem 1.25rem;
+      box-shadow: var(--shadow);
+    }
+
+    .admin-stat-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      margin-bottom: 0.35rem;
+    }
+
+    .admin-stat-value {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .admin-stat-detail {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      margin-top: 0.15rem;
+    }
+
+    .admin-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      margin-bottom: 1rem;
+    }
+
+    .admin-search {
+      flex: 1;
+      max-width: 320px;
+      padding: 0.5rem 0.85rem;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-family: var(--font-body);
+      background: var(--surface);
+      color: var(--text);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .admin-search:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(27, 107, 90, 0.1);
+    }
+    .admin-search::placeholder { color: var(--text-tertiary); }
+
+    .admin-user-count {
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      margin-left: auto;
+    }
+
+    .admin-table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .admin-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    .admin-table thead {
+      background: var(--bg-warm);
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .admin-table th {
+      padding: 0.65rem 0.85rem;
+      text-align: left;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      transition: color 0.15s;
+    }
+    .admin-table th:hover { color: var(--text); }
+    .admin-table th .sort-arrow { font-size: 0.65rem; margin-left: 0.2rem; }
+
+    .admin-table td {
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid var(--border-light);
+      vertical-align: middle;
+    }
+
+    .admin-table tbody tr {
+      transition: background 0.1s;
+    }
+    .admin-table tbody tr:hover { background: var(--bg); }
+    .admin-table tbody tr:last-child td { border-bottom: none; }
+
+    .badge-tier {
+      display: inline-block;
+      padding: 0.15rem 0.55rem;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .badge-tier-free {
+      border: 1.5px solid var(--border);
+      color: var(--text-secondary);
+      background: transparent;
+    }
+    .badge-tier-paid {
+      background: var(--accent);
+      color: white;
+      border: 1.5px solid var(--accent);
+    }
+
+    .badge-admin {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      border-radius: 10px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      background: var(--warning-bg);
+      color: var(--warning);
+      letter-spacing: 0.02em;
+    }
+
+    .admin-actions {
+      display: flex;
+      gap: 0.35rem;
+    }
+
+    .btn-admin-sm {
+      padding: 0.25rem 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-family: var(--font-body);
+      font-weight: 500;
+      background: var(--surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn-admin-sm:hover {
+      background: var(--bg);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-admin-sm.danger:hover {
+      background: var(--error-bg);
+      color: var(--error);
+      border-color: rgba(196,61,61,0.25);
+    }
+
+    /* ── Edit user modal ─────────────────────── */
+    .edit-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(45, 42, 38, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .edit-modal-overlay.active {
+      display: flex;
+      animation: overlayIn 0.25s ease both;
+    }
+
+    .edit-modal {
+      background: var(--surface);
+      border-radius: 16px;
+      width: 90vw;
+      max-width: 440px;
+      box-shadow: 0 24px 80px rgba(45, 42, 38, 0.18), 0 8px 24px rgba(45, 42, 38, 0.08);
+      animation: modalSlideUp 0.35s var(--ease-out-expo) both;
+      overflow: hidden;
+    }
+
+    .edit-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.1rem 1.5rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .edit-modal-header h2 {
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .edit-modal-close {
+      background: none;
+      border: none;
+      font-size: 1.35rem;
+      cursor: pointer;
+      color: var(--text-tertiary);
+      padding: 0.25rem;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+      line-height: 1;
+    }
+    .edit-modal-close:hover {
+      color: var(--text);
+      background: var(--bg-warm);
+    }
+
+    .edit-modal-body {
+      padding: 1.5rem;
+    }
+
+    .edit-field {
+      margin-bottom: 1rem;
+    }
+
+    .edit-field label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+      color: var(--text-secondary);
+    }
+
+    .edit-field input[type="number"],
+    .edit-field select {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      font-family: var(--font-body);
+      background: var(--surface);
+      color: var(--text);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .edit-field input[type="number"]:focus,
+    .edit-field select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(27, 107, 90, 0.1);
+    }
+
+    .edit-field-check {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .edit-field-check input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .edit-field-check label {
+      margin-bottom: 0;
+      cursor: pointer;
+    }
+
+    .edit-modal-footer {
+      display: flex;
+      gap: 0.6rem;
+      justify-content: flex-end;
+      padding: 0 1.5rem 1.5rem;
+    }
+
+    .btn-cancel {
+      padding: 0.5rem 1rem;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-family: var(--font-body);
+      font-weight: 500;
+      background: var(--surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-cancel:hover {
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .btn-save {
+      padding: 0.5rem 1.2rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-family: var(--font-body);
+      font-weight: 600;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .btn-save:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 2px 8px rgba(27, 107, 90, 0.2);
+    }
+    .btn-save:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* Admin responsive */
+    @media (max-width: 640px) {
+      .admin-stats { grid-template-columns: 1fr; }
+      .admin-table-wrap { overflow-x: auto; }
+      .admin-table { min-width: 600px; }
+    }
+
+    /* ── Print ────────────────────────────────── */
+    @media print {
+      body::before { display: none; }
+      header, .upload-section, .context-bar, .usage-bar-container, .site-footer { display: none; }
+      .job-card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
     }
   </style>
 </head>
@@ -644,6 +1475,7 @@
   <h1>A11y Remediation</h1>
   <div class="header-right">
     <span class="header-subtitle" id="headerSubtitle">WCAG 2.1 AA Document Accessibility</span>
+    <a class="admin-link hidden" id="adminLink" onclick="showAdminView()" role="button" tabindex="0">Admin</a>
     <div class="user-menu hidden" id="userMenu">
       <span class="user-menu-name" id="userDisplayName"></span>
       <button class="btn-logout" onclick="handleLogout()" aria-label="Sign out">Sign out</button>
@@ -653,7 +1485,7 @@
 
 <main id="main-content">
 
-  <!-- ══ Auth View ══════════════════════════════════ -->
+  <!-- Auth View -->
   <div id="authView" class="hidden">
     <!-- Login form -->
     <div class="auth-container" id="loginForm">
@@ -724,7 +1556,7 @@
     </div>
   </div>
 
-  <!-- ══ App View ═══════════════════════════════════ -->
+  <!-- App View -->
   <div id="appView" class="hidden">
 
     <!-- Usage bar -->
@@ -779,7 +1611,92 @@
     </div>
   </div>
 
+  <!-- Admin View -->
+  <section id="adminView" class="hidden" aria-label="Admin panel">
+    <a class="admin-back" onclick="showAppViewFromAdmin()" role="button" tabindex="0">&larr; Back to app</a>
+    <h2 class="admin-title">Admin Panel</h2>
+
+    <!-- Stats -->
+    <div class="admin-stats" id="adminStats">
+      <div class="admin-stat-card">
+        <div class="admin-stat-label">Total Users</div>
+        <div class="admin-stat-value" id="statTotalUsers">&mdash;</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="admin-stat-label">Documents Processed</div>
+        <div class="admin-stat-value" id="statTotalDocs">&mdash;</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="admin-stat-label">Users by Tier</div>
+        <div class="admin-stat-value" id="statTierBreakdown">&mdash;</div>
+        <div class="admin-stat-detail" id="statTierDetail"></div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="admin-toolbar">
+      <input type="text" class="admin-search" id="adminSearch" placeholder="Search users by name or email..." oninput="filterAdminUsers()">
+      <span class="admin-user-count" id="adminUserCount"></span>
+    </div>
+
+    <!-- User table -->
+    <div class="admin-table-wrap">
+      <table class="admin-table" id="adminTable">
+        <thead>
+          <tr>
+            <th onclick="sortAdminUsers('display_name')">Name <span class="sort-arrow" id="sort-display_name"></span></th>
+            <th onclick="sortAdminUsers('email')">Email <span class="sort-arrow" id="sort-email"></span></th>
+            <th onclick="sortAdminUsers('tier')">Tier <span class="sort-arrow" id="sort-tier"></span></th>
+            <th onclick="sortAdminUsers('documents_used')">Usage <span class="sort-arrow" id="sort-documents_used"></span></th>
+            <th>Max Size</th>
+            <th onclick="sortAdminUsers('is_admin')">Admin <span class="sort-arrow" id="sort-is_admin"></span></th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="adminTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
 </main>
+
+<!-- Edit user modal -->
+<div class="edit-modal-overlay" id="editUserModal" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
+  <div class="edit-modal">
+    <div class="edit-modal-header">
+      <h2 id="editUserTitle">Edit User</h2>
+      <button class="edit-modal-close" onclick="closeEditUserModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="edit-modal-body">
+      <input type="hidden" id="editUserId">
+      <div class="edit-field">
+        <label for="editMaxDocs">Max documents</label>
+        <input type="number" id="editMaxDocs" min="0" step="1">
+      </div>
+      <div class="edit-field">
+        <label for="editMaxSize">Max file size (MB)</label>
+        <input type="number" id="editMaxSize" min="1" step="1">
+      </div>
+      <div class="edit-field">
+        <label for="editTier">Tier</label>
+        <select id="editTier">
+          <option value="free">Free</option>
+          <option value="paid">Paid</option>
+        </select>
+      </div>
+      <div class="edit-field">
+        <div class="edit-field-check">
+          <input type="checkbox" id="editIsAdmin">
+          <label for="editIsAdmin">Admin privileges</label>
+        </div>
+      </div>
+    </div>
+    <div class="edit-modal-footer">
+      <button class="btn-cancel" onclick="closeEditUserModal()">Cancel</button>
+      <button class="btn-save" id="editSaveBtn" onclick="saveUserEdits()">Save changes</button>
+    </div>
+  </div>
+</div>
 
 <!-- Report modal -->
 <div class="modal-overlay" id="reportModal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
@@ -793,6 +1710,31 @@
     </div>
   </div>
 </div>
+
+<!-- Info modal (TOS, Privacy, About, Credits) -->
+<div class="info-modal-overlay" id="infoModal" role="dialog" aria-modal="true" aria-labelledby="infoModalTitle">
+  <div class="info-modal">
+    <div class="info-modal-header">
+      <h2 id="infoModalTitle"></h2>
+      <button class="info-modal-close" onclick="closeInfoModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="info-modal-body" id="infoModalBody"></div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="site-footer">
+  <nav class="footer-links" aria-label="Legal and information">
+    <a href="#" onclick="openInfoModal(event, 'about')">About</a>
+    <span class="footer-sep" aria-hidden="true">&middot;</span>
+    <a href="#" onclick="openInfoModal(event, 'terms')">Terms of Service</a>
+    <span class="footer-sep" aria-hidden="true">&middot;</span>
+    <a href="#" onclick="openInfoModal(event, 'privacy')">Privacy</a>
+    <span class="footer-sep" aria-hidden="true">&middot;</span>
+    <a href="#" onclick="openInfoModal(event, 'credits')">Credits</a>
+  </nav>
+  <div class="footer-copy">&copy; 2026 Jen Kleiman. All rights reserved.</div>
+</footer>
 
 <!-- Toast -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -824,16 +1766,20 @@ async function checkAuth() {
 function showAuthView() {
   document.getElementById('authView').classList.remove('hidden');
   document.getElementById('appView').classList.add('hidden');
+  document.getElementById('adminView').classList.add('hidden');
   document.getElementById('userMenu').classList.add('hidden');
+  document.getElementById('adminLink').classList.add('hidden');
   document.getElementById('headerSubtitle').classList.remove('hidden');
 }
 
 function showAppView() {
   document.getElementById('authView').classList.add('hidden');
   document.getElementById('appView').classList.remove('hidden');
+  document.getElementById('adminView').classList.add('hidden');
   document.getElementById('headerSubtitle').classList.add('hidden');
   document.getElementById('userMenu').classList.remove('hidden');
   document.getElementById('userDisplayName').textContent = currentUser.display_name || currentUser.email;
+  document.getElementById('adminLink').classList.toggle('hidden', !currentUser.is_admin);
   updateUsageBar();
   refreshJobs();
 }
@@ -1031,6 +1977,11 @@ async function handleFiles(files) {
   const courseName = document.getElementById('courseName').value;
   const department = document.getElementById('department').value;
 
+  // Generate a batch ID when uploading multiple files
+  const batchId = files.length > 1
+    ? crypto.randomUUID().replace(/-/g, '').substring(0, 12)
+    : '';
+
   for (const file of files) {
     // Client-side size check
     if (currentUser && file.size > currentUser.max_file_size_mb * 1024 * 1024) {
@@ -1042,6 +1993,7 @@ async function handleFiles(files) {
     formData.append('file', file);
     formData.append('course_name', courseName);
     formData.append('department', department);
+    if (batchId) formData.append('batch_id', batchId);
 
     try {
       const res = await fetch(`${API}/api/upload`, {
@@ -1111,29 +2063,77 @@ function renderJobs(jobs) {
     return;
   }
 
-  list.innerHTML = jobs.map(job => {
-    const badge = statusBadge(job.status);
-    const meta = buildMeta(job);
-    const actions = buildActions(job);
+  // Group jobs by batch_id
+  const batches = new Map();  // batch_id -> [jobs]
+  const singles = [];         // jobs with no batch_id
 
-    return `
-      <div class="job-card">
-        <div class="job-filename">${esc(job.filename)}</div>
-        <div class="job-actions">${badge}${actions}</div>
-        <div class="job-meta">${meta}</div>
-      </div>
-    `;
-  }).join('');
+  for (const job of jobs) {
+    if (job.batch_id) {
+      if (!batches.has(job.batch_id)) batches.set(job.batch_id, []);
+      batches.get(job.batch_id).push(job);
+    } else {
+      singles.push(job);
+    }
+  }
+
+  // Separate multi-file batches from single-file batches
+  const multiBatches = new Map();
+  for (const [bid, bjobs] of batches) {
+    if (bjobs.length > 1) {
+      multiBatches.set(bid, bjobs);
+    } else {
+      singles.push(bjobs[0]);
+    }
+  }
+
+  let html = '';
+
+  // Render multi-file batches with headers
+  for (const [bid, bjobs] of multiBatches) {
+    const completed = bjobs.filter(j => j.status === 'completed').length;
+    html += `<div class="batch-group">`;
+    html += `<div class="batch-header">Batch &middot; ${completed} of ${bjobs.length} complete<span class="batch-header-line"></span></div>`;
+    html += bjobs.map(renderJobCard).join('');
+    html += `</div>`;
+  }
+
+  // Render singles
+  html += singles.map(renderJobCard).join('');
+  list.innerHTML = html;
 }
 
-function statusBadge(status) {
-  const labels = {
-    queued: 'Queued',
-    processing: 'Processing',
-    completed: 'Completed',
-    failed: 'Failed',
+function renderJobCard(job) {
+  const badge = statusBadge(job.status, job.phase);
+  const meta = buildMeta(job);
+  const actions = buildActions(job);
+
+  return `
+    <div class="job-card">
+      <div class="job-filename">${esc(job.filename)}</div>
+      <div class="job-actions">${badge}${actions}</div>
+      <div class="job-meta">${meta}</div>
+    </div>
+  `;
+}
+
+function statusBadge(status, phase) {
+  const phaseLabels = {
+    parsing: 'Parsing document',
+    comprehending: 'Analyzing content',
+    strategizing: 'Building strategy',
+    executing: 'Applying fixes',
+    reviewing: 'Reviewing results',
+    generating_report: 'Generating report',
   };
-  return `<span class="badge badge-${status}"><span class="badge-dot" aria-hidden="true"></span>${labels[status] || status}</span>`;
+
+  let label;
+  if (status === 'processing' && phase && phaseLabels[phase]) {
+    label = phaseLabels[phase];
+  } else {
+    const statusLabels = { queued: 'Queued', processing: 'Processing', completed: 'Completed', failed: 'Failed' };
+    label = statusLabels[status] || status;
+  }
+  return `<span class="badge badge-${status}"><span class="badge-dot" aria-hidden="true"></span>${label}</span>`;
 }
 
 function buildMeta(job) {
@@ -1156,6 +2156,7 @@ function buildMeta(job) {
 function buildActions(job) {
   if (job.status !== 'completed') return '';
   return `
+    <a class="btn" href="${API}/api/jobs/${job.id}/download-original">Original</a>
     <button class="btn" onclick="viewReport('${job.id}', '${esc(job.filename)}')">Report</button>
     <a class="btn btn-primary" href="${API}/api/jobs/${job.id}/download">Download</a>
   `;
@@ -1196,6 +2197,374 @@ function showToast(msg) {
   toast.classList.add('visible');
   setTimeout(() => toast.classList.remove('visible'), 3000);
 }
+
+// ── Info modals (About, TOS, Privacy, Credits) ──
+
+const infoContent = {
+  about: {
+    title: 'About',
+    body: `
+      <h3>What is A11y Remediation?</h3>
+      <p>A11y Remediation is an AI-powered tool that makes university course documents accessible to everyone, including students who use screen readers and other assistive technologies.</p>
+      <p>The DOJ's Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by April 24, 2026. Manual remediation costs $3&ndash;4 per page and can't keep up with the volume of material faculty produce each semester.</p>
+
+      <h3>How it works</h3>
+      <p>Unlike traditional checklist-based tools, A11y Remediation uses an agentic AI approach. It <em>understands</em> your document before fixing it:</p>
+      <ul>
+        <li><strong>Comprehend</strong> &mdash; Analyzes the document's structure, purpose, and context within your course</li>
+        <li><strong>Strategize</strong> &mdash; Plans remediation specific to the content (a bold heading in a math textbook is different from bold emphasis in a memo)</li>
+        <li><strong>Execute</strong> &mdash; Applies fixes: alt text, heading hierarchy, table structure, color contrast, link text, metadata, and more</li>
+        <li><strong>Review</strong> &mdash; Evaluates the result from a screen reader user's perspective and flags anything that needs human attention</li>
+      </ul>
+
+      <h3>Supported formats</h3>
+      <p>Word documents (.docx), PDFs (.pdf), and PowerPoint presentations (.pptx).</p>
+
+      <h3>Questions?</h3>
+      <p>Reach out at <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a>.</p>
+    `
+  },
+  terms: {
+    title: 'Terms of Service',
+    body: `
+      <h3>Acceptance of Terms</h3>
+      <p>By accessing or using A11y Remediation ("the Service"), you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.</p>
+
+      <h3>Description of Service</h3>
+      <p>The Service provides AI-assisted accessibility remediation of uploaded documents. It is designed to assist with WCAG 2.1 Level AA compliance but does not guarantee full compliance. Users should review all output and exercise professional judgment.</p>
+
+      <h3>Accounts</h3>
+      <p>You are responsible for maintaining the security of your account credentials. You must provide accurate information when creating an account. One account per person.</p>
+
+      <h3>Acceptable Use</h3>
+      <p>You may use the Service for lawful purposes related to document accessibility remediation. You agree not to:</p>
+      <ul>
+        <li>Upload documents containing malware or malicious content</li>
+        <li>Attempt to circumvent usage limits or access controls</li>
+        <li>Use the Service to process documents you do not have the right to modify</li>
+        <li>Reverse-engineer or interfere with the Service's operation</li>
+      </ul>
+
+      <h3>Your Content</h3>
+      <p>You retain all rights to documents you upload. Uploaded documents are processed and stored temporarily for remediation purposes only. We do not claim ownership of your content.</p>
+
+      <h3>Free Tier</h3>
+      <p>The free tier includes a limited number of documents. Limits may change. We reserve the right to modify or discontinue the free tier at any time.</p>
+
+      <h3>No Warranty</h3>
+      <p>The Service is provided "as is" without warranty of any kind. We do not guarantee that remediated documents will achieve full WCAG 2.1 AA compliance. AI-generated content (such as alt text) should be reviewed for accuracy.</p>
+
+      <h3>Limitation of Liability</h3>
+      <p>To the maximum extent permitted by law, we shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service.</p>
+
+      <h3>Changes</h3>
+      <p>We may update these Terms at any time. Continued use of the Service constitutes acceptance of the updated Terms.</p>
+
+      <p>Last updated: February 2026.</p>
+    `
+  },
+  privacy: {
+    title: 'Privacy Policy',
+    body: `
+      <h3>Information We Collect</h3>
+      <p><strong>Account information:</strong> Email address, display name, and hashed password. If you sign in with Google or Microsoft, we receive your name and email from the OAuth provider.</p>
+      <p><strong>Uploaded documents:</strong> Files you upload for remediation, along with any course context you provide (course name, department).</p>
+      <p><strong>Usage data:</strong> Number of documents processed, processing times, and job status information.</p>
+
+      <h3>How We Use Your Information</h3>
+      <ul>
+        <li>To provide the remediation service and deliver results</li>
+        <li>To manage your account and enforce usage limits</li>
+        <li>To send email notifications about completed or failed jobs (if SMTP is configured)</li>
+        <li>To improve the Service</li>
+      </ul>
+
+      <h3>Third-Party AI Services</h3>
+      <p>Document content is sent to AI services (Google Gemini and Anthropic Claude) for analysis and remediation. These services process your content according to their own privacy policies. We send only the minimum content necessary for remediation.</p>
+
+      <h3>Data Retention</h3>
+      <p>Uploaded documents and remediated output are stored for the duration of your account. You may request deletion of your data at any time by contacting us.</p>
+
+      <h3>Data Security</h3>
+      <p>Passwords are hashed using bcrypt. Sessions use encrypted JWT tokens stored in httpOnly cookies. All data is transmitted over HTTPS in production.</p>
+
+      <h3>Your Rights</h3>
+      <p>You may request access to, correction of, or deletion of your personal data by contacting <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a>.</p>
+
+      <h3>Changes</h3>
+      <p>We may update this Privacy Policy periodically. We will notify users of significant changes.</p>
+
+      <p>Last updated: February 2026.</p>
+    `
+  },
+  credits: {
+    title: 'Credits',
+    body: `
+      <h3>Created by</h3>
+      <p class="credit-name">Jen Kleiman</p>
+      <p class="credit-role">Concept, design, and development</p>
+      <p>Built as part of research into scalable accessibility solutions for higher education. Learn more at <a href="https://jenkleiman.com" target="_blank" rel="noopener">jenkleiman.com</a>.</p>
+
+      <h3>AI Services</h3>
+      <ul>
+        <li><strong>Google Gemini</strong> &mdash; Document comprehension and visual analysis</li>
+        <li><strong>Anthropic Claude</strong> &mdash; Strategy, execution reasoning, and quality review</li>
+      </ul>
+
+      <h3>Open Source</h3>
+      <p>This project is built with open-source software, including:</p>
+      <ul>
+        <li><strong>FastAPI</strong> &mdash; Web framework</li>
+        <li><strong>PyMuPDF</strong> &mdash; PDF text and image extraction</li>
+        <li><strong>python-docx</strong> &mdash; Word document processing</li>
+        <li><strong>python-pptx</strong> &mdash; PowerPoint processing</li>
+        <li><strong>iText</strong> &mdash; PDF structure tagging</li>
+        <li><strong>WeasyPrint</strong> &mdash; Accessible PDF generation</li>
+        <li><strong>Fraunces</strong> &amp; <strong>DM Sans</strong> &mdash; Typefaces by Google Fonts</li>
+      </ul>
+
+      <h3>Acknowledgments</h3>
+      <p>Thank you to the accessibility community, the W3C Web Accessibility Initiative, and the educators who are working to make course materials inclusive for all students.</p>
+    `
+  }
+};
+
+function openInfoModal(e, page) {
+  e.preventDefault();
+  const content = infoContent[page];
+  if (!content) return;
+  document.getElementById('infoModalTitle').textContent = content.title;
+  document.getElementById('infoModalBody').innerHTML = content.body;
+  document.getElementById('infoModal').classList.add('active');
+}
+
+function closeInfoModal() {
+  document.getElementById('infoModal').classList.remove('active');
+}
+
+document.getElementById('infoModal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeInfoModal();
+});
+
+// Extend existing Escape handler to also close info modal
+const origKeydown = document.onkeydown;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeInfoModal();
+});
+
+// ── Admin panel ──
+
+let adminUsers = [];
+let adminFilterText = '';
+let adminSortCol = 'email';
+let adminSortAsc = true;
+let editingUser = null;
+
+function showAdminView() {
+  document.getElementById('appView').classList.add('hidden');
+  document.getElementById('adminView').classList.remove('hidden');
+  fetchAdminStats();
+  fetchAdminUsers();
+}
+
+function showAppViewFromAdmin() {
+  document.getElementById('adminView').classList.add('hidden');
+  document.getElementById('appView').classList.remove('hidden');
+}
+
+async function fetchAdminStats() {
+  try {
+    const res = await fetch(`${API}/api/admin/stats`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('statTotalUsers').textContent = data.total_users;
+    document.getElementById('statTotalDocs').textContent = data.total_documents_processed;
+    const free = data.users_by_tier.free || 0;
+    const paid = data.users_by_tier.paid || 0;
+    document.getElementById('statTierBreakdown').textContent = `${free} / ${paid}`;
+    document.getElementById('statTierDetail').textContent = `${free} free \u00b7 ${paid} paid`;
+  } catch (e) {
+    console.error('Failed to fetch admin stats', e);
+  }
+}
+
+async function fetchAdminUsers() {
+  try {
+    const res = await fetch(`${API}/api/admin/users`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    adminUsers = data.users;
+    renderAdminTable();
+  } catch (e) {
+    console.error('Failed to fetch admin users', e);
+  }
+}
+
+function filterAdminUsers() {
+  adminFilterText = document.getElementById('adminSearch').value.toLowerCase().trim();
+  renderAdminTable();
+}
+
+function sortAdminUsers(col) {
+  if (adminSortCol === col) {
+    adminSortAsc = !adminSortAsc;
+  } else {
+    adminSortCol = col;
+    adminSortAsc = true;
+  }
+  renderAdminTable();
+}
+
+function renderAdminTable() {
+  let users = [...adminUsers];
+
+  // Filter
+  if (adminFilterText) {
+    users = users.filter(u =>
+      (u.display_name || '').toLowerCase().includes(adminFilterText) ||
+      u.email.toLowerCase().includes(adminFilterText)
+    );
+  }
+
+  // Sort
+  users.sort((a, b) => {
+    let va = a[adminSortCol];
+    let vb = b[adminSortCol];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (typeof va === 'boolean') { va = va ? 1 : 0; vb = vb ? 1 : 0; }
+    if (va < vb) return adminSortAsc ? -1 : 1;
+    if (va > vb) return adminSortAsc ? 1 : -1;
+    return 0;
+  });
+
+  // Update sort arrows
+  document.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '');
+  const arrow = document.getElementById(`sort-${adminSortCol}`);
+  if (arrow) arrow.textContent = adminSortAsc ? '\u25b2' : '\u25bc';
+
+  // Count
+  document.getElementById('adminUserCount').textContent = `${users.length} user${users.length !== 1 ? 's' : ''}`;
+
+  // Render rows
+  const tbody = document.getElementById('adminTableBody');
+  if (users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-tertiary);padding:2rem">No users found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td>${esc(u.display_name || '\u2014')}</td>
+      <td>${esc(u.email)}</td>
+      <td><span class="badge-tier badge-tier-${u.tier}">${u.tier}</span></td>
+      <td>${u.documents_used} / ${u.max_documents}</td>
+      <td>${u.max_file_size_mb} MB</td>
+      <td>${u.is_admin ? '<span class="badge-admin">admin</span>' : ''}</td>
+      <td class="admin-actions">
+        <button class="btn-admin-sm" onclick="openEditUserModal('${u.id}')">Edit</button>
+        <button class="btn-admin-sm danger" onclick="resetUserUsage('${u.id}', '${esc(u.email)}')">Reset</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openEditUserModal(userId) {
+  const user = adminUsers.find(u => u.id === userId);
+  if (!user) return;
+  editingUser = user;
+  document.getElementById('editUserId').value = user.id;
+  document.getElementById('editUserTitle').textContent = `Edit \u2014 ${user.display_name || user.email}`;
+  document.getElementById('editMaxDocs').value = user.max_documents;
+  document.getElementById('editMaxSize').value = user.max_file_size_mb;
+  document.getElementById('editTier').value = user.tier;
+  document.getElementById('editIsAdmin').checked = user.is_admin;
+  document.getElementById('editUserModal').classList.add('active');
+}
+
+function closeEditUserModal() {
+  document.getElementById('editUserModal').classList.remove('active');
+  editingUser = null;
+}
+
+async function saveUserEdits() {
+  if (!editingUser) return;
+  const btn = document.getElementById('editSaveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  const payload = {};
+  const newMaxDocs = parseInt(document.getElementById('editMaxDocs').value, 10);
+  const newMaxSize = parseInt(document.getElementById('editMaxSize').value, 10);
+  const newTier = document.getElementById('editTier').value;
+  const newIsAdmin = document.getElementById('editIsAdmin').checked;
+
+  if (newMaxDocs !== editingUser.max_documents) payload.max_documents = newMaxDocs;
+  if (newMaxSize !== editingUser.max_file_size_mb) payload.max_file_size_mb = newMaxSize;
+  if (newTier !== editingUser.tier) payload.tier = newTier;
+  if (newIsAdmin !== editingUser.is_admin) payload.is_admin = newIsAdmin;
+
+  if (Object.keys(payload).length === 0) {
+    closeEditUserModal();
+    btn.disabled = false;
+    btn.textContent = 'Save changes';
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/api/admin/users/${editingUser.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      showToast('User updated');
+      closeEditUserModal();
+      await fetchAdminUsers();
+      fetchAdminStats();
+    } else {
+      const data = await res.json();
+      showToast(data.error || 'Update failed');
+    }
+  } catch (e) {
+    showToast('Network error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save changes';
+  }
+}
+
+async function resetUserUsage(userId, email) {
+  if (!confirm(`Reset usage for ${email}? This sets their document count to 0.`)) return;
+
+  try {
+    const res = await fetch(`${API}/api/admin/users/${userId}/reset-usage`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (res.ok) {
+      showToast('Usage reset');
+      await fetchAdminUsers();
+      fetchAdminStats();
+    } else {
+      const data = await res.json();
+      showToast(data.error || 'Reset failed');
+    }
+  } catch (e) {
+    showToast('Network error');
+  }
+}
+
+// Close edit modal on backdrop click, Escape
+document.getElementById('editUserModal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeEditUserModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeEditUserModal();
+});
 
 // ── Initial load ──
 checkAuth();

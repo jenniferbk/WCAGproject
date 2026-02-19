@@ -1,9 +1,13 @@
-"""Tests for link analysis."""
+"""Tests for link analysis and link text modification."""
+
+import shutil
+from pathlib import Path
 
 import pytest
+from docx import Document
 
 from src.models.document import LinkInfo
-from src.tools.links import LinkIssueType, analyze_links
+from src.tools.links import LinkIssueType, LinkResult, analyze_links, set_link_text
 
 
 class TestAnalyzeLinks:
@@ -74,3 +78,69 @@ class TestAnalyzeLinks:
         result = analyze_links(links)
         assert result.total_links == 4
         assert result.issue_count == 3  # the 4th link is fine
+
+
+# ── set_link_text tests ────────────────────────────────────────────────
+
+TESTDOCS = Path(__file__).parent.parent / "testdocs"
+DOCX_WITH_LINKS = TESTDOCS / "Wesley Olivia Day 4.docx"
+
+
+class TestSetLinkText:
+    """Tests for set_link_text() on .docx documents."""
+
+    @pytest.fixture
+    def doc_with_links(self, tmp_path):
+        if not DOCX_WITH_LINKS.exists():
+            pytest.skip("Test docx with links not found")
+        dest = tmp_path / "links_test.docx"
+        shutil.copy2(DOCX_WITH_LINKS, dest)
+        return Document(str(dest)), dest
+
+    def test_set_link_text_success(self, doc_with_links):
+        doc, _ = doc_with_links
+        result = set_link_text(doc, 0, "Descriptive Link Text")
+        assert result.success
+        assert result.new_text == "Descriptive Link Text"
+        assert result.old_text  # should have had some text before
+
+    def test_set_link_text_persists_after_save(self, doc_with_links):
+        doc, path = doc_with_links
+        set_link_text(doc, 0, "Updated Link")
+        doc.save(str(path))
+
+        # Re-open and verify
+        doc2 = Document(str(path))
+        from docx.oxml.ns import qn
+        hyperlinks = list(doc2.element.body.iter(qn("w:hyperlink")))
+        first_hl = hyperlinks[0]
+        texts = []
+        for r in first_hl.findall(qn("w:r")):
+            for t in r.findall(qn("w:t")):
+                if t.text:
+                    texts.append(t.text)
+        assert "Updated Link" in "".join(texts)
+
+    def test_set_link_text_index_out_of_range(self, doc_with_links):
+        doc, _ = doc_with_links
+        result = set_link_text(doc, 9999, "Some Text")
+        assert not result.success
+        assert "out of range" in result.error
+
+    def test_set_link_text_negative_index(self, doc_with_links):
+        doc, _ = doc_with_links
+        result = set_link_text(doc, -1, "Some Text")
+        assert not result.success
+        assert "out of range" in result.error
+
+    def test_set_link_text_empty_text(self, doc_with_links):
+        doc, _ = doc_with_links
+        result = set_link_text(doc, 0, "")
+        assert not result.success
+        assert "empty" in result.error.lower()
+
+    def test_set_link_text_whitespace_only(self, doc_with_links):
+        doc, _ = doc_with_links
+        result = set_link_text(doc, 0, "   ")
+        assert not result.success
+        assert "empty" in result.error.lower()

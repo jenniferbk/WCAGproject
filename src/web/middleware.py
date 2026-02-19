@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Cookie, HTTPException
+from fastapi import Cookie, Depends, HTTPException
 
 from src.web.auth import COOKIE_NAME, verify_token
 from src.web.users import User, get_user
@@ -23,4 +23,11 @@ async def require_user(session: str | None = Cookie(default=None, alias=COOKIE_N
     user = await get_current_user(session)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
+    return user
+
+
+async def require_admin(user: User = Depends(require_user)) -> User:
+    """Require an admin user. Raises 403 if not admin."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user

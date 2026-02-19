@@ -10,9 +10,13 @@ from src.tools.pdf_parser import (
     parse_pdf,
     ParseResult,
     _get_base_font_name,
+    _is_likely_data_table,
+    _is_citation_like,
+    _apply_cluster_penalty,
     _should_split_before_line,
     _split_block_into_sub_paragraphs,
 )
+from src.models.document import FakeHeadingSignals, ParagraphInfo, RunInfo
 
 TESTDOCS = Path(__file__).parent.parent / "testdocs"
 SYLLABUS_PDF = TESTDOCS / "EMAT 8030 syllabus spring 2026.pdf"
@@ -437,6 +441,374 @@ class TestBlockSplittingHelpers:
         }
         groups = _split_block_into_sub_paragraphs(block)
         assert len(groups) == 4  # Title, Body1+2, Subhead, More body
+
+
+class TestTableFiltering:
+    """Test _is_likely_data_table() false positive filtering."""
+
+    def test_single_column_rejected(self):
+        data = [["row 1"], ["row 2"], ["row 3"]]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "single-column" in reason
+
+    def test_single_row_rejected(self):
+        data = [["col A", "col B", "col C"]]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "single-row" in reason
+
+    def test_very_small_table_rejected(self):
+        data = [["a", "b"], ["c", "d"]]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "very small" in reason
+
+    def test_high_empty_ratio_rejected(self):
+        # 3x3 with 7 of 9 cells empty = 78% empty
+        data = [
+            ["text", None, None],
+            [None, None, None],
+            [None, "text", None],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "empty" in reason
+
+    def test_long_text_narrow_table_rejected(self):
+        # 2-column table with very long cell text (bibliography pattern)
+        long_text = "Ginsburg, H. P., & Opper, S. (1988). " * 5  # ~190 chars
+        data = [
+            [long_text, ""],
+            [long_text, ""],
+            [long_text, ""],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        # May be caught by dominant column or per-column long text heuristic
+        assert "dominates" in reason or "long text" in reason
+
+    def test_real_schedule_table_accepted(self):
+        # Typical course schedule: 3+ cols, varied data
+        data = [
+            ["Date", "Topic", "Readings"],
+            ["Jan 12", "Introduction", "Chapter 1"],
+            ["Jan 19", "Theory", "Chapter 2"],
+            ["Jan 26", "Methods", "Chapter 3"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is True
+        assert reason == ""
+
+    def test_real_grading_table_accepted(self):
+        # Grading rubric: 4 cols, no empty cells
+        data = [
+            ["Component", "Weight", "Due Date", "Notes"],
+            ["Midterm", "30%", "March 5", "In class"],
+            ["Final", "40%", "May 10", "Cumulative"],
+            ["Homework", "30%", "Weekly", "Drop lowest"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is True
+
+    def test_empty_data_rejected(self):
+        is_table, reason = _is_likely_data_table([])
+        assert is_table is False
+        assert "empty" in reason
+
+    def test_three_col_with_some_empty_passes(self):
+        # 3-column table with ~22% empty (like schedule continuation) should pass
+        data = [
+            ["", "", "Reading continuation text here"],
+            ["Feb 9", "Topic name", "Read for today: article reference"],
+            ["Feb 16", "Another topic", "More readings and assignments"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is True
+
+    def test_just_over_60_pct_empty_rejected(self):
+        # 10 of 15 cells empty = 66.7% → over 60% threshold → rejected
+        data = [
+            ["a", None, None, None, "b"],
+            [None, None, "c", None, None],
+            ["d", None, None, None, "e"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "empty" in reason
+
+    def test_exactly_60_pct_empty_passes(self):
+        # Exactly 60% should pass (threshold is strictly >60%)
+        # 3x5 with 9 of 15 empty = 60.0%
+        data = [
+            ["a", None, "b", None, "c"],
+            [None, "d", None, "e", None],
+            ["f", None, "g", None, None],
+        ]
+        # Count: a, b, c, d, e, f, g = 7 non-empty, 8 empty out of 15 = 53%
+        # Need exactly 60%: 3x5 with 9 empty = 60%
+        data = [
+            ["a", None, None, None, "b"],
+            [None, None, "c", None, None],
+            [None, None, None, None, None],
+        ]
+        # 3 non-empty, 12 empty out of 15 = 80% — too much
+        # Let me use 5x3 with 9 of 15 empty:
+        data = [
+            ["a", "b", "c"],
+            [None, None, None],
+            ["d", None, "e"],
+            [None, "f", None],
+            [None, None, None],
+        ]
+        # 6 non-empty, 9 empty out of 15 = 60% — exactly at threshold
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is True  # 60% is NOT >60%
+
+
+class TestTableFilteringIntegration:
+    """Integration tests: table filtering on real syllabus PDF."""
+
+    def test_syllabus_has_tables(self):
+        """The course schedule should still be detected as a table."""
+        result = parse_pdf(SYLLABUS_PDF)
+        doc = result.document
+        assert doc.stats.table_count >= 1
+
+    def test_syllabus_fewer_tables_than_unfiltered(self):
+        """Filtering should reduce the table count significantly.
+
+        The syllabus has a course schedule (~4 real tables spanning pages 5-9)
+        plus many bibliography/reading list entries that PyMuPDF misidentifies.
+        After filtering, we should have fewer tables.
+        """
+        result = parse_pdf(SYLLABUS_PDF)
+        doc = result.document
+        # Before filtering: ~24 tables. After: should be significantly fewer.
+        assert doc.stats.table_count < 20
+
+    def test_schedule_table_preserved(self):
+        """The course schedule table (Date/Topic/Readings) should survive filtering."""
+        result = parse_pdf(SYLLABUS_PDF)
+        doc = result.document
+        # Find a table with "Date" or "Topic" in first row
+        schedule_tables = [
+            t for t in doc.tables
+            if t.rows and any("Date" in c.text or "Topic" in c.text for c in t.rows[0])
+        ]
+        assert len(schedule_tables) >= 1
+
+    def test_table_ids_sequential_after_filtering(self):
+        """Table IDs should remain sequential even after filtering removes some."""
+        result = parse_pdf(SYLLABUS_PDF)
+        doc = result.document
+        for i, t in enumerate(doc.tables):
+            assert t.id == f"tbl_{i}"
+
+    def test_paragraph_count_stable_or_increased(self):
+        """Filtering false tables should recover text as paragraphs.
+
+        Text inside rejected tables is no longer excluded from paragraph
+        extraction, so paragraph count should be >= before.
+        """
+        result = parse_pdf(SYLLABUS_PDF)
+        doc = result.document
+        # With filtering, text from rejected table rects flows into paragraphs
+        assert doc.stats.paragraph_count >= 100
+
+
+class TestTableFilteringBulletColumn:
+    """Test bullet/number first column heuristic."""
+
+    def test_bullet_first_column_rejected(self):
+        """Table with bullet characters in first column = formatted list."""
+        data = [
+            ["\u2022", "", "Smith, J. (2019). Title of article."],
+            ["\u2022", "", "Jones, K. (2020). Another reference."],
+            ["\u2022", "", "Brown, A. (2021). Yet another paper."],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "bullet" in reason
+
+    def test_dash_first_column_rejected(self):
+        data = [
+            ["-", "Item one description here"],
+            ["-", "Item two description here"],
+            ["-", "Item three description here"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "bullet" in reason
+
+    def test_number_first_column_rejected(self):
+        data = [
+            ["1.", "", "First reading assignment"],
+            ["2.", "", "Second reading assignment"],
+            ["3.", "", "Third reading assignment"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "bullet" in reason or "number" in reason
+
+    def test_non_bullet_first_column_passes(self):
+        """Real data in first column should not trigger bullet filter."""
+        data = [
+            ["Date", "Topic", "Reading"],
+            ["Jan 12", "Intro", "Chapter 1"],
+            ["Jan 19", "Methods", "Chapter 2"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is True
+
+
+class TestTableFilteringDominantColumn:
+    """Test dominant column heuristic."""
+
+    def test_one_column_dominates_text_rejected(self):
+        """If one column has >85% of all text, it's a list with formatting."""
+        data = [
+            ["", "Smith, J. (2019). A very long reference text that describes an important article in detail."],
+            ["", "Jones, K. (2020). Another lengthy reference with a long title and full bibliographic info."],
+            ["", "Brown, A. (2021). Yet another paper with extensive description and publication details."],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "dominates" in reason
+
+    def test_balanced_columns_pass(self):
+        """Columns with balanced text distribution should pass."""
+        data = [
+            ["Assignment", "Due Date", "Points"],
+            ["Homework 1", "Feb 1", "100"],
+            ["Homework 2", "Feb 15", "100"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is True
+
+
+class TestTableFilteringPerColumnLongText:
+    """Test per-column long text heuristic."""
+
+    def test_wide_table_long_column_rejected(self):
+        """3-column table where one column has long text = references."""
+        # Use enough text in other columns to avoid the dominant-column check
+        # (need the long column to be <=85% of total), but still >120 avg
+        long_ref = "x" * 150  # 150 chars average per cell
+        other_text = "y" * 40  # enough to keep dominant col under 85%
+        data = [
+            [other_text, other_text, long_ref],
+            [other_text, other_text, long_ref],
+            [other_text, other_text, long_ref],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is False
+        assert "long text" in reason
+
+    def test_wide_table_short_columns_pass(self):
+        """3-column table with short cell text should pass."""
+        data = [
+            ["Week 1", "Introduction", "Ch. 1"],
+            ["Week 2", "Literature Review", "Ch. 2"],
+            ["Week 3", "Methods", "Ch. 3"],
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        assert is_table is True
+
+    def test_long_column_needs_3_cells(self):
+        """Per-column long text needs >=3 non-empty cells to trigger."""
+        # Use 3 columns with enough text in other cols to avoid dominant-col
+        # check, but only 2 non-empty cells in the long column
+        long_ref = "x" * 150
+        other = "y" * 50
+        data = [
+            [other, other, long_ref],
+            [other, other, long_ref],
+            [other, other, ""],  # empty — only 2 non-empty in col 2
+        ]
+        is_table, reason = _is_likely_data_table(data)
+        # With only 2 non-empty cells in the long column, shouldn't trigger
+        assert is_table is True
+
+
+class TestCitationDetection:
+    """Test _is_citation_like() function."""
+
+    def test_parenthesized_year(self):
+        assert _is_citation_like("Smith, J. (2019). Some title.") is True
+
+    def test_et_al(self):
+        assert _is_citation_like("Johnson et al. published a study") is True
+
+    def test_many_commas(self):
+        assert _is_citation_like("Smith, Jones, Brown, and Davis wrote") is True
+
+    def test_normal_heading(self):
+        assert _is_citation_like("Course Schedule") is False
+
+    def test_short_heading(self):
+        assert _is_citation_like("Introduction") is False
+
+    def test_two_commas_not_enough(self):
+        assert _is_citation_like("First, second, and third") is False
+
+
+class TestClusterPenalty:
+    """Test _apply_cluster_penalty() function."""
+
+    def _make_para(self, text: str, score: float) -> ParagraphInfo:
+        signals = FakeHeadingSignals(
+            all_runs_bold=True,
+            is_short=True,
+            score=score,
+        )
+        return ParagraphInfo(
+            id=f"p_{id(text)}",
+            text=text,
+            runs=[RunInfo(text=text, bold=True)],
+            fake_heading_signals=signals,
+        )
+
+    def _make_non_candidate(self, text: str) -> ParagraphInfo:
+        return ParagraphInfo(
+            id=f"p_{id(text)}",
+            text=text,
+            runs=[RunInfo(text=text)],
+        )
+
+    def test_cluster_of_5_gets_penalty(self):
+        """5 consecutive candidates should get cluster penalty."""
+        paras = [self._make_para(f"Author {i}", 0.65) for i in range(5)]
+        result = _apply_cluster_penalty(paras)
+        for p in result:
+            assert p.fake_heading_signals.score < 0.65
+
+    def test_cluster_of_4_no_penalty(self):
+        """4 consecutive candidates should NOT get cluster penalty."""
+        paras = [self._make_para(f"Author {i}", 0.65) for i in range(4)]
+        result = _apply_cluster_penalty(paras)
+        for p in result:
+            assert p.fake_heading_signals.score == 0.65
+
+    def test_sparse_candidates_no_penalty(self):
+        """Candidates separated by non-candidates should not get penalty."""
+        paras = []
+        for i in range(10):
+            paras.append(self._make_para(f"Heading {i}", 0.65))
+            paras.append(self._make_non_candidate(f"Body text {i}"))
+        result = _apply_cluster_penalty(paras)
+        for p in result:
+            if p.fake_heading_signals is not None:
+                assert p.fake_heading_signals.score == 0.65
+
+    def test_non_candidates_unaffected(self):
+        """Non-candidate paragraphs should not be modified."""
+        paras = [self._make_non_candidate("Body")] * 3
+        paras.extend(self._make_para(f"A {i}", 0.65) for i in range(6))
+        result = _apply_cluster_penalty(paras)
+        # First 3 should be unchanged
+        for p in result[:3]:
+            assert p.fake_heading_signals is None
 
 
 class TestPdfStats:

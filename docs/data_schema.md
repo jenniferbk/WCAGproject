@@ -451,8 +451,9 @@ These are plain `@dataclass` (not Pydantic) for the web layer. Source files: `sr
 | `tier` | `str` | `"free"`, `"paid"` |
 | `created_at` | `str` | ISO 8601 |
 | `updated_at` | `str` | ISO 8601 |
+| `is_admin` | `bool` | Default: `False`. Auto-promoted via `ADMIN_EMAILS` env var on login/register. |
 
-`to_dict()` excludes `password_hash`, `oauth_provider_id`, `updated_at` — safe for API responses.
+`to_dict()` excludes `password_hash`, `oauth_provider_id`, `updated_at` — safe for API responses. Includes `is_admin`.
 
 ### Job (updated)
 

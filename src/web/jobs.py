@@ -74,6 +74,8 @@ class Job:
     created_at: str
     updated_at: str
     user_id: str = ""
+    batch_id: str = ""
+    phase: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -90,27 +92,36 @@ class Job:
             "processing_time": round(self.processing_time, 1),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "batch_id": self.batch_id,
+            "phase": self.phase,
         }
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:
     d = dict(row)
-    # user_id may not exist in old databases before migration
+    # Columns may not exist in old databases before migration
     d.setdefault("user_id", "")
+    d.setdefault("batch_id", "")
+    d.setdefault("phase", "")
     return Job(**d)
 
 
 def create_job(
-    filename: str, original_path: str, course_name: str = "", department: str = "", user_id: str = "",
+    filename: str,
+    original_path: str,
+    course_name: str = "",
+    department: str = "",
+    user_id: str = "",
+    batch_id: str = "",
 ) -> Job:
     """Create a new job record."""
     conn = _get_conn()
     job_id = uuid.uuid4().hex[:12]
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        """INSERT INTO jobs (id, filename, original_path, course_name, department, user_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (job_id, filename, original_path, course_name, department, user_id, now, now),
+        """INSERT INTO jobs (id, filename, original_path, course_name, department, user_id, batch_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (job_id, filename, original_path, course_name, department, user_id, batch_id, now, now),
     )
     conn.commit()
     return get_job(job_id)
@@ -134,6 +145,22 @@ def list_jobs(limit: int = 50, user_id: str = "") -> list[Job]:
     else:
         rows = conn.execute(
             "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [_row_to_job(row) for row in rows]
+
+
+def list_jobs_by_batch(batch_id: str, user_id: str = "") -> list[Job]:
+    """List jobs in a batch, newest first. Filter by user_id if provided."""
+    conn = _get_conn()
+    if user_id:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE batch_id = ? AND user_id = ? ORDER BY created_at DESC",
+            (batch_id, user_id),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE batch_id = ? ORDER BY created_at DESC",
+            (batch_id,),
         ).fetchall()
     return [_row_to_job(row) for row in rows]
 

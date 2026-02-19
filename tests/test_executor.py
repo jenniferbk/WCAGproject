@@ -24,6 +24,7 @@ from src.tools.pdf_parser import parse_pdf
 
 TESTDOCS = Path(__file__).parent.parent / "testdocs"
 DOCX_FILE = TESTDOCS / "Assignment 1.docx"
+DOCX_WITH_LINKS = TESTDOCS / "Wesley Olivia Day 4.docx"
 SYLLABUS_PDF = TESTDOCS / "EMAT 8030 syllabus spring 2026.pdf"
 
 
@@ -137,6 +138,59 @@ class TestExecuteDocx:
 
         assert result.success  # overall succeeds
         assert result.actions_failed == 1  # but this action failed
+
+
+    def test_execute_set_link_text(self, tmp_path):
+        if not DOCX_WITH_LINKS.exists():
+            pytest.skip("Test docx with links not found")
+        dest = tmp_path / "links.docx"
+        shutil.copy2(DOCX_WITH_LINKS, dest)
+
+        strategy = RemediationStrategy(actions=[
+            RemediationAction(
+                element_id="link_0",
+                action_type="set_link_text",
+                parameters={"new_text": "Accessible Link Description"},
+            ),
+        ])
+        result = execute(strategy, str(dest), output_dir=str(tmp_path))
+
+        assert result.success
+        assert result.actions_executed == 1
+        assert result.updated_actions[0]["status"] == "executed"
+
+    def test_execute_set_link_text_empty(self, docx_copy, tmp_path):
+        strategy = RemediationStrategy(actions=[
+            RemediationAction(
+                element_id="link_0",
+                action_type="set_link_text",
+                parameters={"new_text": ""},
+            ),
+        ])
+        result = execute(strategy, str(docx_copy), output_dir=str(tmp_path))
+
+        assert result.success
+        assert result.actions_failed == 1
+
+    def test_execute_set_link_text_pptx_skipped(self, tmp_path):
+        """set_link_text should be skipped for PPTX files."""
+        pptx_files = list(TESTDOCS.glob("*.pptx"))
+        if not pptx_files:
+            pytest.skip("No PPTX test files found")
+        dest = tmp_path / "test.pptx"
+        shutil.copy2(pptx_files[0], dest)
+
+        strategy = RemediationStrategy(actions=[
+            RemediationAction(
+                element_id="link_0",
+                action_type="set_link_text",
+                parameters={"new_text": "Some Text"},
+            ),
+        ])
+        result = execute(strategy, str(dest), output_dir=str(tmp_path))
+
+        assert result.success
+        assert result.actions_skipped == 1
 
 
 # ── PDF executor tests ─────────────────────────────────────────────────
@@ -307,6 +361,66 @@ class TestExecutePdf:
             ),
         ])
         result = execute_pdf(strategy, parsed_doc, output_dir=str(tmp_path))
+
+        assert result.success
+        assert result.actions_executed == 1
+
+    def test_execute_pdf_mark_header_rows_empty_first_row_skipped(self, tmp_path):
+        """mark_header_rows should skip when first row is all empty."""
+        doc = DocumentModel(
+            source_format="pdf",
+            source_path=str(SYLLABUS_PDF),
+            tables=[
+                TableInfo(
+                    id="tbl_0",
+                    rows=[
+                        [CellInfo(text=""), CellInfo(text=""), CellInfo(text="")],
+                        [CellInfo(text="Date"), CellInfo(text="Topic"), CellInfo(text="Reading")],
+                        [CellInfo(text="Jan 12"), CellInfo(text="Intro"), CellInfo(text="Ch 1")],
+                    ],
+                    page_number=0,
+                ),
+            ],
+        )
+        strategy = RemediationStrategy(actions=[
+            RemediationAction(
+                element_id="tbl_0",
+                action_type="mark_header_rows",
+                parameters={"header_count": 1},
+            ),
+        ])
+        result = execute_pdf(strategy, doc, output_dir=str(tmp_path))
+
+        assert result.success
+        # The action should be skipped, not executed
+        skipped = [a for a in result.updated_actions if a["status"] == "skipped"]
+        assert len(skipped) == 1
+        assert "empty" in skipped[0]["result_detail"].lower()
+
+    def test_execute_pdf_mark_header_rows_non_empty_first_row_works(self, tmp_path):
+        """mark_header_rows should work normally when first row has content."""
+        doc = DocumentModel(
+            source_format="pdf",
+            source_path=str(SYLLABUS_PDF),
+            tables=[
+                TableInfo(
+                    id="tbl_0",
+                    rows=[
+                        [CellInfo(text="Date"), CellInfo(text="Topic"), CellInfo(text="Reading")],
+                        [CellInfo(text="Jan 12"), CellInfo(text="Intro"), CellInfo(text="Ch 1")],
+                    ],
+                    page_number=0,
+                ),
+            ],
+        )
+        strategy = RemediationStrategy(actions=[
+            RemediationAction(
+                element_id="tbl_0",
+                action_type="mark_header_rows",
+                parameters={"header_count": 1},
+            ),
+        ])
+        result = execute_pdf(strategy, doc, output_dir=str(tmp_path))
 
         assert result.success
         assert result.actions_executed == 1

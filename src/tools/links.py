@@ -14,6 +14,9 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
+from docx.document import Document
+from docx.oxml.ns import qn
+
 from src.models.document import LinkInfo
 
 logger = logging.getLogger(__name__)
@@ -172,3 +175,72 @@ def analyze_links(links: list[LinkInfo]) -> LinkAnalysisResult:
         issues=issues,
         issue_count=len(issues),
     )
+
+
+@dataclass
+class LinkResult:
+    """Result of modifying a link in the document."""
+    success: bool
+    error: str = ""
+    old_text: str = ""
+    new_text: str = ""
+
+
+def set_link_text(doc: Document, link_index: int, new_text: str) -> LinkResult:
+    """Replace the display text of a hyperlink in a .docx document.
+
+    Iterates all w:hyperlink elements in document body order (same order
+    as docx_parser.py) and replaces text at the given index.
+
+    Args:
+        doc: An open python-docx Document.
+        link_index: 0-based index of the hyperlink to modify.
+        new_text: The new display text for the link.
+
+    Returns:
+        LinkResult with success/failure details.
+    """
+    if not new_text or not new_text.strip():
+        return LinkResult(success=False, error="New text must not be empty")
+
+    # Collect all hyperlinks in document body order
+    hyperlinks = list(doc.element.body.iter(qn("w:hyperlink")))
+
+    if link_index < 0 or link_index >= len(hyperlinks):
+        return LinkResult(
+            success=False,
+            error=f"Link index {link_index} out of range (document has {len(hyperlinks)} hyperlinks)",
+        )
+
+    hyperlink = hyperlinks[link_index]
+
+    # Get old text for reporting
+    old_parts = []
+    for r_elem in hyperlink.findall(qn("w:r")):
+        for t_elem in r_elem.findall(qn("w:t")):
+            if t_elem.text:
+                old_parts.append(t_elem.text)
+    old_text = "".join(old_parts)
+
+    # Replace text: set first run's text, clear the rest
+    runs = hyperlink.findall(qn("w:r"))
+    if not runs:
+        return LinkResult(success=False, error="Hyperlink has no runs")
+
+    first_run_set = False
+    for r_elem in runs:
+        t_elems = r_elem.findall(qn("w:t"))
+        for t_elem in t_elems:
+            if not first_run_set:
+                t_elem.text = new_text
+                # Preserve spaces
+                t_elem.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                first_run_set = True
+            else:
+                t_elem.text = ""
+
+    if not first_run_set:
+        return LinkResult(success=False, error="Hyperlink runs have no text elements")
+
+    logger.info("Set link %d text: %r → %r", link_index, old_text, new_text)
+    return LinkResult(success=True, old_text=old_text, new_text=new_text)

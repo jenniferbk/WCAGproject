@@ -5,10 +5,13 @@ Single entry point for end-to-end document remediation.
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 
+from src.models.document import DocumentModel
 from src.models.pipeline import (
     CostSummary,
     RemediationAction,
@@ -30,11 +33,76 @@ from .strategy import strategize
 logger = logging.getLogger(__name__)
 
 
-def process(request: RemediationRequest) -> RemediationResult:
+def _apply_struct_tag_fixes(
+    post_doc: DocumentModel,
+    updated_actions: list[dict],
+) -> DocumentModel:
+    """Patch a re-parsed PDF DocumentModel with fixes that iText applied
+    in the structure tree but that the PDF text-layer re-parser can't see.
+
+    Specifically:
+    - set_link_text actions: update link.text in the model
+    - mark_header_rows actions: update table.header_row_count in the model
+
+    Returns a new DocumentModel with patches applied (original is unchanged).
+    """
+    # Build lookups
+    link_by_id = {lnk.id: i for i, lnk in enumerate(post_doc.links)}
+    tbl_by_id = {tbl.id: i for i, tbl in enumerate(post_doc.tables)}
+
+    # Collect patches
+    link_patches: dict[int, str] = {}  # index -> new_text
+    tbl_patches: dict[int, int] = {}   # index -> header_row_count
+
+    for action in updated_actions:
+        if action["status"] != "executed":
+            continue
+
+        if action["action_type"] == "set_link_text":
+            eid = action["element_id"]
+            idx = link_by_id.get(eid)
+            if idx is not None:
+                link_patches[idx] = action["parameters"].get("new_text", "")
+
+        elif action["action_type"] == "mark_header_rows":
+            eid = action["element_id"]
+            idx = tbl_by_id.get(eid)
+            if idx is not None:
+                tbl_patches[idx] = action["parameters"].get("header_count", 1)
+
+    if not link_patches and not tbl_patches:
+        return post_doc
+
+    # Build patched model via dict round-trip (Pydantic frozen models)
+    model_dict = post_doc.model_dump()
+
+    for idx, new_text in link_patches.items():
+        model_dict["links"][idx]["text"] = new_text
+
+    for idx, header_count in tbl_patches.items():
+        model_dict["tables"][idx]["header_row_count"] = header_count
+
+    try:
+        patched = DocumentModel(**model_dict)
+        logger.info(
+            "Applied struct tag fixes: %d link(s), %d table(s)",
+            len(link_patches), len(tbl_patches),
+        )
+        return patched
+    except Exception as e:
+        logger.warning("Failed to apply struct tag fixes: %s", e)
+        return post_doc
+
+
+def process(
+    request: RemediationRequest,
+    on_phase: Callable[[str], None] | None = None,
+) -> RemediationResult:
     """Run the full remediation pipeline on a document.
 
     Args:
         request: RemediationRequest with document path and context.
+        on_phase: Optional callback invoked with phase name at each pipeline stage.
 
     Returns:
         RemediationResult with all artifacts and metrics.
@@ -64,6 +132,8 @@ def process(request: RemediationRequest) -> RemediationResult:
         )
 
     # ── Phase 0: Parse ──────────────────────────────────────────────
+    if on_phase:
+        on_phase("parsing")
     logger.info("Phase 0: Parsing document")
     if suffix == ".pptx":
         parse_result = parse_pptx(doc_path)
@@ -93,6 +163,8 @@ def process(request: RemediationRequest) -> RemediationResult:
     )
 
     # ── Phase 1: Comprehend (Gemini) ────────────────────────────────
+    if on_phase:
+        on_phase("comprehending")
     logger.info("Phase 1: Comprehension (Gemini)")
     comprehension = comprehend(
         doc_model,
@@ -107,6 +179,8 @@ def process(request: RemediationRequest) -> RemediationResult:
     )
 
     # ── Phase 2: Strategize (Claude) ────────────────────────────────
+    if on_phase:
+        on_phase("strategizing")
     logger.info("Phase 2: Strategy (Claude)")
     strategy = strategize(doc_model, comprehension)
     logger.info(
@@ -116,6 +190,8 @@ def process(request: RemediationRequest) -> RemediationResult:
     )
 
     # ── Phase 3: Execute ────────────────────────────────────────────
+    if on_phase:
+        on_phase("executing")
     logger.info("Phase 3: Execution")
     output_dir = request.output_dir or str(path.parent)
     if suffix == ".pdf":
@@ -144,6 +220,8 @@ def process(request: RemediationRequest) -> RemediationResult:
         logger.info("Companion HTML: %s", exec_result.companion_html_path)
 
     # ── Phase 4: Review (Claude) ────────────────────────────────────
+    if on_phase:
+        on_phase("reviewing")
     logger.info("Phase 4: Review (Claude)")
 
     # Re-parse the remediated document
@@ -155,6 +233,10 @@ def process(request: RemediationRequest) -> RemediationResult:
         post_parse = parse_docx(exec_result.output_path)
     if post_parse.success:
         post_doc = post_parse.document
+        # For PDFs, patch the re-parsed model with struct tag fixes that
+        # the text-layer parser can't see (link text, table headers).
+        if suffix == ".pdf":
+            post_doc = _apply_struct_tag_fixes(post_doc, exec_result.updated_actions)
         post_report = validate_document(post_doc)
         post_summary = format_report(post_report)
         issues_after = post_report.failed + post_report.warnings
@@ -213,6 +295,8 @@ def process(request: RemediationRequest) -> RemediationResult:
     )
 
     # ── Generate compliance report ──────────────────────────────────
+    if on_phase:
+        on_phase("generating_report")
     final_result = RemediationResult(
         success=True,
         input_path=doc_path,

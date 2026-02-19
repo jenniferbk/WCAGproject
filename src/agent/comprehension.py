@@ -124,8 +124,8 @@ _GEMINI_SUPPORTED_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 # Batching and rate limit settings
 IMAGES_PER_BATCH = 4           # Smaller batches = less tokens per request
-DELAY_BETWEEN_BATCHES = 20     # Seconds between image batches
-DELAY_BEFORE_COMPREHENSION = 15  # Seconds after images before text comprehension
+DELAY_BETWEEN_BATCHES = 5      # Seconds between image batches (retry backoff handles real rate limits)
+DELAY_BEFORE_COMPREHENSION = 5  # Seconds after images before text comprehension
 MAX_RETRIES = 3                # Max retries per Gemini call
 INITIAL_BACKOFF = 30           # Seconds for first retry backoff (doubles each retry)
 

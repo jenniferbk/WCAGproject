@@ -27,6 +27,7 @@ class User:
     tier: str  # 'free', 'paid'
     created_at: str
     updated_at: str
+    is_admin: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -39,6 +40,7 @@ class User:
             "max_file_size_mb": self.max_file_size_mb,
             "tier": self.tier,
             "created_at": self.created_at,
+            "is_admin": self.is_admin,
         }
 
 
@@ -63,17 +65,33 @@ def init_users_db() -> None:
     """)
     conn.commit()
 
-    # Migrate: add user_id column to jobs if missing
+    # Migrate: add is_admin column if missing
+    cursor = conn.execute("PRAGMA table_info(users)")
+    user_columns = {row[1] for row in cursor.fetchall()}
+    if "is_admin" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0")
+        conn.commit()
+
+    # Migrate: add columns to jobs if missing
     cursor = conn.execute("PRAGMA table_info(jobs)")
     columns = {row[1] for row in cursor.fetchall()}
     if "user_id" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN user_id TEXT DEFAULT ''")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)")
         conn.commit()
+    if "batch_id" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN batch_id TEXT DEFAULT ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_batch_id ON jobs(batch_id)")
+        conn.commit()
+    if "phase" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN phase TEXT DEFAULT ''")
+        conn.commit()
 
 
 def _row_to_user(row) -> User:
-    return User(**dict(row))
+    d = dict(row)
+    d["is_admin"] = bool(d.get("is_admin", 0))
+    return User(**d)
 
 
 def create_user(
@@ -150,3 +168,15 @@ def update_user(user_id: str, **kwargs) -> User | None:
     conn.execute(f"UPDATE users SET {sets} WHERE id = ?", values)
     conn.commit()
     return get_user(user_id)
+
+
+def list_users() -> list[User]:
+    """Return all users, newest first."""
+    conn = _get_conn()
+    rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+    return [_row_to_user(row) for row in rows]
+
+
+def reset_documents_used(user_id: str) -> User | None:
+    """Reset documents_used to 0 for a user."""
+    return update_user(user_id, documents_used=0)

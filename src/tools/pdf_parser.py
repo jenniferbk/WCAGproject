@@ -41,6 +41,9 @@ _WEIGHT_SHORT = 0.20
 _WEIGHT_FOLLOWED_BY = 0.10
 _WEIGHT_NOT_IN_TABLE = 0.10
 _WEIGHT_DISTINCT_FONT = 0.15
+_WEIGHT_CITATION_PENALTY = 0.30
+_WEIGHT_CLUSTER_PENALTY = 0.15
+_CLUSTER_THRESHOLD = 5  # consecutive candidates needed to trigger cluster penalty
 
 
 @dataclass
@@ -389,6 +392,122 @@ def _extract_metadata(doc: fitz.Document) -> MetadataInfo:
     )
 
 
+def _is_likely_data_table(
+    extracted: list[list[str | None]],
+) -> tuple[bool, str]:
+    """Evaluate whether extracted table data represents a real data table.
+
+    PyMuPDF's find_tables() frequently misidentifies bibliography entries,
+    reading lists, assignment lists, and other formatted text as tables.
+    This function applies conservative heuristics to reject strong false
+    positives while allowing genuine data tables through.
+
+    Args:
+        extracted: Row-major list of cell values from PyMuPDF tab.extract().
+
+    Returns:
+        (is_data_table, rejection_reason). If is_data_table is False,
+        rejection_reason explains why.
+    """
+    if not extracted:
+        return False, "empty table data"
+
+    row_count = len(extracted)
+    col_count = max((len(r) for r in extracted), default=0)
+
+    # Single-column "tables" are never real data tables — they're wrapped
+    # text, lists, or bibliography entries
+    if col_count <= 1:
+        return False, "single-column table"
+
+    # Single-row tables are formatting artifacts with no relational structure
+    if row_count <= 1:
+        return False, "single-row table"
+
+    # Very small tables (<=2 rows AND <=2 cols) lack meaningful data structure
+    if row_count <= 2 and col_count <= 2:
+        return False, "very small table (<=2x2)"
+
+    # Count empty vs total cells
+    total_cells = 0
+    empty_cells = 0
+    total_text_len = 0
+    for row in extracted:
+        for cell in row:
+            total_cells += 1
+            text = (cell or "").strip()
+            if not text:
+                empty_cells += 1
+            else:
+                total_text_len += len(text)
+
+    # >60% empty cells suggests a layout artifact
+    if total_cells > 0 and empty_cells / total_cells > 0.6:
+        return False, "over 60% empty cells"
+
+    # --- Heuristic: bullet/number first column ---
+    # If >50% of first-column cells are bullets or sequential numbers,
+    # this is a formatted list, not a data table.
+    bullet_re = re.compile(
+        r'^[\u2022\u2023\u25e6\u25aa\u25cf\u25cb\u2013\u2014\u2219\u00b7\-\*]\s*$'
+    )
+    number_re = re.compile(r'^\d{1,3}[\.\)]\s*$')
+    first_col_total = 0
+    first_col_bullet = 0
+    for row in extracted:
+        if row:
+            cell_text = (row[0] or "").strip()
+            if cell_text:
+                first_col_total += 1
+                if bullet_re.match(cell_text) or number_re.match(cell_text):
+                    first_col_bullet += 1
+    if first_col_total > 0 and first_col_bullet / first_col_total > 0.5:
+        return False, "bullet/number first column (formatted list)"
+
+    # Check if first row looks like a header — if so, skip text-distribution
+    # heuristics because real data tables (e.g., course schedules) can have
+    # a dominant "Readings" column with long text.
+    has_header_row = False
+    if row_count >= 2 and extracted[0]:
+        first_row_cells = [(c or "").strip() for c in extracted[0]]
+        non_empty_header_cells = [c for c in first_row_cells if c]
+        if (
+            len(non_empty_header_cells) >= 2
+            and all(len(c) < 50 for c in non_empty_header_cells)
+        ):
+            has_header_row = True
+
+    if not has_header_row:
+        # --- Heuristic: dominant column ---
+        # If one column holds >85% of all text characters, it's likely a list
+        # with formatting columns (bullets, spacing) rather than tabular data.
+        if col_count >= 2 and total_text_len > 0:
+            col_char_counts = [0] * col_count
+            for row in extracted:
+                for ci in range(min(len(row), col_count)):
+                    col_char_counts[ci] += len((row[ci] or "").strip())
+            max_col_chars = max(col_char_counts)
+            if max_col_chars / total_text_len > 0.85:
+                return False, "single column dominates text (likely list)"
+
+        # --- Heuristic: per-column long text ---
+        # If any single column averages >120 chars per non-empty cell (with >=3
+        # non-empty cells), it's likely prose/references, not tabular data.
+        for ci in range(col_count):
+            col_non_empty = 0
+            col_text_len = 0
+            for row in extracted:
+                if ci < len(row):
+                    cell_text = (row[ci] or "").strip()
+                    if cell_text:
+                        col_non_empty += 1
+                        col_text_len += len(cell_text)
+            if col_non_empty >= 3 and col_text_len / col_non_empty > 120:
+                return False, f"column {ci} has very long text (likely prose/references)"
+
+    return True, ""
+
+
 def _extract_tables(
     page: fitz.Page,
     page_num: int,
@@ -405,15 +524,27 @@ def _extract_tables(
 
     try:
         tab_finder = page.find_tables()
-        for i, tab in enumerate(tab_finder.tables):
-            tbl_id = f"tbl_{table_offset + i}"
+        accepted_count = 0
+        for tab in tab_finder.tables:
             tab_rect = fitz.Rect(tab.bbox)
-            table_rects.append(tab_rect)
 
-            # Extract cell data
+            # Extract cell data BEFORE adding rect to exclusion list
             extracted = tab.extract()
             if not extracted:
                 continue
+
+            # Filter out false positive tables
+            is_data_table, reason = _is_likely_data_table(extracted)
+            if not is_data_table:
+                logger.debug(
+                    "Filtered non-data table on page %d: %s", page_num, reason
+                )
+                continue
+
+            # Only now add the rect (text inside real tables excluded from paragraphs)
+            table_rects.append(tab_rect)
+
+            tbl_id = f"tbl_{table_offset + accepted_count}"
 
             rows: list[list[CellInfo]] = []
             for row_data in extracted:
@@ -441,6 +572,7 @@ def _extract_tables(
                 bbox=(tab_rect.x0, tab_rect.y0, tab_rect.x1, tab_rect.y1),
                 page_number=page_num,
             ))
+            accepted_count += 1
     except Exception as e:
         warnings.append(f"Table extraction failed on page: {e}")
 
@@ -998,6 +1130,11 @@ def _score_fake_headings(
             + _WEIGHT_DISTINCT_FONT * (1.0 if has_distinct_font else 0.0)
         )
 
+        # Citation penalty: bold author names in bibliography sections
+        citation_like = _is_citation_like(para.text)
+        if citation_like:
+            score = max(0.0, score - _WEIGHT_CITATION_PENALTY)
+
         signals = FakeHeadingSignals(
             all_runs_bold=all_bold,
             font_size_pt=max_font_size,
@@ -1006,10 +1143,76 @@ def _score_fake_headings(
             followed_by_non_bold=followed_by_non_bold,
             not_in_table=True,
             distinct_font=has_distinct_font,
+            citation_like=citation_like,
             score=round(score, 3),
         )
 
         updated = para.model_copy(update={"fake_heading_signals": signals})
         result.append(updated)
+
+    # Second pass: cluster penalty — real headings are sparse, bibliography
+    # entries cluster. If 5+ consecutive candidates, reduce each score.
+    result = _apply_cluster_penalty(result)
+
+    return result
+
+
+_CITATION_YEAR_RE = re.compile(r'\(\d{4}\)')
+_ET_AL_RE = re.compile(r'\bet\s+al\.', re.IGNORECASE)
+
+
+def _is_citation_like(text: str) -> bool:
+    """Check if text looks like a bibliography citation."""
+    # Contains parenthesized year like (2019)
+    if _CITATION_YEAR_RE.search(text):
+        return True
+    # Contains "et al."
+    if _ET_AL_RE.search(text):
+        return True
+    # Has 3+ commas (typical of author lists)
+    if text.count(",") >= 3:
+        return True
+    return False
+
+
+def _apply_cluster_penalty(paragraphs: list[ParagraphInfo]) -> list[ParagraphInfo]:
+    """Reduce scores for clusters of consecutive fake heading candidates.
+
+    Real headings are sparse; bibliography entries cluster together. If 5+
+    consecutive paragraphs have score >= 0.5, reduce each by the cluster penalty.
+    """
+    # Identify runs of consecutive candidates
+    runs: list[list[int]] = []  # list of [start_idx, ...] groups
+    current_run: list[int] = []
+
+    for i, para in enumerate(paragraphs):
+        signals = para.fake_heading_signals
+        if signals is not None and signals.score >= 0.5:
+            current_run.append(i)
+        else:
+            if len(current_run) >= _CLUSTER_THRESHOLD:
+                runs.append(current_run)
+            current_run = []
+    # Don't forget the last run
+    if len(current_run) >= _CLUSTER_THRESHOLD:
+        runs.append(current_run)
+
+    if not runs:
+        return paragraphs
+
+    # Apply penalty to clustered candidates
+    result = list(paragraphs)
+    penalty_indices = set()
+    for run in runs:
+        penalty_indices.update(run)
+
+    for idx in penalty_indices:
+        para = result[idx]
+        signals = para.fake_heading_signals
+        if signals is None:
+            continue
+        new_score = max(0.0, signals.score - _WEIGHT_CLUSTER_PENALTY)
+        new_signals = signals.model_copy(update={"score": round(new_score, 3)})
+        result[idx] = para.model_copy(update={"fake_heading_signals": new_signals})
 
     return result

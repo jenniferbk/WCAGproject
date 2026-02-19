@@ -98,6 +98,7 @@ class FakeHeadingSignals(BaseModel, frozen=True):
     followed_by_non_bold: bool = False
     not_in_table: bool = True
     distinct_font: bool = False  # uses a different font family from body text
+    citation_like: bool = False  # looks like a bibliography citation
     score: float = 0.0  # weighted 0-1 composite
 
 

@@ -30,6 +30,7 @@ from src.tools.html_builder import build_html
 from src.tools.itext_tagger import build_tagging_plan, tag_pdf
 from src.tools.metadata import set_language, set_language_pptx, set_title, set_title_pptx
 from src.tools.pdf_writer import apply_contrast_fixes_to_pdf, apply_pdf_fixes, strip_struct_tree, update_existing_figure_alt_texts
+from src.tools.links import set_link_text
 from src.tools.tables import mark_header_rows
 
 logger = logging.getLogger(__name__)
@@ -408,6 +409,18 @@ def _apply_pdf_action(
             idx = tbl_id_to_idx.get(element_id)
             if idx is None:
                 return _action_dict(action, "failed", f"Table not found: {element_id}")
+            # Check if first row is all empty — don't mark empty rows as headers
+            table_rows = model_dict["tables"][idx].get("rows", [])
+            if table_rows and count >= 1:
+                first_row = table_rows[0]
+                all_empty = all(
+                    not (cell.get("text") or "").strip() for cell in first_row
+                )
+                if all_empty:
+                    return _action_dict(
+                        action, "skipped",
+                        "First row is all empty — not marking as header",
+                    )
             model_dict["tables"][idx]["header_row_count"] = count
             return _action_dict(action, "executed", f"Marked {count} header row(s)")
 
@@ -571,6 +584,25 @@ def _execute_action(doc_or_prs, action: RemediationAction, paragraphs: list | No
 
             if result.success:
                 return _action_dict(action, "executed", f"Set language: {lang}")
+            return _action_dict(action, "failed", result.error)
+
+        elif action_type == "set_link_text":
+            if is_pptx:
+                return _action_dict(action, "skipped", "Link text modification not yet supported for PPTX")
+
+            new_text = params.get("new_text", "")
+            if not new_text:
+                return _action_dict(action, "failed", "Empty new_text")
+
+            # Parse link index from element_id (e.g., "link_5" → 5)
+            try:
+                link_index = int(action.element_id.split("_", 1)[1])
+            except (IndexError, ValueError):
+                return _action_dict(action, "failed", f"Cannot parse link index from: {action.element_id}")
+
+            result = set_link_text(doc_or_prs, link_index, new_text)
+            if result.success:
+                return _action_dict(action, "executed", f"Set link text: {new_text[:80]}")
             return _action_dict(action, "failed", result.error)
 
         elif action_type == "fix_all_contrast":

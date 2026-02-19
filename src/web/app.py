@@ -10,6 +10,7 @@ Provides:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import threading
@@ -28,15 +29,20 @@ from src.web.auth import (
     set_session_cookie,
     verify_password,
 )
-from src.web.jobs import create_job, get_job, init_db, list_jobs, update_job
-from src.web.middleware import get_current_user, require_user
+from src.web.email import send_job_complete_email, send_job_failed_email
+from src.web.jobs import create_job, get_job, init_db, list_jobs, list_jobs_by_batch, update_job
+from src.web.middleware import get_current_user, require_admin, require_user
 from src.web.users import (
     User,
     create_user,
+    get_user,
     get_user_by_email,
     get_user_by_oauth,
     increment_documents_used,
     init_users_db,
+    list_users,
+    reset_documents_used,
+    update_user,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,17 @@ def startup():
     init_users_db()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _check_admin_promotion(user: User) -> User:
+    """Auto-promote user to admin if their email is in ADMIN_EMAILS."""
+    admin_emails_raw = os.environ.get("ADMIN_EMAILS", "jennifer.b.kleiman@gmail.com")
+    admin_emails = {e.strip().lower() for e in admin_emails_raw.split(",") if e.strip()}
+    if user.email.lower() in admin_emails and not user.is_admin:
+        updated = update_user(user.id, is_admin=True)
+        if updated:
+            return updated
+    return user
 
 
 @app.get("/api/health")
@@ -94,6 +111,7 @@ async def register(data: dict):
 
     hashed = hash_password(password)
     user = create_user(email=email, password_hash=hashed, display_name=display_name or email.split("@")[0])
+    user = _check_admin_promotion(user)
 
     token = create_token(user.id, user.email)
     response = JSONResponse(content={"user": user.to_dict()})
@@ -114,6 +132,7 @@ async def login(data: dict):
     if not user or not user.password_hash or not verify_password(password, user.password_hash):
         return JSONResponse(status_code=401, content={"error": "Invalid email or password"})
 
+    user = _check_admin_promotion(user)
     token = create_token(user.id, user.email)
     response = JSONResponse(content={"user": user.to_dict()})
     set_session_cookie(response, token)
@@ -156,6 +175,7 @@ async def google_callback(code: str = "", state: str = ""):
     try:
         from src.web.oauth import handle_google_callback
         user = await handle_google_callback(code, state)
+        user = _check_admin_promotion(user)
         token = create_token(user.id, user.email)
         # Redirect to home page with cookie set
         response = HTMLResponse('<script>window.location="/"</script>')
@@ -184,6 +204,7 @@ async def microsoft_callback(code: str = "", state: str = ""):
     try:
         from src.web.oauth import handle_microsoft_callback
         user = await handle_microsoft_callback(code, state)
+        user = _check_admin_promotion(user)
         token = create_token(user.id, user.email)
         response = HTMLResponse('<script>window.location="/"</script>')
         set_session_cookie(response, token)
@@ -201,6 +222,7 @@ async def upload_file(
     file: UploadFile = File(...),
     course_name: str = Form(""),
     department: str = Form(""),
+    batch_id: str = Form(""),
 ):
     """Upload a document for remediation. Requires authentication."""
     filename = file.filename or "unknown"
@@ -240,7 +262,7 @@ async def upload_file(
         )
 
     # Save uploaded file
-    job = create_job(filename, "", course_name, department, user_id=user.id)
+    job = create_job(filename, "", course_name, department, user_id=user.id, batch_id=batch_id)
     upload_path = UPLOAD_DIR / f"{job.id}_{filename}"
 
     with open(upload_path, "wb") as f:
@@ -318,7 +340,122 @@ async def download_original(job_id: str, user: User = Depends(require_user)):
     )
 
 
+@app.get("/api/batches/{batch_id}")
+async def get_batch(batch_id: str, user: User = Depends(require_user)):
+    """Get aggregate stats for a batch of jobs."""
+    jobs = list_jobs_by_batch(batch_id, user_id=user.id)
+    if not jobs:
+        return JSONResponse(status_code=404, content={"error": "Batch not found"})
+
+    total = len(jobs)
+    completed = sum(1 for j in jobs if j.status == "completed")
+    failed = sum(1 for j in jobs if j.status == "failed")
+    processing = sum(1 for j in jobs if j.status in ("queued", "processing"))
+
+    return {
+        "batch_id": batch_id,
+        "total": total,
+        "completed": completed,
+        "failed": failed,
+        "processing": processing,
+        "jobs": [j.to_dict() for j in jobs],
+    }
+
+
+# ── Admin endpoints ──────────────────────────────────────────────
+
+@app.get("/api/admin/users")
+async def admin_list_users(admin: User = Depends(require_admin)):
+    """List all users with usage stats."""
+    users = list_users()
+    return {"users": [u.to_dict() for u in users]}
+
+
+@app.get("/api/admin/users/{user_id}")
+async def admin_get_user(user_id: str, admin: User = Depends(require_admin)):
+    """Get a single user's details."""
+    user = get_user(user_id)
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+    return {"user": user.to_dict()}
+
+
+@app.patch("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: str, data: dict, admin: User = Depends(require_admin)):
+    """Update user fields (tier, max_documents, max_file_size_mb, is_admin)."""
+    user = get_user(user_id)
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+
+    allowed_fields = {"tier", "max_documents", "max_file_size_mb", "is_admin"}
+    updates = {k: v for k, v in data.items() if k in allowed_fields}
+
+    if not updates:
+        return JSONResponse(status_code=400, content={"error": "No valid fields to update"})
+
+    # Validate
+    if "tier" in updates and updates["tier"] not in ("free", "paid"):
+        return JSONResponse(status_code=400, content={"error": "tier must be 'free' or 'paid'"})
+    if "max_documents" in updates:
+        if not isinstance(updates["max_documents"], int) or updates["max_documents"] < 0:
+            return JSONResponse(status_code=400, content={"error": "max_documents must be a non-negative integer"})
+    if "max_file_size_mb" in updates:
+        if not isinstance(updates["max_file_size_mb"], int) or updates["max_file_size_mb"] < 1:
+            return JSONResponse(status_code=400, content={"error": "max_file_size_mb must be a positive integer"})
+    if "is_admin" in updates:
+        if not isinstance(updates["is_admin"], bool):
+            return JSONResponse(status_code=400, content={"error": "is_admin must be a boolean"})
+
+    updated = update_user(user_id, **updates)
+    return {"user": updated.to_dict()}
+
+
+@app.post("/api/admin/users/{user_id}/reset-usage")
+async def admin_reset_usage(user_id: str, admin: User = Depends(require_admin)):
+    """Reset a user's documents_used to 0."""
+    user = get_user(user_id)
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+
+    updated = reset_documents_used(user_id)
+    return {"user": updated.to_dict()}
+
+
+@app.get("/api/admin/stats")
+async def admin_stats(admin: User = Depends(require_admin)):
+    """Aggregate stats: total users, total docs processed, users by tier."""
+    users = list_users()
+    total_users = len(users)
+    total_docs = sum(u.documents_used for u in users)
+    by_tier: dict[str, int] = {}
+    for u in users:
+        by_tier[u.tier] = by_tier.get(u.tier, 0) + 1
+
+    return {
+        "total_users": total_users,
+        "total_documents_processed": total_docs,
+        "users_by_tier": by_tier,
+    }
+
+
 # ── Background processing ───────────────────────────────────────
+
+def _send_notification(job_id: str) -> None:
+    """Send email notification for a completed/failed job."""
+    try:
+        job = get_job(job_id)
+        if not job or not job.user_id:
+            return
+        user = get_user(job.user_id)
+        if not user or not user.email:
+            return
+        if job.status == "completed":
+            send_job_complete_email(user.email, job)
+        elif job.status == "failed":
+            send_job_failed_email(user.email, job)
+    except Exception:
+        logger.exception("Failed to send notification for job %s", job_id)
+
 
 def _process_job(job_id: str) -> None:
     """Process a remediation job in the background."""
@@ -328,6 +465,9 @@ def _process_job(job_id: str) -> None:
 
     update_job(job_id, status="processing")
     logger.info("Processing job %s: %s", job_id, job.filename)
+
+    def on_phase(phase: str) -> None:
+        update_job(job_id, phase=phase)
 
     try:
         # Build output dir for this job
@@ -343,12 +483,13 @@ def _process_job(job_id: str) -> None:
             ),
         )
 
-        result = process(request)
+        result = process(request, on_phase=on_phase)
 
         if result.success:
             update_job(
                 job_id,
                 status="completed",
+                phase="",
                 output_path=result.output_path or "",
                 report_path=result.report_path or "",
                 issues_before=result.issues_before,
@@ -358,15 +499,19 @@ def _process_job(job_id: str) -> None:
                 processing_time=result.processing_time_seconds,
             )
             logger.info("Job %s completed: %d→%d issues", job_id, result.issues_before, result.issues_after)
+            _send_notification(job_id)
         else:
             update_job(
                 job_id,
                 status="failed",
+                phase="",
                 error=result.error or "Unknown error",
                 processing_time=result.processing_time_seconds,
             )
             logger.error("Job %s failed: %s", job_id, result.error)
+            _send_notification(job_id)
 
     except Exception as e:
         logger.exception("Job %s crashed", job_id)
-        update_job(job_id, status="failed", error=str(e))
+        update_job(job_id, status="failed", phase="", error=str(e))
+        _send_notification(job_id)

@@ -51,6 +51,11 @@ UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "data" / "output"
 STATIC_DIR = Path(__file__).parent / "static"
 
+# Limit concurrent remediation jobs to avoid API rate limits.
+# With a 30k input tokens/min Claude rate limit, only one job
+# can safely process at a time.
+_processing_semaphore = threading.Semaphore(1)
+
 app = FastAPI(title="A11y Remediation", version="0.1.0")
 
 
@@ -458,12 +463,30 @@ def _send_notification(job_id: str) -> None:
 
 
 def _process_job(job_id: str) -> None:
-    """Process a remediation job in the background."""
+    """Process a remediation job in the background.
+
+    Uses a semaphore to ensure only one job processes at a time,
+    avoiding API rate limit errors when multiple docs are uploaded.
+    """
     job = get_job(job_id)
     if not job:
         return
 
-    update_job(job_id, status="processing")
+    update_job(job_id, status="queued", phase="waiting")
+    _processing_semaphore.acquire()
+    try:
+        _process_job_inner(job_id)
+    finally:
+        _processing_semaphore.release()
+
+
+def _process_job_inner(job_id: str) -> None:
+    """Inner processing logic, called while holding the semaphore."""
+    job = get_job(job_id)
+    if not job:
+        return
+
+    update_job(job_id, status="processing", phase="")
     logger.info("Processing job %s: %s", job_id, job.filename)
 
     def on_phase(phase: str) -> None:

@@ -16,8 +16,11 @@ import shutil
 import threading
 from pathlib import Path
 
+import io
+import zipfile
+
 from fastapi import Depends, FastAPI, File, Form, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.agent.orchestrator import process
@@ -30,7 +33,17 @@ from src.web.auth import (
     verify_password,
 )
 from src.web.email import send_job_complete_email, send_job_failed_email
-from src.web.jobs import create_job, get_job, init_db, list_jobs, list_jobs_by_batch, update_job
+from src.web.jobs import (
+    create_job,
+    delete_jobs,
+    get_deletable_jobs,
+    get_job,
+    get_jobs_by_ids,
+    init_db,
+    list_jobs,
+    list_jobs_by_batch,
+    update_job,
+)
 from src.web.middleware import get_current_user, require_admin, require_user
 from src.web.users import (
     User,
@@ -342,6 +355,84 @@ async def download_original(job_id: str, user: User = Depends(require_user)):
         job.original_path,
         filename=job.filename,
         media_type="application/octet-stream",
+    )
+
+
+def _cleanup_job_files(job) -> None:
+    """Remove original, output, and report files from disk."""
+    for path_str in (job.original_path, job.output_path, job.report_path):
+        if path_str:
+            p = Path(path_str)
+            if p.exists():
+                p.unlink(missing_ok=True)
+    # Remove output directory (data/output/{job_id}/)
+    job_output_dir = OUTPUT_DIR / job.id
+    if job_output_dir.exists() and job_output_dir.is_dir():
+        shutil.rmtree(job_output_dir, ignore_errors=True)
+
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_single_job(job_id: str, user: User = Depends(require_user)):
+    """Delete a single job. Cannot delete queued/processing jobs."""
+    job = get_job(job_id)
+    if not job or job.user_id != user.id:
+        return JSONResponse(status_code=404, content={"error": "Job not found"})
+    if job.status in ("queued", "processing"):
+        return JSONResponse(status_code=409, content={"error": "Cannot delete a job that is still processing"})
+    _cleanup_job_files(job)
+    delete_jobs([job_id], user.id)
+    return {"ok": True}
+
+
+@app.post("/api/jobs/bulk-delete")
+async def bulk_delete_jobs(data: dict, user: User = Depends(require_user)):
+    """Bulk delete jobs. Skips queued/processing."""
+    job_ids = data.get("job_ids")
+    if not job_ids or not isinstance(job_ids, list):
+        return JSONResponse(status_code=400, content={"error": "job_ids must be a non-empty list"})
+    # Cleanup files before deleting DB records
+    deletable = get_deletable_jobs(job_ids, user.id)
+    for job in deletable:
+        _cleanup_job_files(job)
+    count = delete_jobs(job_ids, user.id)
+    return {"deleted": count}
+
+
+@app.post("/api/jobs/download-zip")
+async def download_zip(data: dict, user: User = Depends(require_user)):
+    """Download a ZIP of remediated files for the given job IDs."""
+    job_ids = data.get("job_ids")
+    if not job_ids or not isinstance(job_ids, list):
+        return JSONResponse(status_code=400, content={"error": "job_ids must be a non-empty list"})
+
+    jobs = get_jobs_by_ids(job_ids, user.id)
+    # Only include completed jobs with existing output files
+    downloadable = [
+        j for j in jobs
+        if j.status == "completed" and j.output_path and Path(j.output_path).exists()
+    ]
+    if not downloadable:
+        return JSONResponse(status_code=404, content={"error": "No downloadable files found"})
+
+    buf = io.BytesIO()
+    used_names: dict[str, int] = {}
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for job in downloadable:
+            name = Path(job.output_path).name
+            if name in used_names:
+                used_names[name] += 1
+                stem = Path(name).stem
+                suffix = Path(name).suffix
+                name = f"{stem}_{used_names[name]}{suffix}"
+            else:
+                used_names[name] = 0
+            zf.write(job.output_path, name)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=remediated_files.zip"},
     )
 
 

@@ -465,6 +465,23 @@ Added field:
 
 `list_jobs(user_id=)` filters by owner. All API endpoints check `job.user_id == user.id`.
 
+### Job Management Functions
+
+| Function | Signature | Returns | Notes |
+|----------|-----------|---------|-------|
+| `delete_job` | `(job_id: str)` | `bool` | Delete single job record |
+| `delete_jobs` | `(job_ids: list[str], user_id: str)` | `int` | Bulk delete with ownership + status guard (skips queued/processing) |
+| `get_deletable_jobs` | `(job_ids: list[str], user_id: str)` | `list[Job]` | Fetch jobs before deletion for file cleanup |
+| `get_jobs_by_ids` | `(job_ids: list[str], user_id: str)` | `list[Job]` | Fetch multiple jobs by ID for ZIP download |
+
+### Job Management Endpoints
+
+| Method | Path | Body | Notes |
+|--------|------|------|-------|
+| `DELETE` | `/api/jobs/{job_id}` | — | Delete single job (409 if processing, cleanup files) |
+| `POST` | `/api/jobs/bulk-delete` | `{job_ids: [...]}` | Bulk delete (skips queued/processing), returns `{deleted: N}` |
+| `POST` | `/api/jobs/download-zip` | `{job_ids: [...]}` | Stream ZIP of remediated files (completed only), duplicate names get `_1` suffix |
+
 ## Serialization Notes
 
 - All Pydantic models support `.model_dump()` and `.model_dump_json()`

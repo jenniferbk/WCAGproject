@@ -1,5 +1,7 @@
 """Integration tests for web auth endpoints and protected routes."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -477,3 +479,199 @@ class TestAdminAutoPromotion:
         })
         assert res.status_code == 200
         assert res.json()["user"]["is_admin"] is True
+
+
+# ── Helper: create a fake completed job with files on disk ──
+
+def _create_fake_job(auth_client, tmp_path, filename="test.docx", status="completed"):
+    """Create a job record with fake files for testing delete/download."""
+    from src.web.jobs import create_job, update_job
+
+    me = auth_client.get("/api/auth/me").json()["user"]
+
+    job = create_job(filename, "", user_id=me["id"])
+
+    # Create fake files
+    original = tmp_path / f"{job.id}_{filename}"
+    original.write_bytes(b"PK\x03\x04original content")
+
+    output_dir = tmp_path / "output" / job.id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f"remediated_{filename}"
+    output_file.write_bytes(b"PK\x03\x04remediated content")
+
+    report_file = output_dir / "report.html"
+    report_file.write_text("<html><body>Report</body></html>")
+
+    update_job(
+        job.id,
+        status=status,
+        original_path=str(original),
+        output_path=str(output_file),
+        report_path=str(report_file),
+    )
+
+    return job
+
+
+class TestDeleteJob:
+    def test_delete_completed_job(self, auth_client, tmp_path):
+        """DELETE /api/jobs/{id} removes a completed job."""
+        job = _create_fake_job(auth_client, tmp_path)
+        res = auth_client.delete(f"/api/jobs/{job.id}")
+        assert res.status_code == 200
+        assert res.json()["ok"] is True
+
+        # Job should be gone
+        res2 = auth_client.get(f"/api/jobs/{job.id}")
+        assert res2.status_code == 404
+
+    def test_delete_failed_job(self, auth_client, tmp_path):
+        """Can delete a failed job."""
+        job = _create_fake_job(auth_client, tmp_path, status="failed")
+        res = auth_client.delete(f"/api/jobs/{job.id}")
+        assert res.status_code == 200
+
+    def test_delete_processing_blocked(self, auth_client, tmp_path):
+        """Cannot delete a processing job — returns 409."""
+        job = _create_fake_job(auth_client, tmp_path, status="processing")
+        res = auth_client.delete(f"/api/jobs/{job.id}")
+        assert res.status_code == 409
+        assert "processing" in res.json()["error"].lower()
+
+    def test_delete_other_users_job(self, client, tmp_path):
+        """Cannot delete another user's job — returns 404."""
+        # User 1 creates a job
+        _register(client, email="user1@example.com")
+        job = _create_fake_job(client, tmp_path)
+
+        # User 2 tries to delete it
+        client.cookies.clear()
+        _register(client, email="user2@example.com")
+        res = client.delete(f"/api/jobs/{job.id}")
+        assert res.status_code == 404
+
+    def test_delete_requires_auth(self, client):
+        """DELETE /api/jobs/{id} requires authentication."""
+        res = client.delete("/api/jobs/abc123")
+        assert res.status_code == 401
+
+    def test_delete_cleans_up_files(self, auth_client, tmp_path, monkeypatch):
+        """Delete removes files from disk."""
+        import src.web.app as app_mod
+        monkeypatch.setattr(app_mod, "OUTPUT_DIR", tmp_path / "output")
+
+        job = _create_fake_job(auth_client, tmp_path)
+        original = Path(job.original_path) if job.original_path else None
+
+        # Re-fetch to get updated paths
+        from src.web.jobs import get_job
+        job = get_job(job.id)
+        output_path = Path(job.output_path)
+        report_path = Path(job.report_path)
+
+        assert output_path.exists()
+        assert report_path.exists()
+
+        auth_client.delete(f"/api/jobs/{job.id}")
+
+        # Files should be gone
+        assert not output_path.exists()
+        assert not report_path.exists()
+
+    def test_delete_graceful_if_files_gone(self, auth_client, tmp_path):
+        """Delete works even if files are already removed from disk."""
+        job = _create_fake_job(auth_client, tmp_path)
+
+        # Remove files manually
+        from src.web.jobs import get_job
+        job = get_job(job.id)
+        for p in (job.original_path, job.output_path, job.report_path):
+            if p:
+                Path(p).unlink(missing_ok=True)
+
+        res = auth_client.delete(f"/api/jobs/{job.id}")
+        assert res.status_code == 200
+
+
+class TestBulkDelete:
+    def test_bulk_delete_multiple(self, auth_client, tmp_path):
+        """POST /api/jobs/bulk-delete deletes multiple jobs."""
+        job1 = _create_fake_job(auth_client, tmp_path, filename="a.docx")
+        job2 = _create_fake_job(auth_client, tmp_path, filename="b.docx")
+        res = auth_client.post("/api/jobs/bulk-delete", json={"job_ids": [job1.id, job2.id]})
+        assert res.status_code == 200
+        assert res.json()["deleted"] == 2
+
+    def test_bulk_delete_skips_processing(self, auth_client, tmp_path):
+        """Bulk delete skips queued/processing jobs."""
+        job1 = _create_fake_job(auth_client, tmp_path, filename="done.docx", status="completed")
+        job2 = _create_fake_job(auth_client, tmp_path, filename="busy.docx", status="processing")
+        res = auth_client.post("/api/jobs/bulk-delete", json={"job_ids": [job1.id, job2.id]})
+        assert res.status_code == 200
+        assert res.json()["deleted"] == 1
+
+    def test_bulk_delete_empty_list(self, auth_client):
+        """Empty job_ids returns 400."""
+        res = auth_client.post("/api/jobs/bulk-delete", json={"job_ids": []})
+        assert res.status_code == 400
+
+    def test_bulk_delete_other_users_jobs(self, client, tmp_path):
+        """Bulk delete only deletes own jobs."""
+        _register(client, email="user1@example.com")
+        job = _create_fake_job(client, tmp_path)
+
+        client.cookies.clear()
+        _register(client, email="user2@example.com")
+        res = client.post("/api/jobs/bulk-delete", json={"job_ids": [job.id]})
+        assert res.status_code == 200
+        assert res.json()["deleted"] == 0
+
+    def test_bulk_delete_requires_auth(self, client):
+        res = client.post("/api/jobs/bulk-delete", json={"job_ids": ["abc"]})
+        assert res.status_code == 401
+
+
+class TestDownloadZip:
+    def test_download_zip_multiple(self, auth_client, tmp_path):
+        """POST /api/jobs/download-zip returns a ZIP file."""
+        job1 = _create_fake_job(auth_client, tmp_path, filename="a.docx")
+        job2 = _create_fake_job(auth_client, tmp_path, filename="b.docx")
+
+        res = auth_client.post("/api/jobs/download-zip", json={
+            "job_ids": [job1.id, job2.id],
+        })
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "application/zip"
+
+        import io, zipfile
+        zf = zipfile.ZipFile(io.BytesIO(res.content))
+        names = zf.namelist()
+        assert len(names) == 2
+
+    def test_download_zip_no_completed(self, auth_client, tmp_path):
+        """ZIP with no completed jobs returns 404."""
+        job = _create_fake_job(auth_client, tmp_path, status="failed")
+        res = auth_client.post("/api/jobs/download-zip", json={"job_ids": [job.id]})
+        assert res.status_code == 404
+
+    def test_download_zip_duplicate_filenames(self, auth_client, tmp_path):
+        """Duplicate filenames get suffixed."""
+        job1 = _create_fake_job(auth_client, tmp_path, filename="same.docx")
+        job2 = _create_fake_job(auth_client, tmp_path, filename="same.docx")
+
+        res = auth_client.post("/api/jobs/download-zip", json={
+            "job_ids": [job1.id, job2.id],
+        })
+        assert res.status_code == 200
+
+        import io, zipfile
+        zf = zipfile.ZipFile(io.BytesIO(res.content))
+        names = zf.namelist()
+        assert len(names) == 2
+        # One should have a suffix
+        assert "same_1.docx" in names or "remediated_same_1.docx" in names
+
+    def test_download_zip_requires_auth(self, client):
+        res = client.post("/api/jobs/download-zip", json={"job_ids": ["abc"]})
+        assert res.status_code == 401

@@ -176,3 +176,51 @@ def update_job(job_id: str, **kwargs) -> Job | None:
     conn.execute(f"UPDATE jobs SET {sets} WHERE id = ?", values)
     conn.commit()
     return get_job(job_id)
+
+
+def delete_job(job_id: str) -> bool:
+    """Delete a single job record. Returns True if a row was deleted."""
+    conn = _get_conn()
+    cursor = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def delete_jobs(job_ids: list[str], user_id: str) -> int:
+    """Bulk delete jobs owned by user_id, skipping queued/processing. Returns count deleted."""
+    if not job_ids:
+        return 0
+    conn = _get_conn()
+    placeholders = ",".join("?" for _ in job_ids)
+    cursor = conn.execute(
+        f"DELETE FROM jobs WHERE id IN ({placeholders}) AND user_id = ? AND status NOT IN ('queued', 'processing')",
+        [*job_ids, user_id],
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
+def get_deletable_jobs(job_ids: list[str], user_id: str) -> list[Job]:
+    """Fetch jobs that can be deleted (owned by user, not queued/processing)."""
+    if not job_ids:
+        return []
+    conn = _get_conn()
+    placeholders = ",".join("?" for _ in job_ids)
+    rows = conn.execute(
+        f"SELECT * FROM jobs WHERE id IN ({placeholders}) AND user_id = ? AND status NOT IN ('queued', 'processing')",
+        [*job_ids, user_id],
+    ).fetchall()
+    return [_row_to_job(row) for row in rows]
+
+
+def get_jobs_by_ids(job_ids: list[str], user_id: str) -> list[Job]:
+    """Fetch multiple jobs by ID, filtered by ownership."""
+    if not job_ids:
+        return []
+    conn = _get_conn()
+    placeholders = ",".join("?" for _ in job_ids)
+    rows = conn.execute(
+        f"SELECT * FROM jobs WHERE id IN ({placeholders}) AND user_id = ?",
+        [*job_ids, user_id],
+    ).fetchall()
+    return [_row_to_job(row) for row in rows]

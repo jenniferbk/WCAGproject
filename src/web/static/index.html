@@ -1458,10 +1458,164 @@
       .admin-table { min-width: 600px; }
     }
 
+    /* ── Jobs toolbar ──────────────────────────── */
+    .jobs-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0;
+      flex-wrap: wrap;
+    }
+
+    .jobs-toolbar label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .jobs-toolbar input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: 0.4rem;
+      margin-left: auto;
+    }
+
+    .toolbar-count {
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      margin-left: 0.3rem;
+    }
+
+    /* ── Selectable job cards ──────────────────── */
+    .job-card.selectable {
+      grid-template-columns: auto 1fr auto;
+    }
+
+    .job-card.selectable .job-meta {
+      grid-column: 2;
+    }
+
+    .job-checkbox {
+      display: flex;
+      align-items: center;
+      grid-row: 1 / 3;
+    }
+
+    .job-checkbox input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .job-checkbox input[type="checkbox"]:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .job-card.selected {
+      border-left-color: var(--accent) !important;
+      background: var(--accent-light);
+    }
+
+    /* ── Danger button ─────────────────────────── */
+    .btn-danger {
+      color: var(--error);
+      border-color: var(--error-bg);
+      background: var(--error-bg);
+    }
+
+    .btn-danger:hover {
+      background: #fbe0e0;
+      border-color: var(--error);
+      box-shadow: none;
+    }
+
+    /* ── Retention notice ──────────────────────── */
+    .retention-notice {
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-tertiary);
+      padding: 0.75rem 0 0;
+    }
+
+    /* ── Confirm delete modal ──────────────────── */
+    .confirm-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(45, 42, 38, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .confirm-overlay.active {
+      display: flex;
+      animation: overlayIn 0.25s ease both;
+    }
+
+    .confirm-modal {
+      background: var(--surface);
+      border-radius: 16px;
+      width: 90vw;
+      max-width: 420px;
+      padding: 1.75rem 1.5rem 1.5rem;
+      box-shadow: 0 24px 80px rgba(45, 42, 38, 0.18);
+      animation: modalSlideUp 0.35s var(--ease-out-expo) both;
+      text-align: center;
+    }
+
+    .confirm-modal h3 {
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .confirm-modal p {
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
+      line-height: 1.5;
+    }
+
+    .confirm-modal-actions {
+      display: flex;
+      gap: 0.6rem;
+      justify-content: center;
+    }
+
+    .confirm-modal-actions .btn {
+      min-width: 90px;
+      justify-content: center;
+    }
+
+    /* ── Responsive toolbar ────────────────────── */
+    @media (max-width: 640px) {
+      .jobs-toolbar { gap: 0.4rem; }
+      .toolbar-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+      .job-card.selectable { grid-template-columns: auto 1fr; }
+      .job-card.selectable .job-actions { grid-column: 1 / -1; }
+    }
+
     /* ── Print ────────────────────────────────── */
     @media print {
       body::before { display: none; }
-      header, .upload-section, .context-bar, .usage-bar-container, .site-footer { display: none; }
+      header, .upload-section, .context-bar, .usage-bar-container, .site-footer, .jobs-toolbar, .job-checkbox, .retention-notice { display: none; }
       .job-card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
     }
   </style>
@@ -1609,6 +1763,21 @@
         <div class="empty-state-text">No documents yet. Upload a file to get started.</div>
       </div>
     </div>
+    <div class="retention-notice hidden" id="retentionNotice">
+      Files are automatically deleted after 7 days. Download your remediated documents to keep them.
+    </div>
+  </div>
+
+  <!-- Delete confirmation modal -->
+  <div class="confirm-overlay" id="confirmDeleteModal" role="dialog" aria-modal="true" aria-labelledby="confirmDeleteTitle">
+    <div class="confirm-modal">
+      <h3 id="confirmDeleteTitle">Delete document?</h3>
+      <p id="confirmDeleteMsg">This will permanently remove the document and its remediated files.</p>
+      <div class="confirm-modal-actions">
+        <button class="btn" onclick="closeConfirmDelete()">Cancel</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn" onclick="executeDelete()">Delete</button>
+      </div>
+    </div>
   </div>
 
   <!-- Admin View -->
@@ -1743,6 +1912,9 @@
 const API = '';  // same origin
 let pollTimer = null;
 let currentUser = null;
+let selectedJobs = new Set();
+let allJobs = [];
+let pendingDeleteAction = null;  // { type: 'single'|'bulk', ids: [...] }
 
 // ── Auth state ──
 
@@ -2056,11 +2228,22 @@ function startPolling() {
 function renderJobs(jobs) {
   const list = document.getElementById('jobsList');
   const empty = document.getElementById('emptyState');
+  const notice = document.getElementById('retentionNotice');
+
+  allJobs = jobs;
 
   if (jobs.length === 0) {
     list.innerHTML = '';
     list.appendChild(empty);
+    selectedJobs.clear();
+    notice.classList.add('hidden');
     return;
+  }
+
+  // Clean stale selections
+  const jobIdSet = new Set(jobs.map(j => j.id));
+  for (const id of selectedJobs) {
+    if (!jobIdSet.has(id)) selectedJobs.delete(id);
   }
 
   // Group jobs by batch_id
@@ -2086,7 +2269,7 @@ function renderJobs(jobs) {
     }
   }
 
-  let html = '';
+  let html = renderToolbar();
 
   // Render multi-file batches with headers
   for (const [bid, bjobs] of multiBatches) {
@@ -2100,15 +2283,27 @@ function renderJobs(jobs) {
   // Render singles
   html += singles.map(renderJobCard).join('');
   list.innerHTML = html;
+
+  // Show retention notice if any completed/failed jobs exist
+  const hasFinished = jobs.some(j => j.status === 'completed' || j.status === 'failed');
+  notice.classList.toggle('hidden', !hasFinished);
 }
 
 function renderJobCard(job) {
   const badge = statusBadge(job.status, job.phase);
   const meta = buildMeta(job);
   const actions = buildActions(job);
+  const isSelectable = job.status !== 'queued' && job.status !== 'processing';
+  const isSelected = selectedJobs.has(job.id);
+  const selectedClass = isSelected ? ' selected' : '';
 
   return `
-    <div class="job-card">
+    <div class="job-card selectable${selectedClass}" data-job-id="${job.id}">
+      <div class="job-checkbox">
+        <input type="checkbox" aria-label="Select ${esc(job.filename)}"
+          ${isSelected ? 'checked' : ''} ${!isSelectable ? 'disabled' : ''}
+          onchange="toggleJobSelection('${job.id}')">
+      </div>
       <div class="job-filename">${esc(job.filename)}</div>
       <div class="job-actions">${badge}${actions}</div>
       <div class="job-meta">${meta}</div>
@@ -2154,12 +2349,18 @@ function buildMeta(job) {
 }
 
 function buildActions(job) {
-  if (job.status !== 'completed') return '';
-  return `
-    <a class="btn" href="${API}/api/jobs/${job.id}/download-original">Original</a>
-    <button class="btn" onclick="viewReport('${job.id}', '${esc(job.filename)}')">Report</button>
-    <a class="btn btn-primary" href="${API}/api/jobs/${job.id}/download">Download</a>
-  `;
+  let html = '';
+  if (job.status === 'completed') {
+    html += `
+      <a class="btn" href="${API}/api/jobs/${job.id}/download-original">Original</a>
+      <button class="btn" onclick="viewReport('${job.id}', '${esc(job.filename)}')">Report</button>
+      <a class="btn btn-primary" href="${API}/api/jobs/${job.id}/download">Download</a>
+    `;
+  }
+  if (job.status === 'completed' || job.status === 'failed') {
+    html += `<button class="btn btn-danger" onclick="confirmDeleteSingle('${job.id}', '${esc(job.filename)}')">Delete</button>`;
+  }
+  return html;
 }
 
 // ── Report viewer ──
@@ -2180,8 +2381,145 @@ document.getElementById('reportModal').addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeReport();
+  if (e.key === 'Escape') { closeReport(); closeConfirmDelete(); }
 });
+
+// ── Toolbar & selection ──
+
+function renderToolbar() {
+  const selectableJobs = allJobs.filter(j => j.status !== 'queued' && j.status !== 'processing');
+  const allSelected = selectableJobs.length > 0 && selectableJobs.every(j => selectedJobs.has(j.id));
+  const someSelected = selectedJobs.size > 0 && !allSelected;
+  const hasCompleted = allJobs.some(j => j.status === 'completed' && selectedJobs.has(j.id));
+
+  return `
+    <div class="jobs-toolbar">
+      <label>
+        <input type="checkbox" id="selectAllCheckbox"
+          ${allSelected ? 'checked' : ''} ${selectableJobs.length === 0 ? 'disabled' : ''}
+          onchange="toggleSelectAll(this.checked)"
+          aria-label="Select all documents">
+        Select all
+        ${selectedJobs.size > 0 ? `<span class="toolbar-count">(${selectedJobs.size})</span>` : ''}
+      </label>
+      <div class="toolbar-actions">
+        <button class="btn" onclick="downloadSelected()" ${!hasCompleted ? 'disabled' : ''}>Download selected</button>
+        <button class="btn btn-danger" onclick="confirmDeleteSelected()" ${selectedJobs.size === 0 ? 'disabled' : ''}>Delete selected</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleJobSelection(jobId) {
+  if (selectedJobs.has(jobId)) {
+    selectedJobs.delete(jobId);
+  } else {
+    selectedJobs.add(jobId);
+  }
+  renderJobs(allJobs);
+}
+
+function toggleSelectAll(checked) {
+  const selectableJobs = allJobs.filter(j => j.status !== 'queued' && j.status !== 'processing');
+  if (checked) {
+    for (const j of selectableJobs) selectedJobs.add(j.id);
+  } else {
+    selectedJobs.clear();
+  }
+  renderJobs(allJobs);
+}
+
+// ── Delete flow ──
+
+function confirmDeleteSingle(jobId, filename) {
+  pendingDeleteAction = { type: 'single', ids: [jobId] };
+  document.getElementById('confirmDeleteTitle').textContent = 'Delete document?';
+  document.getElementById('confirmDeleteMsg').textContent = `Permanently delete "${filename}" and its remediated files?`;
+  document.getElementById('confirmDeleteModal').classList.add('active');
+}
+
+function confirmDeleteSelected() {
+  if (selectedJobs.size === 0) return;
+  pendingDeleteAction = { type: 'bulk', ids: [...selectedJobs] };
+  const count = selectedJobs.size;
+  document.getElementById('confirmDeleteTitle').textContent = `Delete ${count} document${count > 1 ? 's' : ''}?`;
+  document.getElementById('confirmDeleteMsg').textContent = `This will permanently remove ${count} document${count > 1 ? 's' : ''} and their remediated files. Jobs that are still processing will be skipped.`;
+  document.getElementById('confirmDeleteModal').classList.add('active');
+}
+
+function closeConfirmDelete() {
+  document.getElementById('confirmDeleteModal').classList.remove('active');
+  pendingDeleteAction = null;
+}
+
+async function executeDelete() {
+  if (!pendingDeleteAction) return;
+  const ids = pendingDeleteAction.ids;
+  closeConfirmDelete();
+
+  try {
+    const res = await fetch(`${API}/api/jobs/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_ids: ids }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      // Clear deleted jobs from selection
+      for (const id of ids) selectedJobs.delete(id);
+      showToast(`${data.deleted} document${data.deleted !== 1 ? 's' : ''} deleted`);
+      refreshJobs();
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Delete failed');
+    }
+  } catch (e) {
+    showToast('Delete failed — network error');
+  }
+}
+
+// Listen for clicks on the confirm overlay background
+document.getElementById('confirmDeleteModal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeConfirmDelete();
+});
+
+// ── Download selected ──
+
+async function downloadSelected() {
+  const completedSelected = allJobs.filter(j => j.status === 'completed' && selectedJobs.has(j.id));
+  if (completedSelected.length === 0) return;
+
+  // Single file: direct download
+  if (completedSelected.length === 1) {
+    window.location.href = `${API}/api/jobs/${completedSelected[0].id}/download`;
+    return;
+  }
+
+  // Multiple files: ZIP download
+  try {
+    const res = await fetch(`${API}/api/jobs/download-zip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_ids: completedSelected.map(j => j.id) }),
+    });
+    if (res.ok) {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'remediated_files.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Download failed');
+    }
+  } catch (e) {
+    showToast('Download failed — network error');
+  }
+}
 
 // ── Helpers ──
 
@@ -2283,7 +2621,7 @@ const infoContent = {
       <p>Document content is sent to AI services (Google Gemini and Anthropic Claude) for analysis and remediation. These services process your content according to their own privacy policies. We send only the minimum content necessary for remediation.</p>
 
       <h3>Data Retention</h3>
-      <p>Uploaded documents and remediated output are stored for the duration of your account. You may request deletion of your data at any time by contacting us.</p>
+      <p>Uploaded documents and remediated output are automatically deleted after 7 days. You can also manually delete documents at any time from the Documents list. You may request deletion of all your data by contacting us.</p>
 
       <h3>Data Security</h3>
       <p>Passwords are hashed using bcrypt. Sessions use encrypted JWT tokens stored in httpOnly cookies. All data is transmitted over HTTPS in production.</p>

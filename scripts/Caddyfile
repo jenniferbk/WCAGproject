@@ -1,14 +1,12 @@
 # A11y Remediation - Caddy reverse proxy config
 #
-# IP-only mode: listens on :80 without TLS.
-# When a domain is ready, replace :80 with your domain, e.g.:
-#   remediate.jenkleiman.com
-# Caddy will auto-provision TLS via Let's Encrypt.
+# Caddy auto-provisions TLS via Let's Encrypt.
+# HTTP requests are automatically redirected to HTTPS.
 #
 # Install: sudo cp scripts/Caddyfile /etc/caddy/Caddyfile
 # Reload:  sudo systemctl reload caddy
 
-:80 {
+remediate.jenkleiman.com {
     reverse_proxy localhost:8000
 
     # 25MB upload limit (20MB file + overhead)

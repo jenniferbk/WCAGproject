@@ -2540,12 +2540,12 @@ function buildActions(job) {
   if (job.status === 'completed') {
     html += `
       <a class="btn" href="${API}/api/jobs/${job.id}/download-original">Original</a>
-      <button class="btn" onclick="viewReport('${job.id}', '${esc(job.filename)}')">Report</button>
+      <button class="btn" onclick="viewReport('${job.id}', '${escJs(job.filename)}')">Report</button>
       <a class="btn btn-primary" href="${API}/api/jobs/${job.id}/download">Download</a>
     `;
   }
   if (job.status === 'completed' || job.status === 'failed') {
-    html += `<button class="btn btn-danger" onclick="confirmDeleteSingle('${job.id}', '${esc(job.filename)}')">Delete</button>`;
+    html += `<button class="btn btn-danger" onclick="confirmDeleteSingle('${job.id}', '${escJs(job.filename)}')">Delete</button>`;
   }
   return html;
 }
@@ -2714,6 +2714,10 @@ function esc(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function escJs(str) {
+  return esc(str).replace(/'/g, '&#39;');
 }
 
 function showToast(msg) {

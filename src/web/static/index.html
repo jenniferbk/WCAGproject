@@ -2736,18 +2736,31 @@ const infoContent = {
       <h3>What is A11y Remediation?</h3>
       <p>A11y Remediation is an AI-powered tool that makes university course documents accessible to everyone, including students who use screen readers and other assistive technologies.</p>
       <p>The DOJ's Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by April 24, 2026. Manual remediation costs $3&ndash;4 per page and can't keep up with the volume of material faculty produce each semester.</p>
+      <p>Supports Word documents (.docx), PDFs (.pdf), and PowerPoint presentations (.pptx).</p>
 
       <h3>How it works</h3>
-      <p>Unlike traditional checklist-based tools, A11y Remediation uses an agentic AI approach. It <em>understands</em> your document before fixing it:</p>
-      <ul>
-        <li><strong>Comprehend</strong> &mdash; Analyzes the document's structure, purpose, and context within your course</li>
-        <li><strong>Strategize</strong> &mdash; Plans remediation specific to the content (a bold heading in a math textbook is different from bold emphasis in a memo)</li>
-        <li><strong>Execute</strong> &mdash; Applies fixes: alt text, heading hierarchy, table structure, color contrast, link text, metadata, and more</li>
-        <li><strong>Review</strong> &mdash; Evaluates the result from a screen reader user's perspective and flags anything that needs human attention</li>
-      </ul>
+      <p>Most accessibility tools run a fixed checklist &mdash; find missing alt text, flag it, move on. They treat every document the same and produce results that are technically present but not useful to someone actually using a screen reader.</p>
+      <p>This tool reads the document first, understands what it's looking at, then decides what to do.</p>
+      <ol>
+        <li><strong>Comprehend</strong> &mdash; Gemini analyzes the document structurally and visually. It can see PDF pages as images, catching layout and figures that text extraction misses. It identifies what each element actually is: heading or emphasis? Data table or bibliography?</li>
+        <li><strong>Strategize</strong> &mdash; Claude plans specific fixes based on document context. A bold "Example 3.2" in a math textbook is a sub-heading; in an email it's emphasis.</li>
+        <li><strong>Execute</strong> &mdash; Deterministic tools apply fixes: alt text, headings, table headers, contrast, link text, metadata. The tools are straightforward code; the intelligence is in choosing which to call with what parameters.</li>
+        <li><strong>Review</strong> &mdash; Claude evaluates the result from a screen reader user's perspective and flags anything uncertain for human attention.</li>
+      </ol>
 
-      <h3>Supported formats</h3>
-      <p>Word documents (.docx), PDFs (.pdf), and PowerPoint presentations (.pptx).</p>
+      <h3>Why course context matters</h3>
+      <p>Telling the system this is a Mathematics Education document changes how ambiguous elements get interpreted. Bold author names in a reading list won't become headings. A schedule table gets proper headers. Figure alt text focuses on the finding being illustrated, not just "graph with lines."</p>
+
+      <h3>The PDF problem</h3>
+      <p>Word documents know what a heading is. PDFs do not. PDFs describe where to place ink on a page, not what any of it means. Making a PDF accessible means adding a structure tree that assigns semantic meaning to positioned text and images &mdash; and most PDFs either lack one or have a broken one.</p>
+      <p>Our approach runs two parallel tracks:</p>
+      <p><strong>Track 1:</strong> <a href="https://pymupdf.readthedocs.io/" target="_blank" rel="noopener">PyMuPDF</a> extracts text, images, and layout. <a href="https://itextpdf.com/" target="_blank" rel="noopener">iText</a> writes new structure tags into the original file using position-based matching &mdash; preserving exact appearance.</p>
+      <p><strong>Track 2:</strong> Gemini analyzes each page visually and generates semantic HTML, converted to a PDF/UA file via <a href="https://github.com/nickthing/openhtmltopdf" target="_blank" rel="noopener">OpenHTMLtoPDF</a>. Appearance may differ; accessibility is solid.</p>
+      <p>Both are validated with <a href="https://verapdf.org/" target="_blank" rel="noopener">veraPDF</a>, the reference implementation for PDF/UA-1 compliance.</p>
+      <p>The edge cases are where it gets interesting: PowerPoint-exported PDFs have duplicate structure elements that need stripping. Scanned PDFs have no selectable text at all. Font names carry subset prefixes that break detection. Structure tag IDs conflict across element types if not carefully tracked. A deterministic pipeline breaks on these interactions. The agentic approach adapts.</p>
+
+      <h3>Limitations</h3>
+      <p>Complex merged-cell tables, mathematical notation, and heavily scanned documents often need human review. The compliance report flags these honestly.</p>
 
       <h3>Questions?</h3>
       <p>Reach out at <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a>.</p>

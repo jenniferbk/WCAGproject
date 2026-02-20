@@ -76,9 +76,10 @@ class Job:
     user_id: str = ""
     batch_id: str = ""
     phase: str = ""
+    companion_path: str = ""
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "filename": self.filename,
             "status": self.status,
@@ -95,6 +96,9 @@ class Job:
             "batch_id": self.batch_id,
             "phase": self.phase,
         }
+        if self.companion_path:
+            d["has_companion"] = True
+        return d
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:
@@ -103,6 +107,7 @@ def _row_to_job(row: sqlite3.Row) -> Job:
     d.setdefault("user_id", "")
     d.setdefault("batch_id", "")
     d.setdefault("phase", "")
+    d.setdefault("companion_path", "")
     return Job(**d)
 
 

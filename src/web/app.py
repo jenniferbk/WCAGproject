@@ -411,6 +411,22 @@ async def download_original(job_id: str, user: User = Depends(require_user)):
     )
 
 
+@app.get("/api/jobs/{job_id}/download-accessible")
+async def download_accessible(job_id: str, user: User = Depends(require_user)):
+    """Download the accessible HTML companion file. Requires ownership."""
+    job = get_job(job_id)
+    if not job or job.user_id != user.id:
+        return JSONResponse(status_code=404, content={"error": "Job not found"})
+    if not job.companion_path or not Path(job.companion_path).exists():
+        return JSONResponse(status_code=404, content={"error": "Accessible version not available"})
+
+    return FileResponse(
+        job.companion_path,
+        filename=Path(job.companion_path).name,
+        media_type="text/html",
+    )
+
+
 def _cleanup_job_files(job) -> None:
     """Remove original, output, and report files from disk."""
     for path_str in (job.original_path, job.output_path, job.report_path):
@@ -672,6 +688,7 @@ def _process_job_inner(job_id: str) -> None:
                 phase="",
                 output_path=result.output_path or "",
                 report_path=result.report_path or "",
+                companion_path=result.companion_output_path or "",
                 issues_before=result.issues_before,
                 issues_after=result.issues_after,
                 issues_fixed=result.issues_fixed,

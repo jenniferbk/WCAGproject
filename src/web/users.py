@@ -93,6 +93,9 @@ def init_users_db() -> None:
     if "phase" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN phase TEXT DEFAULT ''")
         conn.commit()
+    if "companion_path" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN companion_path TEXT DEFAULT ''")
+        conn.commit()
 
 
 def _row_to_user(row) -> User:

@@ -2543,6 +2543,9 @@ function buildActions(job) {
       <button class="btn" onclick="viewReport('${job.id}', '${escJs(job.filename)}')">Report</button>
       <a class="btn btn-primary" href="${API}/api/jobs/${job.id}/download">Download</a>
     `;
+    if (job.has_companion) {
+      html += `<a class="btn" href="${API}/api/jobs/${job.id}/download-accessible" title="Accessible HTML version">HTML</a>`;
+    }
   }
   if (job.status === 'completed' || job.status === 'failed') {
     html += `<button class="btn btn-danger" onclick="confirmDeleteSingle('${job.id}', '${escJs(job.filename)}')">Delete</button>`;
@@ -2755,7 +2758,7 @@ const infoContent = {
       <p>Word documents know what a heading is. PDFs do not. PDFs describe where to place ink on a page, not what any of it means. Making a PDF accessible means adding a structure tree that assigns semantic meaning to positioned text and images &mdash; and most PDFs either lack one or have a broken one.</p>
       <p>Our approach runs two parallel tracks:</p>
       <p><strong>Track 1:</strong> <a href="https://pymupdf.readthedocs.io/" target="_blank" rel="noopener">PyMuPDF</a> extracts text, images, and layout. <a href="https://itextpdf.com/" target="_blank" rel="noopener">iText</a> writes new structure tags into the original file using position-based matching &mdash; preserving exact appearance.</p>
-      <p><strong>Track 2:</strong> Gemini analyzes each page visually and generates semantic HTML, converted to a PDF/UA file via <a href="https://github.com/nickthing/openhtmltopdf" target="_blank" rel="noopener">OpenHTMLtoPDF</a>. Appearance may differ; accessibility is solid.</p>
+      <p><strong>Track 2:</strong> Gemini analyzes each page visually and generates a fully semantic HTML version of the document &mdash; proper headings, alt text, table structure, reading order. This accessible HTML companion is available for download alongside the tagged PDF.</p>
       <p>Both are validated with <a href="https://verapdf.org/" target="_blank" rel="noopener">veraPDF</a>, the reference implementation for PDF/UA-1 compliance.</p>
       <p>The edge cases are where it gets interesting: PowerPoint-exported PDFs have duplicate structure elements that need stripping. Scanned PDFs have no selectable text at all. Font names carry subset prefixes that break detection. Structure tag IDs conflict across element types if not carefully tracked. A deterministic pipeline breaks on these interactions. The agentic approach adapts.</p>
 

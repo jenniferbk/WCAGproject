@@ -2775,7 +2775,8 @@ const infoContent = {
       </ul>
 
       <h3>Your Content</h3>
-      <p>You retain all rights to documents you upload. Uploaded documents are processed and stored temporarily for remediation purposes only. We do not claim ownership of your content.</p>
+      <p>You retain all rights to documents you upload. We do not claim ownership of your content.</p>
+      <p>By uploading documents, you grant us permission to use the document content, processing results, and associated metadata to analyze, improve, and refine the remediation pipeline. This includes reviewing how the system interpreted and remediated your document to identify patterns, fix bugs, and improve accuracy for future users. We will not share your documents publicly or with other users.</p>
 
       <h3>Free Tier</h3>
       <p>The free tier includes a limited number of documents. Limits may change. We reserve the right to modify or discontinue the free tier at any time.</p>
@@ -2804,15 +2805,15 @@ const infoContent = {
       <ul>
         <li>To provide the remediation service and deliver results</li>
         <li>To manage your account and enforce usage limits</li>
-        <li>To send email notifications about completed or failed jobs (if SMTP is configured)</li>
-        <li>To improve the Service</li>
+        <li>To send email notifications about completed or failed jobs</li>
+        <li>To improve the Service &mdash; we retain processing results (the AI's analysis, strategy decisions, and review findings for each document) and may review them to identify bugs, improve accuracy, and refine how the system handles different document types</li>
       </ul>
 
       <h3>Third-Party AI Services</h3>
       <p>Document content is sent to AI services (Google Gemini and Anthropic Claude) for analysis and remediation. These services process your content according to their own privacy policies. We send only the minimum content necessary for remediation.</p>
 
       <h3>Data Retention</h3>
-      <p>Uploaded documents and remediated output are automatically deleted after 7 days. You can also manually delete documents at any time from the Documents list. You may request deletion of all your data by contacting us.</p>
+      <p>Uploaded documents and remediated output are stored on the server and can be manually deleted at any time from the Documents list. Processing results (AI analysis, strategy, and review data) are retained for service improvement purposes. You may request deletion of all your data, including processing results, by contacting us.</p>
 
       <h3>Data Security</h3>
       <p>Passwords are hashed using bcrypt. Sessions use encrypted JWT tokens stored in httpOnly cookies. All data is transmitted over HTTPS in production.</p>

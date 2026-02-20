@@ -606,6 +606,16 @@ def _send_notification(job_id: str) -> None:
         logger.exception("Failed to send notification for job %s", job_id)
 
 
+def _save_result_json(output_dir: Path, job_id: str, result) -> None:
+    """Save the full RemediationResult as JSON for analysis and improvement."""
+    try:
+        result_path = output_dir / f"{job_id}_result.json"
+        result_path.write_text(result.model_dump_json(indent=2))
+        logger.info("Saved pipeline result to %s", result_path)
+    except Exception:
+        logger.exception("Failed to save result JSON for job %s", job_id)
+
+
 def _process_job(job_id: str) -> None:
     """Process a remediation job in the background.
 
@@ -651,6 +661,9 @@ def _process_job_inner(job_id: str) -> None:
         )
 
         result = process(request, on_phase=on_phase)
+
+        # Save full pipeline result for analysis and improvement
+        _save_result_json(job_output_dir, job_id, result)
 
         if result.success:
             update_job(

@@ -453,6 +453,13 @@ These are plain `@dataclass` (not Pydantic) for the web layer. Source files: `sr
 | `updated_at` | `str` | ISO 8601 |
 | `is_admin` | `bool` | Default: `False`. Auto-promoted via `ADMIN_EMAILS` env var on login/register. |
 
+DB-only columns (not in dataclass, used for password reset flow):
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `password_reset_token` | `TEXT` | SHA-256 hash of the raw token |
+| `password_reset_expires` | `TEXT` | ISO 8601 expiry timestamp |
+
 `to_dict()` excludes `password_hash`, `oauth_provider_id`, `updated_at` — safe for API responses. Includes `is_admin`.
 
 ### Job (updated)
@@ -481,6 +488,21 @@ Added field:
 | `DELETE` | `/api/jobs/{job_id}` | — | Delete single job (409 if processing, cleanup files) |
 | `POST` | `/api/jobs/bulk-delete` | `{job_ids: [...]}` | Bulk delete (skips queued/processing), returns `{deleted: N}` |
 | `POST` | `/api/jobs/download-zip` | `{job_ids: [...]}` | Stream ZIP of remediated files (completed only), duplicate names get `_1` suffix |
+
+### Password Reset Endpoints
+
+| Method | Path | Body | Notes |
+|--------|------|------|-------|
+| `POST` | `/api/auth/forgot-password` | `{email: "..."}` | Always returns `{ok: true}` (prevents email enumeration). Sends reset email if user exists with password. |
+| `POST` | `/api/auth/reset-password` | `{token: "...", password: "..."}` | Validates token, updates password, clears token, auto-login via cookie. 400 if invalid/expired. |
+
+### Password Reset Functions (`src/web/users.py`)
+
+| Function | Signature | Returns | Notes |
+|----------|-----------|---------|-------|
+| `set_reset_token` | `(user_id, token, expires_at)` | `None` | Stores SHA-256 hash of token + ISO expiry |
+| `get_user_by_reset_token` | `(token)` | `User \| None` | Finds user by hashed token, checks expiry |
+| `clear_reset_token` | `(user_id)` | `None` | Clears token + expiry after use |
 
 ## Serialization Notes
 

@@ -147,6 +147,36 @@ class TestSendJobFailedEmail:
         assert "x" * 201 not in html
 
 
+class TestSendPasswordResetEmail:
+    @patch("src.web.email._send")
+    def test_sends_reset_email(self, mock_send):
+        mock_send.return_value = True
+        result = email_mod.send_password_reset_email(
+            "user@example.com",
+            "http://localhost:8000/?reset=abc123token",
+        )
+
+        assert result is True
+        mock_send.assert_called_once()
+        args = mock_send.call_args[0]
+        assert args[0] == "user@example.com"
+        assert "Reset" in args[1] or "reset" in args[1]  # subject
+        assert "http://localhost:8000/?reset=abc123token" in args[2]  # html body
+        assert "1 hour" in args[2]
+
+    @patch("src.web.email._send")
+    def test_reset_email_html_escapes(self, mock_send):
+        mock_send.return_value = True
+        email_mod.send_password_reset_email(
+            "user@example.com",
+            'http://example.com/?reset=<script>alert("xss")</script>',
+        )
+
+        html = mock_send.call_args[0][2]
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+
 class TestEsc:
     def test_escapes_html_entities(self):
         assert email_mod._esc('<script>alert("xss")</script>') == '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'

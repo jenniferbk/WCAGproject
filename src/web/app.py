@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import io
@@ -27,12 +28,13 @@ from src.agent.orchestrator import process
 from src.models.pipeline import CourseContext, RemediationRequest
 from src.web.auth import (
     clear_session_cookie,
+    create_reset_token,
     create_token,
     hash_password,
     set_session_cookie,
     verify_password,
 )
-from src.web.email import send_job_complete_email, send_job_failed_email
+from src.web.email import send_job_complete_email, send_job_failed_email, send_password_reset_email
 from src.web.jobs import (
     create_job,
     delete_jobs,
@@ -47,14 +49,17 @@ from src.web.jobs import (
 from src.web.middleware import get_current_user, require_admin, require_user
 from src.web.users import (
     User,
+    clear_reset_token,
     create_user,
     get_user,
     get_user_by_email,
     get_user_by_oauth,
+    get_user_by_reset_token,
     increment_documents_used,
     init_users_db,
     list_users,
     reset_documents_used,
+    set_reset_token,
     update_user,
 )
 
@@ -171,6 +176,54 @@ async def me(user: User | None = Depends(get_current_user)):
     if not user:
         return JSONResponse(status_code=401, content={"error": "Not authenticated"})
     return {"user": user.to_dict()}
+
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(data: dict):
+    """Send a password reset email. Always returns 200 to prevent email enumeration."""
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return JSONResponse(status_code=400, content={"error": "Email is required"})
+
+    user = get_user_by_email(email)
+    # Only send if user exists and has a password (not OAuth-only)
+    if user and user.password_hash:
+        from src.web.email import SITE_URL
+        token = create_reset_token()
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        set_reset_token(user.id, token, expires_at)
+        reset_url = f"{SITE_URL}/?reset={token}"
+        send_password_reset_email(user.email, reset_url)
+
+    return {"ok": True}
+
+
+@app.post("/api/auth/reset-password")
+async def reset_password(data: dict):
+    """Reset a user's password using a valid reset token."""
+    token = (data.get("token") or "").strip()
+    password = data.get("password") or ""
+
+    if not token:
+        return JSONResponse(status_code=400, content={"error": "Token is required"})
+    if len(password) < 8:
+        return JSONResponse(status_code=400, content={"error": "Password must be at least 8 characters"})
+
+    user = get_user_by_reset_token(token)
+    if not user:
+        return JSONResponse(status_code=400, content={"error": "Invalid or expired reset token"})
+
+    hashed = hash_password(password)
+    update_user(user.id, password_hash=hashed)
+    clear_reset_token(user.id)
+
+    # Auto-login
+    user = get_user(user.id)
+    user = _check_admin_promotion(user)
+    jwt_token = create_token(user.id, user.email)
+    response = JSONResponse(content={"user": user.to_dict()})
+    set_session_cookie(response, jwt_token)
+    return response
 
 
 # ── OAuth endpoints ──────────────────────────────────────────────

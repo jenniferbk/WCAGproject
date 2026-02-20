@@ -360,6 +360,51 @@
       text-underline-offset: 2px;
     }
 
+    .auth-back {
+      display: block;
+      text-align: center;
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+    .auth-back:hover {
+      color: var(--accent-hover);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .auth-success {
+      background: var(--success-bg);
+      border: 1px solid #c6e5d3;
+      border-radius: var(--radius-sm);
+      padding: 0.85rem 1rem;
+      font-size: 0.85rem;
+      color: #1a5e35;
+      line-height: 1.5;
+      margin-top: 0.75rem;
+    }
+
+    .auth-forgot-link {
+      display: block;
+      text-align: right;
+      font-size: 0.8rem;
+      margin-top: 0.25rem;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+    .auth-forgot-link:hover {
+      color: var(--accent-hover);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
     /* ── Usage bar ──────────────────────────────── */
     .usage-bar-container {
       background: var(--surface);
@@ -1652,6 +1697,7 @@
         <div class="form-group">
           <label for="loginPassword">Password</label>
           <input type="password" id="loginPassword" autocomplete="current-password" required>
+          <a href="#" class="auth-forgot-link" onclick="toggleAuthForm(event, 'forgot')">Forgot password?</a>
         </div>
         <div class="form-error" id="loginError" role="alert" aria-live="assertive"></div>
         <button type="submit" class="btn-submit" id="loginBtn">Sign in</button>
@@ -1707,6 +1753,44 @@
       <div class="auth-toggle">
         Already have an account? <a href="#" onclick="toggleAuthForm(event, 'login')">Sign in</a>
       </div>
+    </div>
+
+    <!-- Forgot password form -->
+    <div class="auth-container hidden" id="forgotForm">
+      <h2>Forgot password</h2>
+      <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1.25rem;text-align:center">
+        Enter your email and we'll send you a reset link.
+      </p>
+      <form onsubmit="handleForgotPassword(event)" novalidate>
+        <div class="form-group">
+          <label for="forgotEmail">Email address</label>
+          <input type="email" id="forgotEmail" autocomplete="email" required>
+        </div>
+        <div class="form-error" id="forgotError" role="alert" aria-live="assertive"></div>
+        <button type="submit" class="btn-submit" id="forgotBtn">Send reset link</button>
+      </form>
+      <div class="auth-success hidden" id="forgotSuccess">
+        If an account exists with that email, we've sent a password reset link. Check your inbox.
+      </div>
+      <a href="#" class="auth-back" onclick="toggleAuthForm(event, 'login')">Back to sign in</a>
+    </div>
+
+    <!-- Reset password form -->
+    <div class="auth-container hidden" id="resetForm">
+      <h2>Set new password</h2>
+      <form onsubmit="handleResetPassword(event)" novalidate>
+        <div class="form-group">
+          <label for="resetPassword">New password</label>
+          <input type="password" id="resetPassword" autocomplete="new-password" required
+                 aria-describedby="resetPasswordHint">
+          <div id="resetPasswordHint" style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem">
+            At least 8 characters
+          </div>
+        </div>
+        <div class="form-error" id="resetError" role="alert" aria-live="assertive"></div>
+        <button type="submit" class="btn-submit" id="resetBtn">Reset password</button>
+      </form>
+      <a href="#" class="auth-back" onclick="toggleAuthForm(event, 'login')">Back to sign in</a>
     </div>
   </div>
 
@@ -1919,6 +2003,19 @@ let pendingDeleteAction = null;  // { type: 'single'|'bulk', ids: [...] }
 // ── Auth state ──
 
 async function checkAuth() {
+  // Check for password reset token in URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const resetToken = urlParams.get('reset');
+  if (resetToken) {
+    window._resetToken = resetToken;
+    // Clean up URL
+    window.history.replaceState({}, '', window.location.pathname);
+    currentUser = null;
+    showAuthView();
+    toggleAuthForm({ preventDefault() {} }, 'reset');
+    return;
+  }
+
   try {
     const res = await fetch(`${API}/api/auth/me`, { credentials: 'include' });
     if (res.ok) {
@@ -1982,9 +2079,14 @@ function toggleAuthForm(e, target) {
   e.preventDefault();
   document.getElementById('loginForm').classList.toggle('hidden', target !== 'login');
   document.getElementById('signupForm').classList.toggle('hidden', target !== 'signup');
-  // Clear errors
+  document.getElementById('forgotForm').classList.toggle('hidden', target !== 'forgot');
+  document.getElementById('resetForm').classList.toggle('hidden', target !== 'reset');
+  // Clear errors and success messages
   document.getElementById('loginError').textContent = '';
   document.getElementById('signupError').textContent = '';
+  document.getElementById('forgotError').textContent = '';
+  document.getElementById('resetError').textContent = '';
+  document.getElementById('forgotSuccess').classList.add('hidden');
 }
 
 // ── Auth actions ──
@@ -2072,6 +2174,91 @@ async function handleSignup(e) {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Create account';
+  }
+}
+
+async function handleForgotPassword(e) {
+  e.preventDefault();
+  const btn = document.getElementById('forgotBtn');
+  const errEl = document.getElementById('forgotError');
+  const successEl = document.getElementById('forgotSuccess');
+  errEl.textContent = '';
+  successEl.classList.add('hidden');
+
+  const email = document.getElementById('forgotEmail').value.trim();
+  if (!email) {
+    errEl.textContent = 'Email is required.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+
+  try {
+    const res = await fetch(`${API}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    if (res.ok) {
+      successEl.classList.remove('hidden');
+      btn.closest('form').classList.add('hidden');
+    } else {
+      const data = await res.json();
+      errEl.textContent = data.error || 'Something went wrong.';
+    }
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send reset link';
+  }
+}
+
+async function handleResetPassword(e) {
+  e.preventDefault();
+  const btn = document.getElementById('resetBtn');
+  const errEl = document.getElementById('resetError');
+  errEl.textContent = '';
+
+  const password = document.getElementById('resetPassword').value;
+  const token = window._resetToken;
+
+  if (!token) {
+    errEl.textContent = 'Invalid reset link. Please request a new one.';
+    return;
+  }
+
+  if (password.length < 8) {
+    errEl.textContent = 'Password must be at least 8 characters.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Resetting...';
+
+  try {
+    const res = await fetch(`${API}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ token, password }),
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      window._resetToken = null;
+      currentUser = data.user;
+      showAppView();
+    } else {
+      errEl.textContent = data.error || 'Reset failed.';
+    }
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Reset password';
   }
 }
 

@@ -85,6 +85,19 @@ def send_job_failed_email(email: str, job) -> bool:
     return _send(email, subject, html)
 
 
+def send_password_reset_email(email: str, reset_url: str) -> bool:
+    """Send a password reset email with a link."""
+    subject = "Reset your password — A11y Remediation"
+    html = f"""\
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;color:#1a1d23">
+  <h2 style="color:#2563eb">Reset Your Password</h2>
+  <p>We received a request to reset your password. Click the link below to choose a new one:</p>
+  <p style="margin:1.5rem 0"><a href="{_esc(reset_url)}" style="background:#2563eb;color:#fff;padding:0.75rem 1.5rem;border-radius:6px;text-decoration:none;font-weight:600">Reset Password</a></p>
+  <p style="font-size:0.85rem;color:#5f6672">This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
+</div>"""
+    return _send(email, subject, html)
+
+
 def _esc(s: str) -> str:
     """Minimal HTML escaping."""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")

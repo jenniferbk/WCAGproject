@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -60,3 +61,8 @@ def set_session_cookie(response, token: str) -> None:
 def clear_session_cookie(response) -> None:
     """Remove the session cookie."""
     response.delete_cookie(key=COOKIE_NAME, path="/")
+
+
+def create_reset_token() -> str:
+    """Create a URL-safe password reset token."""
+    return secrets.token_urlsafe(32)

@@ -449,6 +449,147 @@ class TestAdminStats:
         assert res.status_code == 403
 
 
+class TestForgotPassword:
+    def test_forgot_returns_200_for_valid_email(self, client):
+        _register(client, email="user@example.com")
+        client.cookies.clear()
+        res = client.post("/api/auth/forgot-password", json={"email": "user@example.com"})
+        assert res.status_code == 200
+        assert res.json()["ok"] is True
+
+    def test_forgot_returns_200_for_nonexistent_email(self, client):
+        """Returns 200 even for unknown emails to prevent email enumeration."""
+        res = client.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
+        assert res.status_code == 200
+        assert res.json()["ok"] is True
+
+    def test_forgot_returns_400_for_missing_email(self, client):
+        res = client.post("/api/auth/forgot-password", json={})
+        assert res.status_code == 400
+
+    def test_forgot_oauth_user_returns_200(self, client):
+        """OAuth-only users (no password) get 200 but no email is sent."""
+        from src.web.users import create_user
+        create_user(email="oauth@example.com", auth_provider="google", oauth_provider_id="g123")
+        res = client.post("/api/auth/forgot-password", json={"email": "oauth@example.com"})
+        assert res.status_code == 200
+        assert res.json()["ok"] is True
+
+
+class TestResetPassword:
+    def _get_reset_token(self, client, email="reset@example.com"):
+        """Register a user and generate a reset token."""
+        from src.web.auth import create_reset_token
+        from src.web.users import get_user_by_email, set_reset_token
+        from datetime import datetime, timedelta, timezone
+
+        _register(client, email=email)
+        client.cookies.clear()
+
+        user = get_user_by_email(email)
+        token = create_reset_token()
+        expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        set_reset_token(user.id, token, expires)
+        return token
+
+    def test_reset_valid_token(self, client):
+        token = self._get_reset_token(client)
+        res = client.post("/api/auth/reset-password", json={
+            "token": token,
+            "password": "newpassword123",
+        })
+        assert res.status_code == 200
+        assert res.json()["user"]["email"] == "reset@example.com"
+        assert "session" in res.cookies
+
+    def test_reset_auto_login(self, client):
+        """After reset, user is logged in (can access /me)."""
+        token = self._get_reset_token(client)
+        client.post("/api/auth/reset-password", json={
+            "token": token,
+            "password": "newpassword123",
+        })
+        res = client.get("/api/auth/me")
+        assert res.status_code == 200
+        assert res.json()["user"]["email"] == "reset@example.com"
+
+    def test_reset_new_password_works(self, client):
+        """After reset, can login with the new password."""
+        token = self._get_reset_token(client)
+        client.post("/api/auth/reset-password", json={
+            "token": token,
+            "password": "newpassword123",
+        })
+        client.cookies.clear()
+        res = client.post("/api/auth/login", json={
+            "email": "reset@example.com",
+            "password": "newpassword123",
+        })
+        assert res.status_code == 200
+
+    def test_reset_expired_token(self, client):
+        """Expired token returns 400."""
+        from src.web.auth import create_reset_token
+        from src.web.users import get_user_by_email, set_reset_token
+        from datetime import datetime, timedelta, timezone
+
+        _register(client, email="expired@example.com")
+        client.cookies.clear()
+
+        user = get_user_by_email("expired@example.com")
+        token = create_reset_token()
+        # Set expiry in the past
+        expires = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        set_reset_token(user.id, token, expires)
+
+        res = client.post("/api/auth/reset-password", json={
+            "token": token,
+            "password": "newpassword123",
+        })
+        assert res.status_code == 400
+        assert "expired" in res.json()["error"].lower() or "invalid" in res.json()["error"].lower()
+
+    def test_reset_invalid_token(self, client):
+        res = client.post("/api/auth/reset-password", json={
+            "token": "bogus-token-value",
+            "password": "newpassword123",
+        })
+        assert res.status_code == 400
+
+    def test_reset_short_password(self, client):
+        token = self._get_reset_token(client)
+        res = client.post("/api/auth/reset-password", json={
+            "token": token,
+            "password": "short",
+        })
+        assert res.status_code == 400
+        assert "8 characters" in res.json()["error"]
+
+    def test_reset_token_cleared_after_use(self, client):
+        """Token cannot be reused after a successful reset."""
+        token = self._get_reset_token(client)
+        # First reset succeeds
+        res1 = client.post("/api/auth/reset-password", json={
+            "token": token,
+            "password": "newpassword123",
+        })
+        assert res1.status_code == 200
+
+        # Second reset with same token fails
+        client.cookies.clear()
+        res2 = client.post("/api/auth/reset-password", json={
+            "token": token,
+            "password": "anotherpass123",
+        })
+        assert res2.status_code == 400
+
+    def test_reset_missing_token(self, client):
+        res = client.post("/api/auth/reset-password", json={
+            "password": "newpassword123",
+        })
+        assert res.status_code == 400
+
+
 class TestAdminAutoPromotion:
     def test_register_promotes_admin_email(self, client, monkeypatch):
         """Registration auto-promotes if email is in ADMIN_EMAILS."""

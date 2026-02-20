@@ -6,6 +6,7 @@ Same thread-local connection pattern as jobs.py.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -65,11 +66,17 @@ def init_users_db() -> None:
     """)
     conn.commit()
 
-    # Migrate: add is_admin column if missing
+    # Migrate: add missing columns
     cursor = conn.execute("PRAGMA table_info(users)")
     user_columns = {row[1] for row in cursor.fetchall()}
     if "is_admin" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0")
+        conn.commit()
+    if "password_reset_token" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN password_reset_token TEXT DEFAULT ''")
+        conn.commit()
+    if "password_reset_expires" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN password_reset_expires TEXT DEFAULT ''")
         conn.commit()
 
     # Migrate: add columns to jobs if missing
@@ -91,6 +98,9 @@ def init_users_db() -> None:
 def _row_to_user(row) -> User:
     d = dict(row)
     d["is_admin"] = bool(d.get("is_admin", 0))
+    # Remove fields not in the User dataclass
+    d.pop("password_reset_token", None)
+    d.pop("password_reset_expires", None)
     return User(**d)
 
 
@@ -180,3 +190,42 @@ def list_users() -> list[User]:
 def reset_documents_used(user_id: str) -> User | None:
     """Reset documents_used to 0 for a user."""
     return update_user(user_id, documents_used=0)
+
+
+def _hash_token(token: str) -> str:
+    """SHA-256 hash a reset token for safe DB storage."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def set_reset_token(user_id: str, token: str, expires_at: str) -> None:
+    """Store a hashed password reset token and expiry for a user."""
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE users SET password_reset_token = ?, password_reset_expires = ?, updated_at = ? WHERE id = ?",
+        (_hash_token(token), expires_at, now, user_id),
+    )
+    conn.commit()
+
+
+def get_user_by_reset_token(token: str) -> User | None:
+    """Find a user with a matching, non-expired reset token."""
+    conn = _get_conn()
+    hashed = _hash_token(token)
+    now = datetime.now(timezone.utc).isoformat()
+    row = conn.execute(
+        "SELECT * FROM users WHERE password_reset_token = ? AND password_reset_expires > ?",
+        (hashed, now),
+    ).fetchone()
+    return _row_to_user(row) if row else None
+
+
+def clear_reset_token(user_id: str) -> None:
+    """Clear a user's password reset token and expiry."""
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE users SET password_reset_token = '', password_reset_expires = '', updated_at = ? WHERE id = ?",
+        (now, user_id),
+    )
+    conn.commit()

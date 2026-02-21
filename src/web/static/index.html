@@ -179,7 +179,7 @@
     main {
       max-width: 960px;
       margin: 0 auto;
-      padding: 2.5rem 2rem;
+      padding: 1.75rem 2rem;
     }
 
     /* ── Auth views ─────────────────────────────── */
@@ -410,32 +410,30 @@
       background: var(--surface);
       border: 1px solid var(--border-light);
       border-radius: var(--radius);
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
       box-shadow: var(--shadow);
       animation: slideUp 0.4s var(--ease-out-expo) both;
       overflow: hidden;
     }
 
     .account-card-body {
-      padding: 1.5rem 1.75rem 1.25rem;
-    }
-
-    .account-card-top {
+      padding: 0.85rem 1.25rem;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      margin-bottom: 1rem;
+      gap: 1rem;
     }
 
     .tier-badge {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      padding: 0.25rem 0.75rem;
+      gap: 0.3rem;
+      padding: 0.2rem 0.6rem;
       border-radius: 20px;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 600;
       letter-spacing: 0.02em;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .tier-badge-free {
@@ -451,51 +449,45 @@
     }
 
     .tier-badge svg {
-      width: 14px;
-      height: 14px;
+      width: 12px;
+      height: 12px;
       flex-shrink: 0;
     }
 
     .account-balance {
-      text-align: center;
-      margin-bottom: 1rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .account-balance-number {
       font-family: var(--font-display);
-      font-size: 2.5rem;
       font-weight: 700;
-      line-height: 1.1;
       color: var(--text);
       font-variant-numeric: tabular-nums;
-      letter-spacing: -0.02em;
-    }
-
-    .account-balance-label {
-      font-size: 0.85rem;
-      color: var(--text-secondary);
-      margin-top: 0.15rem;
     }
 
     .account-progress {
       display: flex;
       align-items: center;
-      gap: 0.85rem;
-      margin-bottom: 0.85rem;
+      gap: 0.75rem;
+      flex: 1;
+      min-width: 0;
     }
 
     .usage-track {
       flex: 1;
-      height: 10px;
+      height: 8px;
       background: var(--bg-warm);
-      border-radius: 5px;
+      border-radius: 4px;
       overflow: hidden;
     }
 
     .usage-fill {
       height: 100%;
       background: linear-gradient(90deg, var(--accent), var(--accent-muted));
-      border-radius: 5px;
+      border-radius: 4px;
       transition: width 0.5s var(--ease-out-expo);
     }
 
@@ -504,32 +496,26 @@
     }
 
     .usage-count {
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       color: var(--text-tertiary);
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
 
-    .account-credit-hint {
-      font-size: 0.82rem;
-      color: var(--text-tertiary);
-      text-align: center;
-    }
-
     .account-low-banner {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
-      padding: 0.75rem 1.75rem;
+      gap: 0.5rem;
+      padding: 0.5rem 1.25rem;
       background: var(--warning-bg);
       border-top: 1px solid rgba(184,110,20,0.15);
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       color: #8B5E10;
     }
 
     .account-low-banner svg {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       flex-shrink: 0;
       color: var(--warning);
     }
@@ -579,8 +565,8 @@
       background: var(--accent-light);
       border: 1px solid rgba(27,107,90,0.12);
       border-radius: var(--radius);
-      padding: 1.5rem 1.75rem;
-      margin-bottom: 2rem;
+      padding: 1rem 1.5rem;
+      margin-bottom: 1.5rem;
       animation: slideUp 0.4s var(--ease-out-expo) both;
       animation-delay: 0.03s;
     }
@@ -595,9 +581,9 @@
     }
 
     .welcome-desc {
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       color: var(--text-secondary);
-      margin-bottom: 1rem;
+      margin-bottom: 0.75rem;
       line-height: 1.5;
     }
 
@@ -632,8 +618,8 @@
       border: 1px solid var(--border-light);
       border-radius: 16px;
       background: var(--surface-raised);
-      padding: 1.5rem;
-      margin-bottom: 2rem;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
       animation: slideUp 0.4s var(--ease-out-expo) both;
       animation-delay: 0.05s;
     }
@@ -695,13 +681,13 @@
       background: var(--surface);
       border: 2px dashed var(--border);
       border-radius: 14px;
-      padding: 2rem 2rem;
+      padding: 1.25rem 1.5rem;
       cursor: pointer;
       transition: border-color 0.3s, background 0.3s, box-shadow 0.3s, transform 0.2s;
       position: relative;
       display: flex;
       align-items: center;
-      gap: 1.75rem;
+      gap: 1.25rem;
     }
 
     .upload-section:hover {
@@ -722,15 +708,15 @@
       display: flex;
       align-items: center;
       position: relative;
-      width: 80px;
-      height: 80px;
+      width: 68px;
+      height: 60px;
       flex-shrink: 0;
     }
 
     .upload-file-icon {
       position: absolute;
-      width: 48px;
-      height: 56px;
+      width: 38px;
+      height: 46px;
       transition: transform 0.35s var(--ease-spring);
     }
 
@@ -1046,19 +1032,19 @@
     /* ── Empty state ───────────────────────────── */
     .empty-state {
       text-align: center;
-      padding: 3rem 1.5rem;
+      padding: 2rem 1.5rem;
       color: var(--text-tertiary);
     }
 
     .empty-state-icon {
-      margin-bottom: 1rem;
+      margin-bottom: 0.75rem;
       display: flex;
       justify-content: center;
     }
 
     .empty-state-icon svg {
-      width: 56px;
-      height: 56px;
+      width: 44px;
+      height: 44px;
       opacity: 0.45;
     }
 
@@ -1243,11 +1229,12 @@
       .job-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-top: 0.4rem; }
       .auth-container { margin: 2rem 0.75rem; padding: 1.75rem 1.5rem 1.5rem; }
       header { padding: 0.9rem 1rem; }
-      .upload-section { flex-direction: column; text-align: center; padding: 1.5rem 1.25rem; }
+      .upload-section { flex-direction: column; text-align: center; padding: 1.25rem 1rem; }
       .upload-icons-fan { margin: 0 auto; }
       .upload-workflow { padding: 1rem; }
       .welcome-features { justify-content: center; }
-      .account-balance-number { font-size: 2rem; }
+      .account-card-body { flex-wrap: wrap; }
+      .account-progress { width: 100%; }
     }
 
     /* ── Footer ───────────────────────────────── */
@@ -2087,29 +2074,23 @@
     <!-- Account Status Card -->
     <div class="account-card" id="accountCard">
       <div class="account-card-body">
-        <div class="account-card-top">
-          <span class="tier-badge tier-badge-free" id="tierBadge">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <span id="tierLabel">Free Tier</span>
-          </span>
-        </div>
-        <div class="account-balance">
-          <div class="account-balance-number" id="balanceNumber">20</div>
-          <div class="account-balance-label">pages remaining</div>
-        </div>
+        <span class="tier-badge tier-badge-free" id="tierBadge">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span id="tierLabel">Free Tier</span>
+        </span>
+        <span class="account-balance"><span class="account-balance-number" id="balanceNumber">20</span> pages remaining</span>
         <div class="account-progress">
           <div class="usage-track" role="progressbar" id="usageProgress"
-               aria-valuenow="20" aria-valuemin="0" aria-valuemax="20"
+               aria-valuenow="0" aria-valuemin="0" aria-valuemax="20"
                aria-label="Page balance">
-            <div class="usage-fill" id="usageFill" style="width: 100%"></div>
+            <div class="usage-fill" id="usageFill" style="width: 0%"></div>
           </div>
           <span class="usage-count" id="usageCount">0 of 20 used</span>
         </div>
-        <div class="account-credit-hint">Each upload costs 1 credit per page of your document.</div>
       </div>
       <div class="account-low-banner hidden" id="lowBalanceBanner">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span>Running low on credits? <a href="mailto:remediate@jenkleiman.com">Contact us</a> for more.</span>
+        <span>Running low? <a href="mailto:remediate@jenkleiman.com">Contact us</a> for more credits.</span>
       </div>
     </div>
 

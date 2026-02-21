@@ -245,13 +245,13 @@ class TestUsageLimits:
         )
         assert res.status_code == 413
 
-    def test_document_count_limit(self, auth_client):
-        """After max documents, uploads are rejected with 403."""
+    def test_page_balance_limit(self, auth_client):
+        """Uploads rejected when page balance is 0."""
         from src.web import users as users_mod
 
         user_data = auth_client.get("/api/auth/me").json()["user"]
-        # Set documents_used to max
-        users_mod.update_user(user_data["id"], documents_used=3)
+        # Set pages_balance to 0
+        users_mod.update_user(user_data["id"], pages_balance=0)
 
         res = auth_client.post(
             "/api/upload",
@@ -259,7 +259,7 @@ class TestUsageLimits:
             data={"course_name": "", "department": ""},
         )
         assert res.status_code == 403
-        assert "limit" in res.json()["error"].lower()
+        assert "insufficient" in res.json()["error"].lower()
 
     def test_usage_count_in_me(self, auth_client):
         """The /me endpoint returns current usage counts."""
@@ -816,3 +816,119 @@ class TestDownloadZip:
     def test_download_zip_requires_auth(self, client):
         res = client.post("/api/jobs/download-zip", json={"job_ids": ["abc"]})
         assert res.status_code == 401
+
+
+class TestPageBilling:
+    def test_new_user_has_pages_balance(self, auth_client):
+        """New users start with 20 pages."""
+        res = auth_client.get("/api/auth/me")
+        user = res.json()["user"]
+        assert user["pages_balance"] == 20
+        assert user["pages_used"] == 0
+
+    def test_upload_insufficient_pages(self, auth_client):
+        """Upload rejected when pages_balance is 0."""
+        from src.web import users as users_mod
+        user_data = auth_client.get("/api/auth/me").json()["user"]
+        users_mod.update_user(user_data["id"], pages_balance=0)
+
+        res = auth_client.post(
+            "/api/upload",
+            files={"file": ("test.docx", b"PK\x03\x04")},
+            data={"course_name": "", "department": ""},
+        )
+        assert res.status_code == 403
+        data = res.json()
+        assert data["error"] == "Insufficient pages"
+        assert data["pages_balance"] == 0
+        assert data["page_count"] >= 1
+
+    def test_upload_deducts_pages(self, auth_client):
+        """Successful upload deducts pages from balance."""
+        from src.web import users as users_mod
+        user_data = auth_client.get("/api/auth/me").json()["user"]
+
+        # Upload a minimal docx (will count as 1 page)
+        res = auth_client.post(
+            "/api/upload",
+            files={"file": ("test.docx", b"PK\x03\x04")},
+            data={"course_name": "", "department": ""},
+        )
+        if res.status_code == 200:
+            # Check balance decreased
+            updated_user = users_mod.get_user(user_data["id"])
+            assert updated_user.pages_balance < 20
+            assert updated_user.pages_used > 0
+
+    def test_job_has_page_count(self, auth_client):
+        """Jobs include page_count in their response."""
+        res = auth_client.post(
+            "/api/upload",
+            files={"file": ("test.docx", b"PK\x03\x04")},
+            data={"course_name": "", "department": ""},
+        )
+        if res.status_code == 200:
+            job_id = res.json()["job_id"]
+            job_res = auth_client.get(f"/api/jobs/{job_id}")
+            if job_res.status_code == 200:
+                assert "page_count" in job_res.json()
+                assert job_res.json()["page_count"] >= 1
+
+
+class TestAdminAddPages:
+    def test_add_pages(self, admin_client):
+        """POST /api/admin/users/{id}/add-pages adds pages."""
+        from src.web.users import create_user
+        from src.web.auth import hash_password
+        user = create_user(email="addpages@example.com", password_hash=hash_password("password123"))
+        assert user.pages_balance == 20
+
+        res = admin_client.post(
+            f"/api/admin/users/{user.id}/add-pages",
+            json={"pages": 50},
+        )
+        assert res.status_code == 200
+        assert res.json()["user"]["pages_balance"] == 70
+
+    def test_add_pages_invalid(self, admin_client):
+        """Invalid pages value returns 400."""
+        from src.web.users import create_user
+        from src.web.auth import hash_password
+        user = create_user(email="badpages@example.com", password_hash=hash_password("password123"))
+
+        res = admin_client.post(
+            f"/api/admin/users/{user.id}/add-pages",
+            json={"pages": -5},
+        )
+        assert res.status_code == 400
+
+    def test_add_pages_nonexistent_user(self, admin_client):
+        res = admin_client.post(
+            "/api/admin/users/nonexistent/add-pages",
+            json={"pages": 50},
+        )
+        assert res.status_code == 404
+
+    def test_add_pages_requires_admin(self, auth_client):
+        """Non-admin cannot add pages."""
+        res = auth_client.post(
+            "/api/admin/users/someuser/add-pages",
+            json={"pages": 50},
+        )
+        assert res.status_code == 403
+
+    def test_admin_update_pages_balance(self, admin_client):
+        """PATCH /api/admin/users/{id} can update pages_balance."""
+        me = admin_client.get("/api/auth/me").json()["user"]
+        res = admin_client.patch(
+            f"/api/admin/users/{me['id']}",
+            json={"pages_balance": 100},
+        )
+        assert res.status_code == 200
+        assert res.json()["user"]["pages_balance"] == 100
+
+    def test_admin_stats_includes_pages(self, admin_client):
+        """GET /api/admin/stats includes total_pages_used."""
+        res = admin_client.get("/api/admin/stats")
+        assert res.status_code == 200
+        assert "total_pages_used" in res.json()

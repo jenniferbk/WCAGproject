@@ -177,7 +177,7 @@
 
     /* ── Main layout ────────────────────────────── */
     main {
-      max-width: 880px;
+      max-width: 960px;
       margin: 0 auto;
       padding: 2.5rem 2rem;
     }
@@ -405,42 +405,97 @@
       text-underline-offset: 2px;
     }
 
-    /* ── Usage bar ──────────────────────────────── */
-    .usage-bar-container {
+    /* ── Account Status Card ──────────────────────── */
+    .account-card {
       background: var(--surface);
       border: 1px solid var(--border-light);
       border-radius: var(--radius);
-      padding: 0.85rem 1.25rem;
-      margin-bottom: 1.75rem;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
+      margin-bottom: 2rem;
       box-shadow: var(--shadow);
       animation: slideUp 0.4s var(--ease-out-expo) both;
+      overflow: hidden;
     }
 
-    .usage-label {
-      font-size: 0.82rem;
+    .account-card-body {
+      padding: 1.5rem 1.75rem 1.25rem;
+    }
+
+    .account-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .tier-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
       font-weight: 600;
-      white-space: nowrap;
-      color: var(--text-secondary);
       letter-spacing: 0.02em;
-      text-transform: uppercase;
-      font-size: 0.72rem;
+    }
+
+    .tier-badge-free {
+      background: var(--bg-warm);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .tier-badge-paid {
+      background: var(--accent-light);
+      color: var(--accent);
+      border: 1px solid rgba(27,107,90,0.2);
+    }
+
+    .tier-badge svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    .account-balance {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .account-balance-number {
+      font-family: var(--font-display);
+      font-size: 2.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .account-balance-label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-top: 0.15rem;
+    }
+
+    .account-progress {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      margin-bottom: 0.85rem;
     }
 
     .usage-track {
       flex: 1;
-      height: 6px;
+      height: 10px;
       background: var(--bg-warm);
-      border-radius: 3px;
+      border-radius: 5px;
       overflow: hidden;
     }
 
     .usage-fill {
       height: 100%;
       background: linear-gradient(90deg, var(--accent), var(--accent-muted));
-      border-radius: 3px;
+      border-radius: 5px;
       transition: width 0.5s var(--ease-out-expo);
     }
 
@@ -449,10 +504,45 @@
     }
 
     .usage-count {
-      font-size: 0.78rem;
+      font-size: 0.82rem;
       color: var(--text-tertiary);
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
+    }
+
+    .account-credit-hint {
+      font-size: 0.82rem;
+      color: var(--text-tertiary);
+      text-align: center;
+    }
+
+    .account-low-banner {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.75rem 1.75rem;
+      background: var(--warning-bg);
+      border-top: 1px solid rgba(184,110,20,0.15);
+      font-size: 0.82rem;
+      color: #8B5E10;
+    }
+
+    .account-low-banner svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: var(--warning);
+    }
+
+    .account-low-banner a {
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .account-low-banner a:hover {
+      text-decoration: underline;
+      text-underline-offset: 2px;
     }
 
     /* ── Limit reached ─────────────────────────── */
@@ -484,19 +574,134 @@
       font-weight: 500;
     }
 
+    /* ── Welcome section ────────────────────────── */
+    .welcome-section {
+      background: var(--accent-light);
+      border: 1px solid rgba(27,107,90,0.12);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 2rem;
+      animation: slideUp 0.4s var(--ease-out-expo) both;
+      animation-delay: 0.03s;
+    }
+
+    .welcome-heading {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.3rem;
+      letter-spacing: -0.01em;
+    }
+
+    .welcome-desc {
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+
+    .welcome-features {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .welcome-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.85rem;
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .welcome-pill svg {
+      width: 14px;
+      height: 14px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    /* ── Upload workflow wrapper ──────────────────── */
+    .upload-workflow {
+      border: 1px solid var(--border-light);
+      border-radius: 16px;
+      background: var(--surface-raised);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      animation: slideUp 0.4s var(--ease-out-expo) both;
+      animation-delay: 0.05s;
+    }
+
+    /* ── Context explainer ───────────────────────── */
+    .context-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .context-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .context-help-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      background: var(--bg-warm);
+      transition: color 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+
+    .context-help-btn:hover {
+      color: var(--accent);
+      background: var(--accent-light);
+    }
+
+    .context-help-text {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      padding: 0.5rem 0.75rem;
+      background: var(--accent-light);
+      border-radius: var(--radius-sm);
+      margin-bottom: 0.65rem;
+      line-height: 1.5;
+      display: none;
+    }
+
+    .context-help-text.visible {
+      display: block;
+    }
+
     /* ── Upload zone ───────────────────────────── */
     .upload-section {
       background: var(--surface);
       border: 2px dashed var(--border);
-      border-radius: 16px;
-      padding: 3rem 2rem;
-      text-align: center;
+      border-radius: 14px;
+      padding: 2rem 2rem;
       cursor: pointer;
       transition: border-color 0.3s, background 0.3s, box-shadow 0.3s, transform 0.2s;
-      margin-bottom: 2.5rem;
       position: relative;
-      animation: slideUp 0.45s var(--ease-out-expo) both;
-      animation-delay: 0.05s;
+      display: flex;
+      align-items: center;
+      gap: 1.75rem;
     }
 
     .upload-section:hover {
@@ -513,16 +718,48 @@
       transform: scale(1.005);
     }
 
-    .upload-icon {
-      font-size: 2.25rem;
-      margin-bottom: 0.85rem;
-      opacity: 0.5;
-      transition: transform 0.3s var(--ease-spring), opacity 0.3s;
+    .upload-icons-fan {
+      display: flex;
+      align-items: center;
+      position: relative;
+      width: 80px;
+      height: 80px;
+      flex-shrink: 0;
     }
 
-    .upload-section:hover .upload-icon {
-      transform: translateY(-3px);
-      opacity: 0.7;
+    .upload-file-icon {
+      position: absolute;
+      width: 48px;
+      height: 56px;
+      transition: transform 0.35s var(--ease-spring);
+    }
+
+    .upload-file-icon:nth-child(1) {
+      transform: rotate(-12deg) translate(0, 2px);
+      z-index: 1;
+    }
+    .upload-file-icon:nth-child(2) {
+      transform: rotate(0deg) translate(14px, -2px);
+      z-index: 2;
+    }
+    .upload-file-icon:nth-child(3) {
+      transform: rotate(12deg) translate(28px, 2px);
+      z-index: 3;
+    }
+
+    .upload-section:hover .upload-file-icon:nth-child(1) {
+      transform: rotate(-16deg) translate(-4px, 0) scale(1.08);
+    }
+    .upload-section:hover .upload-file-icon:nth-child(2) {
+      transform: rotate(0deg) translate(14px, -6px) scale(1.08);
+    }
+    .upload-section:hover .upload-file-icon:nth-child(3) {
+      transform: rotate(16deg) translate(32px, 0) scale(1.08);
+    }
+
+    .upload-content {
+      flex: 1;
+      min-width: 0;
     }
 
     .upload-title {
@@ -536,6 +773,18 @@
     .upload-hint {
       font-size: 0.82rem;
       color: var(--text-tertiary);
+      margin-bottom: 0.5rem;
+    }
+
+    .upload-meta {
+      display: flex;
+      gap: 0.65rem;
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+    }
+
+    .upload-meta-sep {
+      color: var(--border);
     }
 
     .upload-section input[type="file"] {
@@ -546,9 +795,7 @@
     .context-bar {
       display: flex;
       gap: 0.85rem;
-      margin-bottom: 1.75rem;
-      animation: slideUp 0.4s var(--ease-out-expo) both;
-      animation-delay: 0.03s;
+      margin-bottom: 1rem;
     }
 
     .context-field {
@@ -589,12 +836,12 @@
 
     /* ── Jobs list ──────────────────────────────── */
     .section-title {
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--text-tertiary);
-      margin-bottom: 0.85rem;
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 1rem;
+      letter-spacing: -0.01em;
       animation: slideUp 0.4s var(--ease-out-expo) both;
       animation-delay: 0.08s;
     }
@@ -799,19 +1046,55 @@
     /* ── Empty state ───────────────────────────── */
     .empty-state {
       text-align: center;
-      padding: 3.5rem 1rem;
+      padding: 3rem 1.5rem;
       color: var(--text-tertiary);
     }
 
     .empty-state-icon {
-      font-size: 2.25rem;
-      margin-bottom: 0.6rem;
-      opacity: 0.35;
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: center;
+    }
+
+    .empty-state-icon svg {
+      width: 56px;
+      height: 56px;
+      opacity: 0.45;
+    }
+
+    .empty-state-title {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 0.35rem;
     }
 
     .empty-state-text {
-      font-size: 0.88rem;
-      color: var(--text-secondary);
+      font-size: 0.85rem;
+      color: var(--text-tertiary);
+      line-height: 1.6;
+      max-width: 340px;
+      margin: 0 auto;
+    }
+
+    .empty-state-tip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 1rem;
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      background: var(--bg-warm);
+      padding: 0.4rem 0.85rem;
+      border-radius: 20px;
+    }
+
+    .empty-state-tip svg {
+      width: 14px;
+      height: 14px;
+      color: var(--warning);
+      flex-shrink: 0;
     }
 
     /* ── Report modal ──────────────────────────── */
@@ -960,7 +1243,11 @@
       .job-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-top: 0.4rem; }
       .auth-container { margin: 2rem 0.75rem; padding: 1.75rem 1.5rem 1.5rem; }
       header { padding: 0.9rem 1rem; }
-      .upload-section { padding: 2rem 1.25rem; }
+      .upload-section { flex-direction: column; text-align: center; padding: 1.5rem 1.25rem; }
+      .upload-icons-fan { margin: 0 auto; }
+      .upload-workflow { padding: 1rem; }
+      .welcome-features { justify-content: center; }
+      .account-balance-number { font-size: 2rem; }
     }
 
     /* ── Footer ───────────────────────────────── */
@@ -1660,7 +1947,7 @@
     /* ── Print ────────────────────────────────── */
     @media print {
       body::before { display: none; }
-      header, .upload-section, .context-bar, .usage-bar-container, .site-footer, .jobs-toolbar, .job-checkbox, .retention-notice { display: none; }
+      header, .upload-workflow, .account-card, .welcome-section, .site-footer, .jobs-toolbar, .job-checkbox, .retention-notice { display: none; }
       .job-card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
     }
   </style>
@@ -1797,54 +2084,143 @@
   <!-- App View -->
   <div id="appView" class="hidden">
 
-    <!-- Usage bar -->
-    <div class="usage-bar-container" id="usageBar">
-      <span class="usage-label">Documents</span>
-      <div class="usage-track" role="progressbar" id="usageProgress"
-           aria-valuenow="0" aria-valuemin="0" aria-valuemax="3"
-           aria-label="Document usage">
-        <div class="usage-fill" id="usageFill" style="width: 0%"></div>
+    <!-- Account Status Card -->
+    <div class="account-card" id="accountCard">
+      <div class="account-card-body">
+        <div class="account-card-top">
+          <span class="tier-badge tier-badge-free" id="tierBadge">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span id="tierLabel">Free Tier</span>
+          </span>
+        </div>
+        <div class="account-balance">
+          <div class="account-balance-number" id="balanceNumber">20</div>
+          <div class="account-balance-label">pages remaining</div>
+        </div>
+        <div class="account-progress">
+          <div class="usage-track" role="progressbar" id="usageProgress"
+               aria-valuenow="20" aria-valuemin="0" aria-valuemax="20"
+               aria-label="Page balance">
+            <div class="usage-fill" id="usageFill" style="width: 100%"></div>
+          </div>
+          <span class="usage-count" id="usageCount">0 of 20 used</span>
+        </div>
+        <div class="account-credit-hint">Each upload costs 1 credit per page of your document.</div>
       </div>
-      <span class="usage-count" id="usageCount">0 of 3 used</span>
+      <div class="account-low-banner hidden" id="lowBalanceBanner">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Running low on credits? <a href="mailto:remediate@jenkleiman.com">Contact us</a> for more.</span>
+      </div>
     </div>
 
     <!-- Limit reached -->
     <div class="limit-reached hidden" id="limitReached">
-      <div class="limit-reached-title">Document limit reached</div>
+      <div class="limit-reached-title">No pages remaining</div>
       <div class="limit-reached-text">
-        You've used all your free documents.
-        Contact <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a> for early access to more.
+        You've used all your page credits.
+        Contact <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a> for more.
       </div>
     </div>
 
-    <!-- Course context -->
-    <div class="context-bar" id="contextBar">
-      <div class="context-field">
-        <label for="courseName">Course name</label>
-        <input type="text" id="courseName" placeholder="e.g., EMAT 8030">
-      </div>
-      <div class="context-field">
-        <label for="department">Department</label>
-        <input type="text" id="department" placeholder="e.g., Mathematics Education">
+    <!-- Welcome section -->
+    <div class="welcome-section" id="welcomeSection">
+      <div class="welcome-heading">Make your documents WCAG 2.1 AA accessible</div>
+      <div class="welcome-desc">Upload course materials and receive remediated files with a compliance report.</div>
+      <div class="welcome-features">
+        <span class="welcome-pill">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          WCAG compliant
+        </span>
+        <span class="welcome-pill">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          3 formats
+        </span>
+        <span class="welcome-pill">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Minutes, not hours
+        </span>
       </div>
     </div>
 
-    <!-- Upload -->
-    <div class="upload-section" id="dropZone" role="button" tabindex="0"
-         aria-label="Upload area. Drop files here or press Enter to browse.">
-      <div class="upload-icon" aria-hidden="true">&#128196;</div>
-      <div class="upload-title">Drop files here or click to upload</div>
-      <div class="upload-hint">Accepts .docx, .pdf, and .pptx files</div>
-      <input type="file" id="fileInput" accept=".docx,.pdf,.pptx" multiple
-             aria-label="Choose files to upload">
+    <!-- Upload workflow wrapper -->
+    <div class="upload-workflow" id="uploadWorkflow">
+      <!-- Course context -->
+      <div id="contextBar">
+        <div class="context-header">
+          <span class="context-label">Course Information (Optional)</span>
+          <button class="context-help-btn" onclick="toggleContextHelp()" aria-label="Why add course context?" type="button">?</button>
+        </div>
+        <div class="context-help-text" id="contextHelpText">Adding course context helps the AI understand your document structure better &mdash; for example, distinguishing a reading list from a data table.</div>
+        <div class="context-bar">
+          <div class="context-field">
+            <label for="courseName">Course name</label>
+            <input type="text" id="courseName" placeholder="e.g., EMAT 8030">
+          </div>
+          <div class="context-field">
+            <label for="department">Department</label>
+            <input type="text" id="department" placeholder="e.g., Mathematics Education">
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload -->
+      <div class="upload-section" id="dropZone" role="button" tabindex="0"
+           aria-label="Upload area. Drop files here or press Enter to browse.">
+        <div class="upload-icons-fan" aria-hidden="true">
+          <!-- DOCX icon -->
+          <svg class="upload-file-icon" viewBox="0 0 48 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="44" height="52" rx="4" fill="#E3F2FD" stroke="#1976D2" stroke-width="2"/>
+            <rect x="10" y="36" width="28" height="10" rx="2" fill="#1976D2"/>
+            <text x="24" y="44" text-anchor="middle" fill="white" font-size="7" font-weight="700" font-family="system-ui">DOCX</text>
+            <path d="M14 14h20M14 20h16M14 26h12" stroke="#1976D2" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <!-- PDF icon -->
+          <svg class="upload-file-icon" viewBox="0 0 48 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="44" height="52" rx="4" fill="#FBE9E7" stroke="#D32F2F" stroke-width="2"/>
+            <rect x="10" y="36" width="28" height="10" rx="2" fill="#D32F2F"/>
+            <text x="24" y="44" text-anchor="middle" fill="white" font-size="7" font-weight="700" font-family="system-ui">PDF</text>
+            <path d="M14 14h20M14 20h16M14 26h12" stroke="#D32F2F" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <!-- PPTX icon -->
+          <svg class="upload-file-icon" viewBox="0 0 48 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="44" height="52" rx="4" fill="#FFF3E0" stroke="#E65100" stroke-width="2"/>
+            <rect x="10" y="36" width="28" height="10" rx="2" fill="#E65100"/>
+            <text x="24" y="44" text-anchor="middle" fill="white" font-size="7" font-weight="700" font-family="system-ui">PPTX</text>
+            <path d="M14 14h20M14 20h16M14 26h12" stroke="#E65100" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="upload-content">
+          <div class="upload-title">Drop files here or click to upload</div>
+          <div class="upload-hint">.docx, .pdf, and .pptx files</div>
+          <div class="upload-meta">
+            <span>Up to 20 MB</span>
+            <span class="upload-meta-sep" aria-hidden="true">|</span>
+            <span>Multiple files</span>
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept=".docx,.pdf,.pptx" multiple
+               aria-label="Choose files to upload">
+      </div>
     </div>
 
     <!-- Jobs -->
-    <h2 class="section-title">Documents</h2>
+    <h2 class="section-title">Your Documents</h2>
     <div class="jobs-list" id="jobsList" aria-live="polite">
       <div class="empty-state" id="emptyState">
-        <div class="empty-state-icon" aria-hidden="true">&#128203;</div>
-        <div class="empty-state-text">No documents yet. Upload a file to get started.</div>
+        <div class="empty-state-icon" aria-hidden="true">
+          <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="8" y="4" width="40" height="48" rx="4" fill="var(--bg-warm)" stroke="var(--border)" stroke-width="2"/>
+            <path d="M18 20h20M18 26h16M18 32h12" stroke="var(--border)" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="40" cy="40" r="12" fill="var(--accent-light)" stroke="var(--accent)" stroke-width="2"/>
+            <polyline points="35,40 39,44 46,37" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="empty-state-title">No documents yet</div>
+        <div class="empty-state-text">Upload your first course material above. You'll receive a remediated file and compliance report.</div>
+        <div class="empty-state-tip">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-2.26C10.19 13.47 9 11.38 9 9a7 7 0 0 1 3-5.74V2z"/></svg>
+          Tip: Add course context for better results
+        </div>
       </div>
     </div>
     <div class="retention-notice hidden" id="retentionNotice">
@@ -1880,6 +2256,10 @@
         <div class="admin-stat-value" id="statTotalDocs">&mdash;</div>
       </div>
       <div class="admin-stat-card">
+        <div class="admin-stat-label">Total Pages Used</div>
+        <div class="admin-stat-value" id="statTotalPages">&mdash;</div>
+      </div>
+      <div class="admin-stat-card">
         <div class="admin-stat-label">Users by Tier</div>
         <div class="admin-stat-value" id="statTierBreakdown">&mdash;</div>
         <div class="admin-stat-detail" id="statTierDetail"></div>
@@ -1900,7 +2280,7 @@
             <th onclick="sortAdminUsers('display_name')">Name <span class="sort-arrow" id="sort-display_name"></span></th>
             <th onclick="sortAdminUsers('email')">Email <span class="sort-arrow" id="sort-email"></span></th>
             <th onclick="sortAdminUsers('tier')">Tier <span class="sort-arrow" id="sort-tier"></span></th>
-            <th onclick="sortAdminUsers('documents_used')">Usage <span class="sort-arrow" id="sort-documents_used"></span></th>
+            <th onclick="sortAdminUsers('pages_balance')">Pages <span class="sort-arrow" id="sort-pages_balance"></span></th>
             <th>Max Size</th>
             <th onclick="sortAdminUsers('is_admin')">Admin <span class="sort-arrow" id="sort-is_admin"></span></th>
             <th>Actions</th>
@@ -1923,8 +2303,8 @@
     <div class="edit-modal-body">
       <input type="hidden" id="editUserId">
       <div class="edit-field">
-        <label for="editMaxDocs">Max documents</label>
-        <input type="number" id="editMaxDocs" min="0" step="1">
+        <label for="editPagesBalance">Pages balance</label>
+        <input type="number" id="editPagesBalance" min="0" step="1">
       </div>
       <div class="edit-field">
         <label for="editMaxSize">Max file size (MB)</label>
@@ -2055,24 +2435,55 @@ function showAppView() {
 
 function updateUsageBar() {
   if (!currentUser) return;
-  const used = currentUser.documents_used;
-  const max = currentUser.max_documents;
-  const pct = Math.min(100, (used / max) * 100);
+  const balance = currentUser.pages_balance || 0;
+  const used = currentUser.pages_used || 0;
+  const total = balance + used;
+  const usedPct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
   const fill = document.getElementById('usageFill');
   const progress = document.getElementById('usageProgress');
   const count = document.getElementById('usageCount');
 
-  fill.style.width = pct + '%';
-  fill.classList.toggle('full', used >= max);
+  fill.style.width = usedPct + '%';
+  fill.classList.toggle('full', balance <= 0);
   progress.setAttribute('aria-valuenow', used);
-  progress.setAttribute('aria-valuemax', max);
-  count.textContent = `${used} of ${max} used`;
+  progress.setAttribute('aria-valuemax', total || 1);
+  count.textContent = `${used} of ${total} used`;
+
+  // Update large balance number
+  document.getElementById('balanceNumber').textContent = balance;
+
+  // Update tier badge
+  const tier = currentUser.tier || 'free';
+  const tierBadge = document.getElementById('tierBadge');
+  const tierLabel = document.getElementById('tierLabel');
+  tierBadge.classList.toggle('tier-badge-free', tier === 'free');
+  tierBadge.classList.toggle('tier-badge-paid', tier !== 'free');
+  tierLabel.textContent = tier === 'free' ? 'Free Tier' : 'Paid Tier';
+
+  // Low balance CTA (show when <= 5 and > 0)
+  const lowBanner = document.getElementById('lowBalanceBanner');
+  lowBanner.classList.toggle('hidden', balance > 5 || balance <= 0);
 
   // Toggle upload vs limit-reached
-  const limitReached = used >= max;
+  const limitReached = balance <= 0;
   document.getElementById('limitReached').classList.toggle('hidden', !limitReached);
-  document.getElementById('dropZone').classList.toggle('hidden', limitReached);
-  document.getElementById('contextBar').classList.toggle('hidden', limitReached);
+  document.getElementById('accountCard').classList.toggle('hidden', limitReached);
+  document.getElementById('uploadWorkflow').classList.toggle('hidden', limitReached);
+
+  // Hide welcome section after 3+ completed jobs
+  updateWelcomeVisibility();
+}
+
+function updateWelcomeVisibility() {
+  const welcomeEl = document.getElementById('welcomeSection');
+  if (!welcomeEl) return;
+  const completedCount = allJobs.filter(j => j.status === 'completed').length;
+  welcomeEl.classList.toggle('hidden', completedCount >= 3);
+}
+
+function toggleContextHelp() {
+  const helpText = document.getElementById('contextHelpText');
+  helpText.classList.toggle('visible');
 }
 
 function toggleAuthForm(e, target) {
@@ -2328,8 +2739,8 @@ fileInput.addEventListener('change', () => {
 
 async function handleFiles(files) {
   // Pre-flight usage check
-  if (currentUser && currentUser.documents_used >= currentUser.max_documents) {
-    showToast('Document limit reached.');
+  if (currentUser && (currentUser.pages_balance || 0) <= 0) {
+    showToast('No pages remaining.');
     return;
   }
 
@@ -2368,7 +2779,11 @@ async function handleFiles(files) {
 
       if (!res.ok) {
         const err = await res.json();
-        showToast(err.error || 'Upload failed');
+        if (err.error === 'Insufficient pages') {
+          showToast(`Insufficient pages (need ${err.page_count}, have ${err.pages_balance})`);
+        } else {
+          showToast(err.error || 'Upload failed');
+        }
         continue;
       }
 
@@ -2474,6 +2889,9 @@ function renderJobs(jobs) {
   // Show retention notice if any completed/failed jobs exist
   const hasFinished = jobs.some(j => j.status === 'completed' || j.status === 'failed');
   notice.classList.toggle('hidden', !hasFinished);
+
+  // Update welcome section visibility
+  updateWelcomeVisibility();
 }
 
 function renderJobCard(job) {
@@ -2520,6 +2938,7 @@ function statusBadge(status, phase) {
 
 function buildMeta(job) {
   const parts = [];
+  if (job.page_count) parts.push(`${job.page_count} pg${job.page_count !== 1 ? 's' : ''}`);
   if (job.course_name) parts.push(job.course_name);
   if (job.status === 'completed') {
     parts.push(`${job.processing_time}s`);
@@ -2925,6 +3344,7 @@ async function fetchAdminStats() {
     const data = await res.json();
     document.getElementById('statTotalUsers').textContent = data.total_users;
     document.getElementById('statTotalDocs').textContent = data.total_documents_processed;
+    document.getElementById('statTotalPages').textContent = data.total_pages_used || 0;
     const free = data.users_by_tier.free || 0;
     const paid = data.users_by_tier.paid || 0;
     document.getElementById('statTierBreakdown').textContent = `${free} / ${paid}`;
@@ -3004,11 +3424,12 @@ function renderAdminTable() {
       <td>${esc(u.display_name || '\u2014')}</td>
       <td>${esc(u.email)}</td>
       <td><span class="badge-tier badge-tier-${u.tier}">${u.tier}</span></td>
-      <td>${u.documents_used} / ${u.max_documents}</td>
+      <td>${u.pages_balance} bal / ${u.pages_used} used</td>
       <td>${u.max_file_size_mb} MB</td>
       <td>${u.is_admin ? '<span class="badge-admin">admin</span>' : ''}</td>
       <td class="admin-actions">
         <button class="btn-admin-sm" onclick="openEditUserModal('${u.id}')">Edit</button>
+        <button class="btn-admin-sm" onclick="promptAddPages('${u.id}', '${esc(u.email)}')">+Pages</button>
         <button class="btn-admin-sm danger" onclick="resetUserUsage('${u.id}', '${esc(u.email)}')">Reset</button>
       </td>
     </tr>
@@ -3021,7 +3442,7 @@ function openEditUserModal(userId) {
   editingUser = user;
   document.getElementById('editUserId').value = user.id;
   document.getElementById('editUserTitle').textContent = `Edit \u2014 ${user.display_name || user.email}`;
-  document.getElementById('editMaxDocs').value = user.max_documents;
+  document.getElementById('editPagesBalance').value = user.pages_balance;
   document.getElementById('editMaxSize').value = user.max_file_size_mb;
   document.getElementById('editTier').value = user.tier;
   document.getElementById('editIsAdmin').checked = user.is_admin;
@@ -3040,12 +3461,12 @@ async function saveUserEdits() {
   btn.textContent = 'Saving...';
 
   const payload = {};
-  const newMaxDocs = parseInt(document.getElementById('editMaxDocs').value, 10);
+  const newPagesBalance = parseInt(document.getElementById('editPagesBalance').value, 10);
   const newMaxSize = parseInt(document.getElementById('editMaxSize').value, 10);
   const newTier = document.getElementById('editTier').value;
   const newIsAdmin = document.getElementById('editIsAdmin').checked;
 
-  if (newMaxDocs !== editingUser.max_documents) payload.max_documents = newMaxDocs;
+  if (newPagesBalance !== editingUser.pages_balance) payload.pages_balance = newPagesBalance;
   if (newMaxSize !== editingUser.max_file_size_mb) payload.max_file_size_mb = newMaxSize;
   if (newTier !== editingUser.tier) payload.tier = newTier;
   if (newIsAdmin !== editingUser.is_admin) payload.is_admin = newIsAdmin;
@@ -3083,7 +3504,7 @@ async function saveUserEdits() {
 }
 
 async function resetUserUsage(userId, email) {
-  if (!confirm(`Reset usage for ${email}? This sets their document count to 0.`)) return;
+  if (!confirm(`Reset usage stats for ${email}? This sets their pages used and document count to 0.`)) return;
 
   try {
     const res = await fetch(`${API}/api/admin/users/${userId}/reset-usage`, {
@@ -3098,6 +3519,36 @@ async function resetUserUsage(userId, email) {
     } else {
       const data = await res.json();
       showToast(data.error || 'Reset failed');
+    }
+  } catch (e) {
+    showToast('Network error');
+  }
+}
+
+async function promptAddPages(userId, email) {
+  const input = prompt(`Add pages to ${email}. Enter number of pages:`);
+  if (!input) return;
+  const pages = parseInt(input, 10);
+  if (isNaN(pages) || pages < 1) {
+    showToast('Please enter a positive number');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/api/admin/users/${userId}/add-pages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ pages }),
+    });
+
+    if (res.ok) {
+      showToast(`Added ${pages} pages to ${email}`);
+      await fetchAdminUsers();
+      fetchAdminStats();
+    } else {
+      const data = await res.json();
+      showToast(data.error || 'Failed to add pages');
     }
   } catch (e) {
     showToast('Network error');

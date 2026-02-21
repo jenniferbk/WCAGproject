@@ -49,15 +49,17 @@ from src.web.jobs import (
 from src.web.middleware import get_current_user, require_admin, require_user
 from src.web.users import (
     User,
+    add_pages,
     clear_reset_token,
     create_user,
+    deduct_pages,
     get_user,
     get_user_by_email,
     get_user_by_oauth,
     get_user_by_reset_token,
-    increment_documents_used,
     init_users_db,
     list_users,
+    refund_pages,
     reset_documents_used,
     set_reset_token,
     update_user,
@@ -287,6 +289,34 @@ async def microsoft_callback(code: str = "", state: str = ""):
 
 # ── API endpoints (protected) ───────────────────────────────────
 
+def _count_pages(file_path: str) -> int:
+    """Count pages in a document for billing purposes.
+
+    PDF: exact page count via PyMuPDF.
+    PPTX: exact slide count via python-pptx.
+    DOCX: heuristic based on word count (~275 words/page).
+    """
+    import math
+
+    suffix = Path(file_path).suffix.lower()
+    if suffix == ".pdf":
+        import fitz
+        doc = fitz.open(file_path)
+        count = len(doc)
+        doc.close()
+        return max(count, 1)
+    elif suffix == ".pptx":
+        from pptx import Presentation
+        prs = Presentation(file_path)
+        return max(len(prs.slides), 1)
+    elif suffix == ".docx":
+        from docx import Document
+        doc = Document(file_path)
+        word_count = sum(len(p.text.split()) for p in doc.paragraphs)
+        return max(math.ceil(word_count / 275), 1)
+    return 1
+
+
 @app.post("/api/upload")
 async def upload_file(
     user: User = Depends(require_user),
@@ -305,17 +335,6 @@ async def upload_file(
             content={"error": f"Unsupported file type: {suffix}. Accepts .docx, .pdf, .pptx"},
         )
 
-    # Check usage limits
-    if user.documents_used >= user.max_documents:
-        return JSONResponse(
-            status_code=403,
-            content={
-                "error": "Document limit reached",
-                "documents_used": user.documents_used,
-                "max_documents": user.max_documents,
-            },
-        )
-
     # Read and check file size
     content = await file.read()
     max_bytes = user.max_file_size_mb * 1024 * 1024
@@ -325,21 +344,40 @@ async def upload_file(
             content={"error": f"File too large. Maximum size is {user.max_file_size_mb}MB"},
         )
 
-    # Atomically increment usage
-    if not increment_documents_used(user.id):
-        return JSONResponse(
-            status_code=403,
-            content={"error": "Document limit reached"},
-        )
-
-    # Save uploaded file
-    job = create_job(filename, "", course_name, department, user_id=user.id, batch_id=batch_id)
-    upload_path = UPLOAD_DIR / f"{job.id}_{filename}"
-
+    # Save file to disk first so we can count pages
+    temp_job_id = __import__("uuid").uuid4().hex[:12]
+    upload_path = UPLOAD_DIR / f"{temp_job_id}_{filename}"
     with open(upload_path, "wb") as f:
         f.write(content)
 
-    update_job(job.id, original_path=str(upload_path), status="queued")
+    # Count pages for billing
+    try:
+        page_count = _count_pages(str(upload_path))
+    except Exception:
+        page_count = 1
+
+    # Atomically deduct pages from balance
+    if not deduct_pages(user.id, page_count):
+        upload_path.unlink(missing_ok=True)
+        # Re-fetch user for current balance
+        fresh_user = get_user(user.id)
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "Insufficient pages",
+                "pages_balance": fresh_user.pages_balance if fresh_user else 0,
+                "page_count": page_count,
+            },
+        )
+
+    # Create job record with page count
+    job = create_job(filename, "", course_name, department, user_id=user.id, batch_id=batch_id, page_count=page_count)
+
+    # Rename temp file to use real job ID
+    final_path = UPLOAD_DIR / f"{job.id}_{filename}"
+    upload_path.rename(final_path)
+
+    update_job(job.id, original_path=str(final_path), status="queued")
 
     # Start processing in background
     thread = threading.Thread(
@@ -547,12 +585,12 @@ async def admin_get_user(user_id: str, admin: User = Depends(require_admin)):
 
 @app.patch("/api/admin/users/{user_id}")
 async def admin_update_user(user_id: str, data: dict, admin: User = Depends(require_admin)):
-    """Update user fields (tier, max_documents, max_file_size_mb, is_admin)."""
+    """Update user fields (tier, max_documents, max_file_size_mb, is_admin, pages_balance)."""
     user = get_user(user_id)
     if not user:
         return JSONResponse(status_code=404, content={"error": "User not found"})
 
-    allowed_fields = {"tier", "max_documents", "max_file_size_mb", "is_admin"}
+    allowed_fields = {"tier", "max_documents", "max_file_size_mb", "is_admin", "pages_balance"}
     updates = {k: v for k, v in data.items() if k in allowed_fields}
 
     if not updates:
@@ -570,6 +608,9 @@ async def admin_update_user(user_id: str, data: dict, admin: User = Depends(requ
     if "is_admin" in updates:
         if not isinstance(updates["is_admin"], bool):
             return JSONResponse(status_code=400, content={"error": "is_admin must be a boolean"})
+    if "pages_balance" in updates:
+        if not isinstance(updates["pages_balance"], int) or updates["pages_balance"] < 0:
+            return JSONResponse(status_code=400, content={"error": "pages_balance must be a non-negative integer"})
 
     updated = update_user(user_id, **updates)
     return {"user": updated.to_dict()}
@@ -577,21 +618,39 @@ async def admin_update_user(user_id: str, data: dict, admin: User = Depends(requ
 
 @app.post("/api/admin/users/{user_id}/reset-usage")
 async def admin_reset_usage(user_id: str, admin: User = Depends(require_admin)):
-    """Reset a user's documents_used to 0."""
+    """Reset a user's documents_used and pages_used to 0."""
     user = get_user(user_id)
     if not user:
         return JSONResponse(status_code=404, content={"error": "User not found"})
 
     updated = reset_documents_used(user_id)
+    # Also reset pages_used
+    updated = update_user(user_id, pages_used=0)
+    return {"user": updated.to_dict()}
+
+
+@app.post("/api/admin/users/{user_id}/add-pages")
+async def admin_add_pages(user_id: str, data: dict, admin: User = Depends(require_admin)):
+    """Add pages to a user's balance."""
+    user = get_user(user_id)
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+
+    pages = data.get("pages")
+    if not isinstance(pages, int) or pages < 1:
+        return JSONResponse(status_code=400, content={"error": "pages must be a positive integer"})
+
+    updated = add_pages(user_id, pages)
     return {"user": updated.to_dict()}
 
 
 @app.get("/api/admin/stats")
 async def admin_stats(admin: User = Depends(require_admin)):
-    """Aggregate stats: total users, total docs processed, users by tier."""
+    """Aggregate stats: total users, total docs processed, total pages used, users by tier."""
     users = list_users()
     total_users = len(users)
     total_docs = sum(u.documents_used for u in users)
+    total_pages = sum(u.pages_used for u in users)
     by_tier: dict[str, int] = {}
     for u in users:
         by_tier[u.tier] = by_tier.get(u.tier, 0) + 1
@@ -599,6 +658,7 @@ async def admin_stats(admin: User = Depends(require_admin)):
     return {
         "total_users": total_users,
         "total_documents_processed": total_docs,
+        "total_pages_used": total_pages,
         "users_by_tier": by_tier,
     }
 
@@ -705,10 +765,18 @@ def _process_job_inner(job_id: str) -> None:
                 error=result.error or "Unknown error",
                 processing_time=result.processing_time_seconds,
             )
+            # Refund pages on failure
+            if job.user_id and job.page_count > 0:
+                refund_pages(job.user_id, job.page_count)
+                logger.info("Refunded %d pages to user %s for failed job %s", job.page_count, job.user_id, job_id)
             logger.error("Job %s failed: %s", job_id, result.error)
             _send_notification(job_id)
 
     except Exception as e:
         logger.exception("Job %s crashed", job_id)
         update_job(job_id, status="failed", phase="", error=str(e))
+        # Refund pages on crash
+        if job.user_id and job.page_count > 0:
+            refund_pages(job.user_id, job.page_count)
+            logger.info("Refunded %d pages to user %s for crashed job %s", job.page_count, job.user_id, job_id)
         _send_notification(job_id)

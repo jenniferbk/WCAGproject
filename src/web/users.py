@@ -29,6 +29,8 @@ class User:
     created_at: str
     updated_at: str
     is_admin: bool = False
+    pages_balance: int = 20
+    pages_used: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -42,6 +44,8 @@ class User:
             "tier": self.tier,
             "created_at": self.created_at,
             "is_admin": self.is_admin,
+            "pages_balance": self.pages_balance,
+            "pages_used": self.pages_used,
         }
 
 
@@ -78,6 +82,12 @@ def init_users_db() -> None:
     if "password_reset_expires" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN password_reset_expires TEXT DEFAULT ''")
         conn.commit()
+    if "pages_balance" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN pages_balance INTEGER DEFAULT 20")
+        conn.commit()
+    if "pages_used" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN pages_used INTEGER DEFAULT 0")
+        conn.commit()
 
     # Migrate: add columns to jobs if missing
     cursor = conn.execute("PRAGMA table_info(jobs)")
@@ -96,11 +106,16 @@ def init_users_db() -> None:
     if "companion_path" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN companion_path TEXT DEFAULT ''")
         conn.commit()
+    if "page_count" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN page_count INTEGER DEFAULT 0")
+        conn.commit()
 
 
 def _row_to_user(row) -> User:
     d = dict(row)
     d["is_admin"] = bool(d.get("is_admin", 0))
+    d.setdefault("pages_balance", 20)
+    d.setdefault("pages_used", 0)
     # Remove fields not in the User dataclass
     d.pop("password_reset_token", None)
     d.pop("password_reset_expires", None)
@@ -232,3 +247,52 @@ def clear_reset_token(user_id: str) -> None:
         (now, user_id),
     )
     conn.commit()
+
+
+def deduct_pages(user_id: str, page_count: int) -> bool:
+    """Atomically deduct pages from a user's balance.
+
+    Returns True if deducted, False if insufficient balance.
+    Also increments documents_used and pages_used for stats.
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        """UPDATE users
+           SET pages_balance = pages_balance - ?,
+               pages_used = pages_used + ?,
+               documents_used = documents_used + 1,
+               updated_at = ?
+           WHERE id = ? AND pages_balance >= ?""",
+        (page_count, page_count, now, user_id, page_count),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def refund_pages(user_id: str, page_count: int) -> None:
+    """Reverse a page deduction on job failure."""
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """UPDATE users
+           SET pages_balance = pages_balance + ?,
+               pages_used = pages_used - ?,
+               documents_used = MAX(documents_used - 1, 0),
+               updated_at = ?
+           WHERE id = ?""",
+        (page_count, page_count, now, user_id),
+    )
+    conn.commit()
+
+
+def add_pages(user_id: str, page_count: int) -> User | None:
+    """Add pages to a user's balance (admin use)."""
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE users SET pages_balance = pages_balance + ?, updated_at = ? WHERE id = ?",
+        (page_count, now, user_id),
+    )
+    conn.commit()
+    return get_user(user_id)

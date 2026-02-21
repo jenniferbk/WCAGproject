@@ -77,6 +77,7 @@ class Job:
     batch_id: str = ""
     phase: str = ""
     companion_path: str = ""
+    page_count: int = 0
 
     def to_dict(self) -> dict:
         d = {
@@ -95,6 +96,7 @@ class Job:
             "updated_at": self.updated_at,
             "batch_id": self.batch_id,
             "phase": self.phase,
+            "page_count": self.page_count,
         }
         if self.companion_path:
             d["has_companion"] = True
@@ -108,6 +110,7 @@ def _row_to_job(row: sqlite3.Row) -> Job:
     d.setdefault("batch_id", "")
     d.setdefault("phase", "")
     d.setdefault("companion_path", "")
+    d.setdefault("page_count", 0)
     return Job(**d)
 
 
@@ -118,15 +121,16 @@ def create_job(
     department: str = "",
     user_id: str = "",
     batch_id: str = "",
+    page_count: int = 0,
 ) -> Job:
     """Create a new job record."""
     conn = _get_conn()
     job_id = uuid.uuid4().hex[:12]
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        """INSERT INTO jobs (id, filename, original_path, course_name, department, user_id, batch_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (job_id, filename, original_path, course_name, department, user_id, batch_id, now, now),
+        """INSERT INTO jobs (id, filename, original_path, course_name, department, user_id, batch_id, page_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (job_id, filename, original_path, course_name, department, user_id, batch_id, page_count, now, now),
     )
     conn.commit()
     return get_job(job_id)

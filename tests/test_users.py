@@ -8,12 +8,15 @@ import pytest
 from src.web.jobs import _get_conn, _local, init_db
 from src.web.users import (
     User,
+    add_pages,
     create_user,
+    deduct_pages,
     get_user,
     get_user_by_email,
     get_user_by_oauth,
     increment_documents_used,
     init_users_db,
+    refund_pages,
     update_user,
 )
 
@@ -45,6 +48,8 @@ class TestCreateUser:
         assert user.max_documents == 3
         assert user.max_file_size_mb == 20
         assert user.tier == "free"
+        assert user.pages_balance == 20
+        assert user.pages_used == 0
         assert len(user.id) == 12
 
     def test_create_user_with_display_name(self):
@@ -74,6 +79,8 @@ class TestCreateUser:
         assert d["email"] == "test@example.com"
         assert "documents_used" in d
         assert "max_documents" in d
+        assert "pages_balance" in d
+        assert "pages_used" in d
 
 
 class TestGetUser:
@@ -156,6 +163,103 @@ class TestUpdateUser:
         assert updated.max_documents == 100
 
 
+class TestDeductPages:
+    def test_deduct_success(self):
+        user = create_user(email="pages@example.com")
+        assert user.pages_balance == 20
+
+        result = deduct_pages(user.id, 5)
+        assert result is True
+
+        updated = get_user(user.id)
+        assert updated.pages_balance == 15
+        assert updated.pages_used == 5
+        assert updated.documents_used == 1
+
+    def test_deduct_insufficient_balance(self):
+        user = create_user(email="broke@example.com")
+        # Set balance to 3
+        update_user(user.id, pages_balance=3)
+
+        result = deduct_pages(user.id, 5)
+        assert result is False
+
+        # Balance should be unchanged
+        updated = get_user(user.id)
+        assert updated.pages_balance == 3
+        assert updated.pages_used == 0
+        assert updated.documents_used == 0
+
+    def test_deduct_exact_balance(self):
+        user = create_user(email="exact@example.com")
+        update_user(user.id, pages_balance=5)
+
+        result = deduct_pages(user.id, 5)
+        assert result is True
+
+        updated = get_user(user.id)
+        assert updated.pages_balance == 0
+        assert updated.pages_used == 5
+
+    def test_deduct_nonexistent_user(self):
+        result = deduct_pages("nonexistent", 5)
+        assert result is False
+
+    def test_deduct_zero_balance_rejected(self):
+        user = create_user(email="zero@example.com")
+        update_user(user.id, pages_balance=0)
+
+        result = deduct_pages(user.id, 1)
+        assert result is False
+
+
+class TestRefundPages:
+    def test_refund_restores_balance(self):
+        user = create_user(email="refund@example.com")
+        deduct_pages(user.id, 5)
+
+        updated = get_user(user.id)
+        assert updated.pages_balance == 15
+        assert updated.pages_used == 5
+        assert updated.documents_used == 1
+
+        refund_pages(user.id, 5)
+
+        updated = get_user(user.id)
+        assert updated.pages_balance == 20
+        assert updated.pages_used == 0
+        assert updated.documents_used == 0
+
+    def test_refund_partial(self):
+        user = create_user(email="partial@example.com")
+        deduct_pages(user.id, 10)
+        refund_pages(user.id, 3)
+
+        updated = get_user(user.id)
+        assert updated.pages_balance == 13
+        assert updated.pages_used == 7
+
+
+class TestAddPages:
+    def test_add_pages(self):
+        user = create_user(email="addpages@example.com")
+        assert user.pages_balance == 20
+
+        updated = add_pages(user.id, 50)
+        assert updated.pages_balance == 70
+
+    def test_add_pages_to_zero_balance(self):
+        user = create_user(email="zeroadd@example.com")
+        update_user(user.id, pages_balance=0)
+
+        updated = add_pages(user.id, 100)
+        assert updated.pages_balance == 100
+
+    def test_add_pages_nonexistent_user(self):
+        result = add_pages("nonexistent", 50)
+        assert result is None
+
+
 class TestJobsMigration:
     def test_jobs_table_has_user_id(self):
         """Verify migration added user_id column to jobs."""
@@ -163,3 +267,10 @@ class TestJobsMigration:
         cursor = conn.execute("PRAGMA table_info(jobs)")
         columns = {row[1] for row in cursor.fetchall()}
         assert "user_id" in columns
+
+    def test_jobs_table_has_page_count(self):
+        """Verify migration added page_count column to jobs."""
+        conn = _get_conn()
+        cursor = conn.execute("PRAGMA table_info(jobs)")
+        columns = {row[1] for row in cursor.fetchall()}
+        assert "page_count" in columns

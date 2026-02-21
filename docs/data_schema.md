@@ -445,13 +445,19 @@ These are plain `@dataclass` (not Pydantic) for the web layer. Source files: `sr
 | `display_name` | `str` | Shown in UI |
 | `auth_provider` | `str` | `"local"`, `"google"`, `"microsoft"` |
 | `oauth_provider_id` | `str` | Provider's user ID |
-| `documents_used` | `int` | Atomically incremented on upload |
-| `max_documents` | `int` | Default: 3 (free tier) |
+| `documents_used` | `int` | Incremented on upload (vestigial, kept for stats) |
+| `max_documents` | `int` | Default: 3 (vestigial, kept for backwards compat) |
 | `max_file_size_mb` | `int` | Default: 20 |
 | `tier` | `str` | `"free"`, `"paid"` |
 | `created_at` | `str` | ISO 8601 |
 | `updated_at` | `str` | ISO 8601 |
 | `is_admin` | `bool` | Default: `False`. Auto-promoted via `ADMIN_EMAILS` env var on login/register. |
+| `pages_balance` | `int` | Default: 20. Pages remaining for uploads. Deducted atomically on upload. |
+| `pages_used` | `int` | Default: 0. Lifetime total pages consumed (for stats). |
+
+**Billing model:** Per-page credits. Each upload deducts `page_count` from `pages_balance` before processing. If `pages_balance < page_count`, upload is rejected (403). On job failure, pages are refunded. Admin can add pages via API.
+
+**Page counting:** PDF = `len(fitz.open())`, PPTX = `len(prs.slides)`, DOCX = `ceil(word_count / 275)` (min 1).
 
 DB-only columns (not in dataclass, used for password reset flow):
 
@@ -460,15 +466,16 @@ DB-only columns (not in dataclass, used for password reset flow):
 | `password_reset_token` | `TEXT` | SHA-256 hash of the raw token |
 | `password_reset_expires` | `TEXT` | ISO 8601 expiry timestamp |
 
-`to_dict()` excludes `password_hash`, `oauth_provider_id`, `updated_at` — safe for API responses. Includes `is_admin`.
+`to_dict()` excludes `password_hash`, `oauth_provider_id`, `updated_at` — safe for API responses. Includes `is_admin`, `pages_balance`, `pages_used`.
 
 ### Job (updated)
 
-Added field:
+Added fields:
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `user_id` | `str` | FK to `users.id`. Empty string for legacy pre-auth jobs. |
+| `page_count` | `int` | Default: 0. Number of pages billed for this job. Used for refunds on failure. |
 
 `list_jobs(user_id=)` filters by owner. All API endpoints check `job.user_id == user.id`.
 
@@ -488,6 +495,20 @@ Added field:
 | `DELETE` | `/api/jobs/{job_id}` | — | Delete single job (409 if processing, cleanup files) |
 | `POST` | `/api/jobs/bulk-delete` | `{job_ids: [...]}` | Bulk delete (skips queued/processing), returns `{deleted: N}` |
 | `POST` | `/api/jobs/download-zip` | `{job_ids: [...]}` | Stream ZIP of remediated files (completed only), duplicate names get `_1` suffix |
+
+### Page Billing Functions (`src/web/users.py`)
+
+| Function | Signature | Returns | Notes |
+|----------|-----------|---------|-------|
+| `deduct_pages` | `(user_id, page_count)` | `bool` | Atomic: deducts from `pages_balance`, increments `pages_used` + `documents_used`. Returns False if insufficient balance. |
+| `refund_pages` | `(user_id, page_count)` | `None` | Reverses a deduction on job failure. Restores `pages_balance`, decrements `pages_used` + `documents_used`. |
+| `add_pages` | `(user_id, page_count)` | `User \| None` | Admin use. Adds pages to `pages_balance`. |
+
+### Page Billing Endpoints
+
+| Method | Path | Body | Notes |
+|--------|------|------|-------|
+| `POST` | `/api/admin/users/{user_id}/add-pages` | `{pages: N}` | Admin only. Adds N pages to user's balance. 400 if pages < 1. |
 
 ### Password Reset Endpoints
 

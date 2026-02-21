@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from src.utils.json_repair import parse_json_lenient
@@ -330,6 +331,7 @@ def _describe_all_images(
     doc: DocumentModel,
     course_context: str,
     model: str,
+    on_progress: Callable[[str], None] | None = None,
 ) -> tuple[dict[str, str], list[ApiUsage]]:
     """Describe all content-bearing images, batching to avoid rate limits.
 
@@ -363,6 +365,10 @@ def _describe_all_images(
             batch_num, total_batches, len(batch),
             ", ".join(img.id for img in batch),
         )
+        if on_progress:
+            start_idx = batch_start + 1
+            end_idx = min(batch_start + IMAGES_PER_BATCH, len(content_images))
+            on_progress(f"Describing images {start_idx}-{end_idx} of {len(content_images)}")
 
         try:
             batch_descs, batch_usage = _call_with_retry(
@@ -392,6 +398,7 @@ def comprehend(
     department: str = "",
     course_description: str = "",
     model: str = "gemini-2.5-flash",
+    on_progress: Callable[[str], None] | None = None,
 ) -> ComprehensionResult:
     """Run document comprehension via Gemini.
 
@@ -430,12 +437,14 @@ def comprehend(
     if doc.images:
         logger.info("Step 1: Describing %d images via Gemini vision", len(doc.images))
         try:
-            image_descriptions, img_usage = _describe_all_images(client, doc, course_context, model)
+            image_descriptions, img_usage = _describe_all_images(client, doc, course_context, model, on_progress=on_progress)
             usage_records.extend(img_usage)
         except Exception as e:
             logger.warning("Image description failed: %s", e)
 
     # ── Step 2: Document comprehension (text-only) ──────────────
+    if on_progress:
+        on_progress("Analyzing document structure")
     logger.info("Step 2: Document comprehension")
 
     prompt_template = _load_prompt()

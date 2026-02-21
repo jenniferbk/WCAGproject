@@ -177,6 +177,7 @@ def process(
         course_name=request.course_context.course_name,
         department=request.course_context.department,
         course_description=request.course_context.description,
+        on_progress=lambda detail: on_phase("comprehending", detail) if on_phase else None,
     )
     logger.info(
         "Comprehension: type=%s, %d element purposes",
@@ -206,10 +207,11 @@ def process(
         )
     logger.info("Phase 3: Execution")
     output_dir = request.output_dir or str(path.parent)
+    exec_progress = lambda detail: on_phase("executing", detail) if on_phase else None
     if suffix == ".pdf":
-        exec_result = execute_pdf(strategy, doc_model, output_dir)
+        exec_result = execute_pdf(strategy, doc_model, output_dir, on_progress=exec_progress)
     else:
-        exec_result = execute(strategy, doc_path, output_dir, paragraphs=doc_model.paragraphs)
+        exec_result = execute(strategy, doc_path, output_dir, paragraphs=doc_model.paragraphs, on_progress=exec_progress)
 
     if not exec_result.success:
         return RemediationResult(

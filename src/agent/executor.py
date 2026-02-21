@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -54,6 +55,7 @@ def execute(
     input_path: str,
     output_dir: str = "",
     paragraphs: list | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> ExecutionResult:
     """Execute all planned remediation actions on a document.
 
@@ -104,12 +106,15 @@ def execute(
     skipped = 0
     updated_actions = []
 
-    for action in strategy.actions:
+    total_actions = len(strategy.actions)
+    for i, action in enumerate(strategy.actions):
         if action.status == "skipped":
             skipped += 1
             updated_actions.append(_action_dict(action, "skipped", "Pre-skipped"))
             continue
 
+        if on_progress:
+            on_progress(f"Applying fix {i + 1} of {total_actions}: {action.action_type}")
         result = _execute_action(doc_or_prs, action, paragraphs=paragraphs, is_pptx=is_pptx)
         updated_actions.append(result)
 
@@ -154,6 +159,7 @@ def execute_pdf(
     strategy: RemediationStrategy,
     doc_model: DocumentModel,
     output_dir: str = "",
+    on_progress: Callable[[str], None] | None = None,
 ) -> ExecutionResult:
     """Execute remediation for PDF documents.
 
@@ -200,12 +206,15 @@ def execute_pdf(
     pdf_decorative_ids: set[str] = set()
     contrast_color_map: dict[str, str] = {}  # original_hex -> fixed_hex
 
-    for action in strategy.actions:
+    total_actions = len(strategy.actions)
+    for i, action in enumerate(strategy.actions):
         if action.status == "skipped":
             skipped += 1
             updated_actions.append(_action_dict(action, "skipped", "Pre-skipped"))
             continue
 
+        if on_progress:
+            on_progress(f"Applying fix {i + 1} of {total_actions}: {action.action_type}")
         result = _apply_pdf_action(
             model_dict, action, para_id_to_idx, img_id_to_idx, tbl_id_to_idx,
             link_id_to_idx, contrast_color_map,
@@ -268,6 +277,8 @@ def execute_pdf(
     except Exception:
         itext_input = str(input_path)
 
+    if on_progress:
+        on_progress("Tagging PDF structure")
     tagging_plan = build_tagging_plan(
         strategy, doc_model,
         input_path=itext_input,

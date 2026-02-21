@@ -431,9 +431,41 @@ async def upload_file(
 
 @app.get("/api/jobs")
 async def get_jobs(user: User = Depends(require_user)):
-    """List jobs for the authenticated user."""
+    """List jobs for the authenticated user, with queue position info."""
     jobs = list_jobs(user_id=user.id)
-    return {"jobs": [j.to_dict() for j in jobs]}
+    job_dicts = [j.to_dict() for j in jobs]
+
+    # Compute queue positions for queued jobs
+    has_queued = any(j.status == "queued" for j in jobs)
+    if has_queued:
+        from src.web.jobs import _get_conn
+        conn = _get_conn()
+        # Global queue order (all users)
+        queued_rows = conn.execute(
+            "SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at ASC"
+        ).fetchall()
+        queue_order = {row[0]: i + 1 for i, row in enumerate(queued_rows)}
+
+        # Average processing time from recent completed jobs
+        avg_row = conn.execute(
+            "SELECT AVG(processing_time) FROM jobs WHERE status = 'completed' AND processing_time > 0 ORDER BY updated_at DESC LIMIT 20"
+        ).fetchone()
+        avg_time = avg_row[0] if avg_row and avg_row[0] else 180  # default 3 min
+
+        # Check if there's currently a processing job ahead in queue
+        has_processing = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE status = 'processing'"
+        ).fetchone()[0] > 0
+
+        for jd in job_dicts:
+            if jd["status"] == "queued":
+                pos = queue_order.get(jd["id"], 0)
+                jd["queue_position"] = pos
+                # Jobs ahead = position - 1, plus current processing job
+                jobs_ahead = (pos - 1) + (1 if has_processing else 0)
+                jd["estimated_wait_seconds"] = round(jobs_ahead * avg_time)
+
+    return {"jobs": job_dicts}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -755,11 +787,12 @@ def _process_job_inner(job_id: str) -> None:
     if not job:
         return
 
-    update_job(job_id, status="processing", phase="")
+    now = datetime.now(timezone.utc).isoformat()
+    update_job(job_id, status="processing", phase="", started_at=now)
     logger.info("Processing job %s: %s", job_id, job.filename)
 
-    def on_phase(phase: str) -> None:
-        update_job(job_id, phase=phase)
+    def on_phase(phase: str, detail: str = "") -> None:
+        update_job(job_id, phase=phase, phase_detail=detail)
 
     try:
         # Build output dir for this job

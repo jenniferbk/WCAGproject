@@ -96,13 +96,14 @@ def _apply_struct_tag_fixes(
 
 def process(
     request: RemediationRequest,
-    on_phase: Callable[[str], None] | None = None,
+    on_phase: Callable[[str, str], None] | None = None,
 ) -> RemediationResult:
     """Run the full remediation pipeline on a document.
 
     Args:
         request: RemediationRequest with document path and context.
-        on_phase: Optional callback invoked with phase name at each pipeline stage.
+        on_phase: Optional callback invoked with (phase_name, detail_message)
+            at each pipeline stage.
 
     Returns:
         RemediationResult with all artifacts and metrics.
@@ -133,7 +134,7 @@ def process(
 
     # ── Phase 0: Parse ──────────────────────────────────────────────
     if on_phase:
-        on_phase("parsing")
+        on_phase("parsing", "Reading document structure")
     logger.info("Phase 0: Parsing document")
     if suffix == ".pptx":
         parse_result = parse_pptx(doc_path)
@@ -164,7 +165,12 @@ def process(
 
     # ── Phase 1: Comprehend (Gemini) ────────────────────────────────
     if on_phase:
-        on_phase("comprehending")
+        on_phase(
+            "comprehending",
+            f"Parsed {doc_model.stats.paragraph_count} paragraphs, "
+            f"{doc_model.stats.image_count} images, "
+            f"{doc_model.stats.table_count} tables",
+        )
     logger.info("Phase 1: Comprehension (Gemini)")
     comprehension = comprehend(
         doc_model,
@@ -180,7 +186,10 @@ def process(
 
     # ── Phase 2: Strategize (Claude) ────────────────────────────────
     if on_phase:
-        on_phase("strategizing")
+        on_phase(
+            "strategizing",
+            f"Identified as {comprehension.document_type.value}",
+        )
     logger.info("Phase 2: Strategy (Claude)")
     strategy = strategize(doc_model, comprehension)
     logger.info(
@@ -191,7 +200,10 @@ def process(
 
     # ── Phase 3: Execute ────────────────────────────────────────────
     if on_phase:
-        on_phase("executing")
+        on_phase(
+            "executing",
+            f"Planned {len(strategy.actions)} accessibility fixes",
+        )
     logger.info("Phase 3: Execution")
     output_dir = request.output_dir or str(path.parent)
     if suffix == ".pdf":
@@ -221,7 +233,10 @@ def process(
 
     # ── Phase 4: Review (Claude) ────────────────────────────────────
     if on_phase:
-        on_phase("reviewing")
+        on_phase(
+            "reviewing",
+            f"Applied {exec_result.actions_executed} fixes",
+        )
     logger.info("Phase 4: Review (Claude)")
 
     # Re-parse the remediated document
@@ -296,7 +311,7 @@ def process(
 
     # ── Generate compliance report ──────────────────────────────────
     if on_phase:
-        on_phase("generating_report")
+        on_phase("generating_report", "Review complete")
     final_result = RemediationResult(
         success=True,
         input_path=doc_path,

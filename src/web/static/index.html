@@ -1922,6 +1922,88 @@
       justify-content: center;
     }
 
+    /* ── Progress steps ────────────────────────── */
+    .progress-steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin: 0.35rem 0 0.15rem;
+    }
+
+    .progress-step {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .progress-step.done {
+      background: var(--accent);
+    }
+
+    .progress-step.active {
+      background: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-light);
+      animation: stepPulse 1.8s ease-in-out infinite;
+    }
+
+    .progress-connector {
+      width: 18px;
+      height: 2px;
+      background: var(--border);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .progress-connector.done {
+      background: var(--accent);
+    }
+
+    @keyframes stepPulse {
+      0%, 100% { box-shadow: 0 0 0 3px var(--accent-light); }
+      50% { box-shadow: 0 0 0 5px rgba(27,107,90,0.12); }
+    }
+
+    .progress-labels {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-top: 0.1rem;
+    }
+
+    .progress-label {
+      font-size: 0.6rem;
+      color: var(--text-tertiary);
+      text-align: center;
+      width: 10px;
+      flex-shrink: 0;
+    }
+
+    .progress-label-spacer {
+      width: 18px;
+      flex-shrink: 0;
+    }
+
+    .phase-detail {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      font-style: italic;
+      margin-top: 0.15rem;
+    }
+
+    .elapsed-timer {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .queue-info {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+
     /* ── Responsive toolbar ────────────────────── */
     @media (max-width: 640px) {
       .jobs-toolbar { gap: 0.4rem; }
@@ -2355,6 +2437,7 @@
 <script>
 const API = '';  // same origin
 let pollTimer = null;
+let elapsedTimers = {};  // job_id -> intervalId
 let currentUser = null;
 let selectedJobs = new Set();
 let allJobs = [];
@@ -2807,6 +2890,67 @@ function startPolling() {
   pollTimer = setInterval(refreshJobs, 3000);
 }
 
+function formatElapsed(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function formatWait(seconds) {
+  if (seconds < 60) return 'under 1 min';
+  const m = Math.round(seconds / 60);
+  return `~${m} min wait`;
+}
+
+function ordinal(n) {
+  const s = ['th','st','nd','rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+const PHASE_ORDER = ['parsing', 'comprehending', 'strategizing', 'executing', 'reviewing', 'generating_report'];
+const PHASE_SHORT = ['Parse', 'Analyze', 'Plan', 'Fix', 'Review', 'Report'];
+
+function buildProgressSteps(phase) {
+  const activeIdx = PHASE_ORDER.indexOf(phase);
+  let html = '<div class="progress-steps" aria-label="Processing progress">';
+  for (let i = 0; i < PHASE_ORDER.length; i++) {
+    if (i > 0) {
+      const connDone = i <= activeIdx ? ' done' : '';
+      html += `<div class="progress-connector${connDone}"></div>`;
+    }
+    let cls = 'progress-step';
+    if (i < activeIdx) cls += ' done';
+    else if (i === activeIdx) cls += ' active';
+    html += `<div class="${cls}" title="${PHASE_SHORT[i]}"></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function updateElapsedTimers(jobs) {
+  // Stop timers for jobs no longer processing
+  const processingIds = new Set(jobs.filter(j => j.status === 'processing').map(j => j.id));
+  for (const [id, timerId] of Object.entries(elapsedTimers)) {
+    if (!processingIds.has(id)) {
+      clearInterval(timerId);
+      delete elapsedTimers[id];
+    }
+  }
+  // Start timers for newly processing jobs
+  for (const job of jobs) {
+    if (job.status === 'processing' && job.started_at && !elapsedTimers[job.id]) {
+      elapsedTimers[job.id] = setInterval(() => {
+        const el = document.getElementById(`elapsed-${job.id}`);
+        if (el) {
+          const elapsed = Math.floor((Date.now() - new Date(job.started_at).getTime()) / 1000);
+          el.textContent = formatElapsed(Math.max(0, elapsed));
+        }
+      }, 1000);
+    }
+  }
+}
+
 function renderJobs(jobs) {
   const list = document.getElementById('jobsList');
   const empty = document.getElementById('emptyState');
@@ -2872,6 +3016,9 @@ function renderJobs(jobs) {
 
   // Update welcome section visibility
   updateWelcomeVisibility();
+
+  // Manage elapsed timers for processing jobs
+  updateElapsedTimers(jobs);
 }
 
 function renderJobCard(job) {
@@ -2920,6 +3067,30 @@ function buildMeta(job) {
   const parts = [];
   if (job.page_count) parts.push(`${job.page_count} pg${job.page_count !== 1 ? 's' : ''}`);
   if (job.course_name) parts.push(job.course_name);
+
+  if (job.status === 'processing') {
+    // Progress steps + detail + elapsed
+    let html = parts.length ? parts.join(' &middot; ') : '';
+    html += buildProgressSteps(job.phase || 'parsing');
+    if (job.phase_detail) {
+      html += `<div class="phase-detail">${esc(job.phase_detail)}</div>`;
+    }
+    if (job.started_at) {
+      const elapsed = Math.floor((Date.now() - new Date(job.started_at).getTime()) / 1000);
+      html += `<span class="elapsed-timer" id="elapsed-${job.id}">${formatElapsed(Math.max(0, elapsed))}</span>`;
+    }
+    return html;
+  }
+
+  if (job.status === 'queued') {
+    let html = parts.length ? parts.join(' &middot; ') : '';
+    if (job.queue_position) {
+      const waitStr = job.estimated_wait_seconds ? ` &middot; ${formatWait(job.estimated_wait_seconds)}` : '';
+      html += `<div class="queue-info">${ordinal(job.queue_position)} in queue${waitStr}</div>`;
+    }
+    return html;
+  }
+
   if (job.status === 'completed') {
     parts.push(`${job.processing_time}s`);
     parts.push(`<span class="stats">

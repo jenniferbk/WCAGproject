@@ -109,6 +109,12 @@ def init_users_db() -> None:
     if "page_count" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN page_count INTEGER DEFAULT 0")
         conn.commit()
+    if "started_at" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN started_at TEXT DEFAULT ''")
+        conn.commit()
+    if "phase_detail" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN phase_detail TEXT DEFAULT ''")
+        conn.commit()
 
 
 def _row_to_user(row) -> User:

@@ -78,6 +78,8 @@ class Job:
     phase: str = ""
     companion_path: str = ""
     page_count: int = 0
+    started_at: str = ""
+    phase_detail: str = ""
 
     def to_dict(self) -> dict:
         d = {
@@ -97,6 +99,8 @@ class Job:
             "batch_id": self.batch_id,
             "phase": self.phase,
             "page_count": self.page_count,
+            "started_at": self.started_at,
+            "phase_detail": self.phase_detail,
         }
         if self.companion_path:
             d["has_companion"] = True
@@ -111,6 +115,8 @@ def _row_to_job(row: sqlite3.Row) -> Job:
     d.setdefault("phase", "")
     d.setdefault("companion_path", "")
     d.setdefault("page_count", 0)
+    d.setdefault("started_at", "")
+    d.setdefault("phase_detail", "")
     return Job(**d)
 
 

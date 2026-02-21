@@ -167,7 +167,7 @@ def process(
     if on_phase:
         on_phase(
             "comprehending",
-            f"Parsed {doc_model.stats.paragraph_count} paragraphs, "
+            f"Analyzing {doc_model.stats.paragraph_count} paragraphs, "
             f"{doc_model.stats.image_count} images, "
             f"{doc_model.stats.table_count} tables",
         )
@@ -188,7 +188,7 @@ def process(
     if on_phase:
         on_phase(
             "strategizing",
-            f"Identified as {comprehension.document_type.value}",
+            f"Planning fixes for {comprehension.document_type.value}",
         )
     logger.info("Phase 2: Strategy (Claude)")
     strategy = strategize(doc_model, comprehension)
@@ -202,7 +202,7 @@ def process(
     if on_phase:
         on_phase(
             "executing",
-            f"Planned {len(strategy.actions)} accessibility fixes",
+            f"Applying {len(strategy.actions)} accessibility fixes",
         )
     logger.info("Phase 3: Execution")
     output_dir = request.output_dir or str(path.parent)
@@ -235,7 +235,7 @@ def process(
     if on_phase:
         on_phase(
             "reviewing",
-            f"Applied {exec_result.actions_executed} fixes",
+            f"Checking {exec_result.actions_executed} applied fixes",
         )
     logger.info("Phase 4: Review (Claude)")
 
@@ -311,7 +311,7 @@ def process(
 
     # ── Generate compliance report ──────────────────────────────────
     if on_phase:
-        on_phase("generating_report", "Review complete")
+        on_phase("generating_report", "Building compliance report")
     final_result = RemediationResult(
         success=True,
         input_path=doc_path,

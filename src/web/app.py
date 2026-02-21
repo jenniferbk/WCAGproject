@@ -85,6 +85,45 @@ def startup():
     init_users_db()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    _recover_stuck_jobs()
+
+
+def _recover_stuck_jobs() -> None:
+    """Re-queue jobs that were interrupted by a server restart.
+
+    Any job in 'processing' state was mid-flight when the server died.
+    Reset it to 'queued' and re-enqueue it along with any other queued jobs.
+    """
+    from src.web.jobs import _get_conn
+
+    conn = _get_conn()
+    # Reset processing -> queued
+    stuck = conn.execute(
+        "SELECT id, filename FROM jobs WHERE status = 'processing'"
+    ).fetchall()
+    for row in stuck:
+        logger.info("Recovering stuck job %s: %s", row[0][:8], row[1])
+        conn.execute(
+            "UPDATE jobs SET status = 'queued', phase = 'waiting' WHERE id = ?",
+            (row[0],),
+        )
+    conn.commit()
+
+    # Re-enqueue all queued jobs
+    queued = conn.execute(
+        "SELECT id, filename FROM jobs WHERE status = 'queued' ORDER BY created_at ASC"
+    ).fetchall()
+    for row in queued:
+        logger.info("Re-enqueuing job %s: %s", row[0][:8], row[1])
+        thread = threading.Thread(
+            target=_process_job,
+            args=(row[0],),
+            daemon=True,
+        )
+        thread.start()
+
+    if queued:
+        logger.info("Recovered %d jobs (%d were stuck)", len(queued), len(stuck))
 
 
 def _check_admin_promotion(user: User) -> User:

@@ -2,6 +2,12 @@
 
 AI-powered WCAG 2.1 AA accessibility remediation for university course materials (.docx, .pdf, .pptx).
 
+**Live site:** https://remediate.jenkleiman.com/
+
+## Session State
+
+**Always read `NOW.md` at the start of a session** to understand current work in progress. **Update `NOW.md` at the end of a session** (or when significant progress is made) so the next session picks up where this one left off.
+
 ## Project Context
 
 DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by **April 24, 2026**. Manual remediation costs $3-4/page. Existing automated tools apply generic fixes without understanding document context and don't get the job done well. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist. The core distinction is this agentic layer — the system makes context-dependent judgments that traditional deterministic pipelines cannot.

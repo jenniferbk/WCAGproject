@@ -560,6 +560,232 @@
       font-weight: 500;
     }
 
+    .limit-reached .btn-buy-pages {
+      margin-top: 1rem;
+    }
+
+    /* ── Pricing Cards ───────────────────────────── */
+    .pricing-section {
+      margin-bottom: 1.5rem;
+      animation: slideUp 0.4s var(--ease-out-expo) both;
+      animation-delay: 0.02s;
+    }
+
+    .pricing-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .pricing-title {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .pricing-toggle {
+      background: none;
+      border: none;
+      font-size: 0.78rem;
+      font-family: var(--font-body);
+      color: var(--text-tertiary);
+      cursor: pointer;
+      padding: 0.2rem 0;
+    }
+    .pricing-toggle:hover { color: var(--text-secondary); }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+
+    .pricing-card {
+      background: var(--surface);
+      border: 1.5px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      text-align: center;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      position: relative;
+    }
+
+    .pricing-card:hover {
+      border-color: var(--accent);
+      box-shadow: var(--shadow-md);
+    }
+
+    .pricing-card-popular {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .pricing-card-badge {
+      position: absolute;
+      top: -9px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: white;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.15rem 0.6rem;
+      border-radius: 10px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .pricing-card-pages {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .pricing-card-pages-label {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+
+    .pricing-card-price {
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 0.15rem;
+    }
+
+    .pricing-card-perpage {
+      font-size: 0.72rem;
+      color: var(--text-tertiary);
+      margin-bottom: 0.75rem;
+    }
+
+    .pricing-card-discount {
+      display: inline-block;
+      background: var(--accent-light);
+      color: var(--accent);
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.1rem 0.45rem;
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+    }
+
+    .btn-buy-pages {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 1.1rem;
+      font-size: 0.82rem;
+      font-family: var(--font-body);
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s;
+    }
+
+    .btn-buy-pages:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-buy-pages:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-buy-pages-sm {
+      padding: 0.35rem 0.8rem;
+      font-size: 0.78rem;
+    }
+
+    /* ── Transaction History ──────────────────────── */
+    .transactions-section {
+      margin-bottom: 1.5rem;
+    }
+
+    .transactions-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: none;
+      border: none;
+      font-size: 0.82rem;
+      font-family: var(--font-body);
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 0.3rem 0;
+    }
+    .transactions-toggle:hover { color: var(--text); }
+
+    .transactions-toggle svg {
+      width: 14px;
+      height: 14px;
+      transition: transform 0.2s;
+    }
+    .transactions-toggle.open svg {
+      transform: rotate(90deg);
+    }
+
+    .transactions-list {
+      margin-top: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+
+    .transaction-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.6rem 1rem;
+      font-size: 0.78rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .transaction-row:last-child { border-bottom: none; }
+
+    .transaction-pack {
+      font-weight: 600;
+      color: var(--text);
+      min-width: 70px;
+    }
+
+    .transaction-pages {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .transaction-amount {
+      color: var(--text-secondary);
+    }
+
+    .transaction-date {
+      color: var(--text-tertiary);
+      margin-left: auto;
+    }
+
+    .transactions-empty {
+      padding: 1rem;
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--text-tertiary);
+    }
+
+    @media (max-width: 640px) {
+      .pricing-grid { grid-template-columns: 1fr; }
+    }
+
     /* ── Welcome section ────────────────────────── */
     .welcome-section {
       background: var(--accent-light);
@@ -2171,7 +2397,7 @@
       </div>
       <div class="account-low-banner hidden" id="lowBalanceBanner">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span>Running low? <a href="mailto:remediate@jenkleiman.com">Contact us</a> for more credits.</span>
+        <span>Running low on pages? <button class="btn-buy-pages btn-buy-pages-sm" onclick="scrollToPricing()">Buy Pages</button></span>
       </div>
     </div>
 
@@ -2179,9 +2405,52 @@
     <div class="limit-reached hidden" id="limitReached">
       <div class="limit-reached-title">No pages remaining</div>
       <div class="limit-reached-text">
-        You've used all your page credits.
-        Contact <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a> for more.
+        You've used all your page credits. Purchase a credit pack to continue remediating documents.
       </div>
+      <button class="btn-buy-pages" onclick="scrollToPricing()">Buy Pages</button>
+    </div>
+
+    <!-- Pricing Section -->
+    <div class="pricing-section" id="pricingSection">
+      <div class="pricing-header">
+        <span class="pricing-title">Buy Page Credits</span>
+        <button class="pricing-toggle" id="pricingToggle" onclick="togglePricing()" aria-expanded="true">Hide</button>
+      </div>
+      <div class="pricing-grid" id="pricingGrid">
+        <div class="pricing-card" id="pack-starter">
+          <div class="pricing-card-pages">50</div>
+          <div class="pricing-card-pages-label">pages</div>
+          <div class="pricing-card-price">$5</div>
+          <div class="pricing-card-perpage">$0.10 / page</div>
+          <button class="btn-buy-pages" onclick="buyPages('starter')">Buy</button>
+        </div>
+        <div class="pricing-card pricing-card-popular" id="pack-standard">
+          <div class="pricing-card-badge">Best Value</div>
+          <div class="pricing-card-pages">200</div>
+          <div class="pricing-card-pages-label">pages</div>
+          <div class="pricing-card-price">$15</div>
+          <div class="pricing-card-perpage">$0.075 / page</div>
+          <div class="pricing-card-discount">25% off</div>
+          <button class="btn-buy-pages" onclick="buyPages('standard')">Buy</button>
+        </div>
+        <div class="pricing-card" id="pack-bulk">
+          <div class="pricing-card-pages">500</div>
+          <div class="pricing-card-pages-label">pages</div>
+          <div class="pricing-card-price">$30</div>
+          <div class="pricing-card-perpage">$0.06 / page</div>
+          <div class="pricing-card-discount">40% off</div>
+          <button class="btn-buy-pages" onclick="buyPages('bulk')">Buy</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transaction History -->
+    <div class="transactions-section hidden" id="transactionsSection">
+      <button class="transactions-toggle" id="transactionsToggle" onclick="toggleTransactions()" aria-expanded="false">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+        Purchase History
+      </button>
+      <div class="transactions-list hidden" id="transactionsList"></div>
     </div>
 
     <!-- Welcome section -->
@@ -2494,6 +2763,8 @@ function showAppView() {
   document.getElementById('adminLink').classList.toggle('hidden', !currentUser.is_admin);
   updateUsageBar();
   refreshJobs();
+  loadTransactions();
+  checkPaymentSuccess();
 }
 
 function updateUsageBar() {
@@ -3703,6 +3974,99 @@ async function promptAddPages(userId, email) {
     }
   } catch (e) {
     showToast('Network error');
+  }
+}
+
+// ── Billing / Buy Pages ──
+
+async function buyPages(packId) {
+  const btn = document.querySelector(`#pack-${packId} .btn-buy-pages`);
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`${API}/api/billing/create-checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ pack_id: packId }),
+    });
+    const data = await res.json();
+    if (res.ok && data.url) {
+      window.location.href = data.url;
+    } else {
+      showToast(data.error || 'Unable to start checkout');
+      if (btn) btn.disabled = false;
+    }
+  } catch (e) {
+    showToast('Payment system unavailable');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function scrollToPricing() {
+  const el = document.getElementById('pricingSection');
+  if (el) {
+    el.classList.remove('hidden');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function togglePricing() {
+  const grid = document.getElementById('pricingGrid');
+  const btn = document.getElementById('pricingToggle');
+  const hidden = grid.classList.toggle('hidden');
+  btn.textContent = hidden ? 'Show' : 'Hide';
+  btn.setAttribute('aria-expanded', !hidden);
+}
+
+async function loadTransactions() {
+  try {
+    const res = await fetch(`${API}/api/billing/transactions`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const txns = data.transactions || [];
+
+    const section = document.getElementById('transactionsSection');
+    const list = document.getElementById('transactionsList');
+
+    if (txns.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+
+    section.classList.remove('hidden');
+    list.innerHTML = txns.map(t => {
+      const date = new Date(t.created_at).toLocaleDateString();
+      const amount = '$' + (t.amount_cents / 100).toFixed(2);
+      return `<div class="transaction-row">
+        <span class="transaction-pack">${esc(t.pack_id)}</span>
+        <span class="transaction-pages">+${t.pages} pages</span>
+        <span class="transaction-amount">${amount}</span>
+        <span class="transaction-date">${date}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    // Silent fail — transactions are optional display
+  }
+}
+
+function toggleTransactions() {
+  const list = document.getElementById('transactionsList');
+  const btn = document.getElementById('transactionsToggle');
+  const hidden = list.classList.toggle('hidden');
+  btn.classList.toggle('open', !hidden);
+  btn.setAttribute('aria-expanded', !hidden);
+}
+
+function checkPaymentSuccess() {
+  const params = new URLSearchParams(window.location.search);
+  const payment = params.get('payment');
+  if (payment === 'success') {
+    showToast('Payment successful! Pages have been added to your account.');
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+  } else if (payment === 'cancelled') {
+    showToast('Payment cancelled.');
+    window.history.replaceState({}, '', window.location.pathname);
   }
 }
 

@@ -9,6 +9,9 @@ Provides:
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import logging
 import os
 import re
@@ -20,12 +23,19 @@ from pathlib import Path
 import io
 import zipfile
 
-from fastapi import Depends, FastAPI, File, Form, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.agent.orchestrator import process
 from src.models.pipeline import CourseContext, RemediationRequest
+from src.web.billing import (
+    create_checkout_session,
+    get_packs_for_display,
+    get_user_transactions,
+    handle_webhook,
+    init_billing_db,
+)
 from src.web.auth import (
     clear_session_cookie,
     create_reset_token,
@@ -83,6 +93,7 @@ app = FastAPI(title="A11y Remediation", version="0.1.0")
 def startup():
     init_db()
     init_users_db()
+    init_billing_db()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     _recover_stuck_jobs()
@@ -732,6 +743,59 @@ async def admin_stats(admin: User = Depends(require_admin)):
         "total_pages_used": total_pages,
         "users_by_tier": by_tier,
     }
+
+
+# ── Billing endpoints ────────────────────────────────────────────
+
+@app.post("/api/billing/packs")
+async def billing_packs():
+    """Return available credit packs. No auth required."""
+    return {"packs": get_packs_for_display()}
+
+
+@app.post("/api/billing/create-checkout")
+async def billing_create_checkout(data: dict, request: Request, user: User = Depends(require_user)):
+    """Create a Stripe Checkout Session for a credit pack purchase."""
+    pack_id = data.get("pack_id", "")
+    if not pack_id:
+        return JSONResponse(status_code=400, content={"error": "pack_id is required"})
+
+    # Build success/cancel URLs from request origin
+    origin = str(request.base_url).rstrip("/")
+    success_url = f"{origin}/?payment=success"
+    cancel_url = f"{origin}/?payment=cancelled"
+
+    try:
+        checkout_url = create_checkout_session(user.id, pack_id, success_url, cancel_url)
+        return {"url": checkout_url}
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        logger.exception("Failed to create checkout session")
+        return JSONResponse(status_code=500, content={"error": "Payment system unavailable"})
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request):
+    """Handle Stripe webhook events. No auth — uses Stripe signature verification."""
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    if not sig_header:
+        return JSONResponse(status_code=400, content={"error": "Missing signature"})
+
+    try:
+        result = handle_webhook(payload, sig_header)
+        return result
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@app.get("/api/billing/transactions")
+async def billing_transactions(user: User = Depends(require_user)):
+    """Get the authenticated user's transaction history."""
+    transactions = get_user_transactions(user.id)
+    return {"transactions": transactions}
 
 
 # ── Background processing ───────────────────────────────────────

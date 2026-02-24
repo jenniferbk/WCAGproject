@@ -459,6 +459,12 @@
       color: var(--text-secondary);
       white-space: nowrap;
       flex-shrink: 0;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .account-balance:hover {
+      color: var(--accent);
     }
 
     .account-balance-number {
@@ -588,13 +594,15 @@
     .pricing-toggle {
       background: none;
       border: none;
-      font-size: 0.78rem;
+      font-size: 1.1rem;
       font-family: var(--font-body);
       color: var(--text-tertiary);
       cursor: pointer;
-      padding: 0.2rem 0;
+      padding: 0.1rem 0.4rem;
+      line-height: 1;
+      border-radius: 4px;
     }
-    .pricing-toggle:hover { color: var(--text-secondary); }
+    .pricing-toggle:hover { color: var(--text-secondary); background: var(--bg-warm); }
 
     .pricing-grid {
       display: grid;
@@ -2385,7 +2393,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           <span id="tierLabel">Free Tier</span>
         </span>
-        <span class="account-balance"><span class="account-balance-number" id="balanceNumber">20</span> pages remaining</span>
+        <span class="account-balance" onclick="togglePricingSection()" role="button" tabindex="0" title="Click to buy more pages"><span class="account-balance-number" id="balanceNumber">20</span> pages remaining</span>
         <div class="account-progress">
           <div class="usage-track" role="progressbar" id="usageProgress"
                aria-valuenow="0" aria-valuemin="0" aria-valuemax="20"
@@ -2410,11 +2418,11 @@
       <button class="btn-buy-pages" onclick="scrollToPricing()">Buy Pages</button>
     </div>
 
-    <!-- Pricing Section -->
-    <div class="pricing-section" id="pricingSection">
+    <!-- Pricing Section (hidden by default, shown on click) -->
+    <div class="pricing-section hidden" id="pricingSection">
       <div class="pricing-header">
-        <span class="pricing-title">Buy Page Credits</span>
-        <button class="pricing-toggle" id="pricingToggle" onclick="togglePricing()" aria-expanded="true">Hide</button>
+        <span class="pricing-title">Page Credit Packs</span>
+        <button class="pricing-toggle" onclick="closePricing()" aria-label="Close pricing">&times;</button>
       </div>
       <div class="pricing-grid" id="pricingGrid">
         <div class="pricing-card" id="pack-starter">
@@ -4002,20 +4010,24 @@ async function buyPages(packId) {
   }
 }
 
-function scrollToPricing() {
+function togglePricingSection() {
   const el = document.getElementById('pricingSection');
-  if (el) {
+  if (el.classList.contains('hidden')) {
     el.classList.remove('hidden');
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else {
+    el.classList.add('hidden');
   }
 }
 
-function togglePricing() {
-  const grid = document.getElementById('pricingGrid');
-  const btn = document.getElementById('pricingToggle');
-  const hidden = grid.classList.toggle('hidden');
-  btn.textContent = hidden ? 'Show' : 'Hide';
-  btn.setAttribute('aria-expanded', !hidden);
+function scrollToPricing() {
+  const el = document.getElementById('pricingSection');
+  el.classList.remove('hidden');
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closePricing() {
+  document.getElementById('pricingSection').classList.add('hidden');
 }
 
 async function loadTransactions() {

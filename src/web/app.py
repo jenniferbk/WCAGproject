@@ -140,7 +140,7 @@ def _recover_stuck_jobs() -> None:
 
 def _check_admin_promotion(user: User) -> User:
     """Auto-promote user to admin if their email is in ADMIN_EMAILS."""
-    admin_emails_raw = os.environ.get("ADMIN_EMAILS", "jennifer.b.kleiman@gmail.com")
+    admin_emails_raw = os.environ.get("ADMIN_EMAILS", "jennifer.b.kleiman@gmail.com,a11yremediate@gmail.com")
     admin_emails = {e.strip().lower() for e in admin_emails_raw.split(",") if e.strip()}
     if user.email.lower() in admin_emails and not user.is_admin:
         updated = update_user(user.id, is_admin=True)

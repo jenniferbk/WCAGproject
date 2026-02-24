@@ -508,6 +508,22 @@
       font-variant-numeric: tabular-nums;
     }
 
+    .buy-more-link {
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      text-decoration: none;
+      white-space: nowrap;
+      padding-left: 0.25rem;
+    }
+    .buy-more-link::before {
+      content: '\00b7 ';
+    }
+    .buy-more-link:hover {
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
     .account-low-banner {
       display: flex;
       align-items: center;
@@ -2401,6 +2417,7 @@
             <div class="usage-fill" id="usageFill" style="width: 0%"></div>
           </div>
           <span class="usage-count" id="usageCount">0 of 20 used</span>
+          <a class="buy-more-link" href="#" onclick="event.preventDefault(); scrollToPricing()">Buy more</a>
         </div>
       </div>
       <div class="account-low-banner hidden" id="lowBalanceBanner">

@@ -15,6 +15,7 @@ from src.web.users import (
 )
 from src.web.billing import (
     CREDIT_PACKS,
+    WebhookError,
     create_checkout_session,
     get_packs_for_display,
     get_user_transactions,
@@ -201,7 +202,7 @@ class TestCreateCheckoutSession:
         assert call_kwargs["cancel_url"] == "http://cancel"
         assert call_kwargs["metadata"]["user_id"] == user.id
         assert call_kwargs["metadata"]["pack_id"] == "starter"
-        assert call_kwargs["metadata"]["pages"] == "50"
+        assert "pages" not in call_kwargs["metadata"]
         # Should use price_data since no stripe_price_id set
         line_item = call_kwargs["line_items"][0]
         assert "price_data" in line_item
@@ -229,7 +230,7 @@ class TestCreateCheckoutSession:
 
 
 class TestHandleWebhook:
-    def _build_event(self, user_id, pack_id="starter", pages=50,
+    def _build_event(self, user_id, pack_id="starter",
                      session_id="cs_test_wh1", amount=500, payment_intent="pi_test_1"):
         """Build a mock Stripe checkout.session.completed event."""
         return {
@@ -242,7 +243,6 @@ class TestHandleWebhook:
                     "metadata": {
                         "user_id": user_id,
                         "pack_id": pack_id,
-                        "pages": str(pages),
                     },
                 }
             }
@@ -334,10 +334,10 @@ class TestHandleWebhook:
 
         result = handle_webhook(b"payload", "sig")
         assert result["status"] == "error"
-        assert "missing metadata" in result["reason"]
+        assert "invalid metadata" in result["reason"]
 
     @patch("src.web.billing.stripe.Webhook.construct_event")
-    def test_user_not_found(self, mock_construct, monkeypatch):
+    def test_user_not_found_raises_webhook_error(self, mock_construct, monkeypatch):
         monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
         event = {
             "type": "checkout.session.completed",
@@ -347,16 +347,14 @@ class TestHandleWebhook:
                     "metadata": {
                         "user_id": "nonexistent",
                         "pack_id": "starter",
-                        "pages": "50",
                     },
                 }
             }
         }
         mock_construct.return_value = event
 
-        result = handle_webhook(b"payload", "sig")
-        assert result["status"] == "error"
-        assert "user not found" in result["reason"]
+        with pytest.raises(WebhookError, match="not found"):
+            handle_webhook(b"payload", "sig")
 
     def test_no_webhook_secret_raises(self, monkeypatch):
         monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
@@ -375,7 +373,7 @@ class TestHandleWebhook:
     @patch("src.web.billing.stripe.Webhook.construct_event")
     def test_bulk_pack_credits_500_pages(self, mock_construct, user, monkeypatch):
         monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
-        event = self._build_event(user.id, pack_id="bulk", pages=500,
+        event = self._build_event(user.id, pack_id="bulk",
                                   session_id="cs_bulk", amount=3000)
         mock_construct.return_value = event
 
@@ -396,7 +394,7 @@ class TestHandleWebhook:
         handle_webhook(b"payload", "sig")
 
         # Second purchase
-        event2 = self._build_event(user.id, pack_id="standard", pages=200,
+        event2 = self._build_event(user.id, pack_id="standard",
                                    session_id="cs_stack_2", amount=1500)
         mock_construct.return_value = event2
         handle_webhook(b"payload", "sig")

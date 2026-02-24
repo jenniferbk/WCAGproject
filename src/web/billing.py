@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from datetime import datetime, timezone
 import stripe
 
 from src.web.jobs import _get_conn
-from src.web.users import add_pages, get_user, update_user
+from src.web.users import get_user, update_user
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,6 @@ CREDIT_PACKS = {
         "price_cents": 1500,
         "price_display": "$15",
         "per_page": "$0.075",
-        "discount": "25% off",
         "description": "200 pages",
         "stripe_price_id": os.environ.get("STRIPE_PRICE_STANDARD", ""),
     },
@@ -51,7 +51,6 @@ CREDIT_PACKS = {
         "price_cents": 3000,
         "price_display": "$30",
         "per_page": "$0.06",
-        "discount": "40% off",
         "description": "500 pages",
         "stripe_price_id": os.environ.get("STRIPE_PRICE_BULK", ""),
     },
@@ -70,7 +69,6 @@ def get_packs_for_display() -> list[dict]:
             "price_display": pack["price_display"],
             "per_page": pack["per_page"],
             "description": pack["description"],
-            "discount": pack.get("discount", ""),
         })
     return packs
 
@@ -168,7 +166,6 @@ def create_checkout_session(user_id: str, pack_id: str, success_url: str, cancel
         "metadata": {
             "user_id": user_id,
             "pack_id": pack_id,
-            "pages": str(pack["pages"]),
         },
         "client_reference_id": user_id,
     }
@@ -195,6 +192,11 @@ def create_checkout_session(user_id: str, pack_id: str, success_url: str, cancel
 
 # ── Webhook ──────────────────────────────────────────────────────
 
+class WebhookError(Exception):
+    """Raised for webhook errors that should trigger Stripe retry (5xx)."""
+    pass
+
+
 def handle_webhook(payload: bytes, sig_header: str) -> dict:
     """Verify and process a Stripe webhook event.
 
@@ -206,7 +208,8 @@ def handle_webhook(payload: bytes, sig_header: str) -> dict:
         Dict with processing result.
 
     Raises:
-        ValueError: If signature verification fails or event is malformed.
+        ValueError: If signature verification fails (4xx — don't retry).
+        WebhookError: If processing fails transiently (5xx — Stripe should retry).
     """
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     if not webhook_secret:
@@ -224,48 +227,53 @@ def handle_webhook(payload: bytes, sig_header: str) -> dict:
     metadata = session.get("metadata", {})
     user_id = metadata.get("user_id", "")
     pack_id = metadata.get("pack_id", "")
-    pages = int(metadata.get("pages", "0"))
     stripe_session_id = session.get("id", "")
     stripe_payment_intent = session.get("payment_intent", "") or ""
     amount_cents = session.get("amount_total", 0)
 
-    if not user_id or not pack_id or pages <= 0:
-        logger.warning("Webhook missing metadata: user_id=%s pack_id=%s pages=%s",
-                       user_id, pack_id, pages)
-        return {"status": "error", "reason": "missing metadata"}
+    # Validate pack_id against server-side definitions (don't trust metadata for pages)
+    if not user_id or pack_id not in CREDIT_PACKS:
+        logger.warning("Webhook bad metadata: user_id=%s pack_id=%s", user_id, pack_id)
+        return {"status": "error", "reason": "invalid metadata"}
 
-    # Check user exists
+    pages = CREDIT_PACKS[pack_id]["pages"]
+
+    # Check user exists — transient failure should trigger retry
     user = get_user(user_id)
     if not user:
         logger.error("Webhook: user %s not found", user_id)
-        return {"status": "error", "reason": "user not found"}
+        raise WebhookError(f"User {user_id} not found")
 
-    # Idempotency: check if this session was already processed
+    # Atomic idempotency: insert transaction first within an exclusive lock.
+    # If duplicate, the UNIQUE constraint on stripe_session_id prevents double-credit.
     conn = _get_conn()
-    existing = conn.execute(
-        "SELECT id FROM transactions WHERE stripe_session_id = ?",
-        (stripe_session_id,),
-    ).fetchone()
-    if existing:
-        logger.info("Webhook: session %s already processed (txn %s)",
-                     stripe_session_id, existing[0])
-        return {"status": "already_processed", "transaction_id": existing[0]}
+    txn_id = uuid.uuid4().hex[:16]
+    now = datetime.now(timezone.utc).isoformat()
 
-    # Credit pages and record transaction
-    add_pages(user_id, pages)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            """INSERT INTO transactions
+               (id, user_id, pack_id, pages, amount_cents,
+                stripe_session_id, stripe_payment_intent, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)""",
+            (txn_id, user_id, pack_id, pages, amount_cents,
+             stripe_session_id, stripe_payment_intent, now),
+        )
+        # Credit pages within the same transaction
+        conn.execute(
+            "UPDATE users SET pages_balance = pages_balance + ?, updated_at = ? WHERE id = ?",
+            (pages, now, user_id),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        logger.info("Webhook: session %s already processed", stripe_session_id)
+        return {"status": "already_processed"}
 
-    # Flip tier to 'paid' on first purchase
+    # Flip tier to 'paid' on first purchase (outside critical section, idempotent)
     if user.tier == "free":
         update_user(user_id, tier="paid")
-
-    txn_id = record_transaction(
-        user_id=user_id,
-        pack_id=pack_id,
-        pages=pages,
-        amount_cents=amount_cents,
-        stripe_session_id=stripe_session_id,
-        stripe_payment_intent=stripe_payment_intent,
-    )
 
     logger.info("Credited %d pages to user %s (pack=%s, txn=%s)",
                 pages, user_id, pack_id, txn_id)

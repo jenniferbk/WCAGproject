@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from src.agent.orchestrator import process
 from src.models.pipeline import CourseContext, RemediationRequest
 from src.web.billing import (
+    WebhookError,
     create_checkout_session,
     get_packs_for_display,
     get_user_transactions,
@@ -754,16 +755,15 @@ async def billing_packs():
 
 
 @app.post("/api/billing/create-checkout")
-async def billing_create_checkout(data: dict, request: Request, user: User = Depends(require_user)):
+async def billing_create_checkout(data: dict, user: User = Depends(require_user)):
     """Create a Stripe Checkout Session for a credit pack purchase."""
     pack_id = data.get("pack_id", "")
     if not pack_id:
         return JSONResponse(status_code=400, content={"error": "pack_id is required"})
 
-    # Build success/cancel URLs from request origin
-    origin = str(request.base_url).rstrip("/")
-    success_url = f"{origin}/?payment=success"
-    cancel_url = f"{origin}/?payment=cancelled"
+    from src.web.email import SITE_URL
+    success_url = f"{SITE_URL}/?payment=success"
+    cancel_url = f"{SITE_URL}/?payment=cancelled"
 
     try:
         checkout_url = create_checkout_session(user.id, pack_id, success_url, cancel_url)
@@ -789,6 +789,10 @@ async def billing_webhook(request: Request):
         return result
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+    except WebhookError as e:
+        # Transient error — return 500 so Stripe retries
+        logger.error("Webhook processing error: %s", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/billing/transactions")

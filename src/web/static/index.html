@@ -3254,19 +3254,38 @@ function renderJobs(jobs) {
     }
   }
 
-  let html = renderToolbar();
+  // Build a unified list of render groups sorted by most recent job date
+  // Each group is { date, render() }
+  const groups = [];
 
-  // Render multi-file batches with headers
   for (const [bid, bjobs] of multiBatches) {
-    const completed = bjobs.filter(j => j.status === 'completed').length;
-    html += `<div class="batch-group">`;
-    html += `<div class="batch-header">Batch &middot; ${completed} of ${bjobs.length} complete<span class="batch-header-line"></span></div>`;
-    html += bjobs.map(renderJobCard).join('');
-    html += `</div>`;
+    // Batch date = most recent job in the batch
+    const newest = bjobs.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+    groups.push({
+      date: newest.created_at,
+      render() {
+        const completed = bjobs.filter(j => j.status === 'completed').length;
+        let h = `<div class="batch-group">`;
+        h += `<div class="batch-header">Batch &middot; ${completed} of ${bjobs.length} complete<span class="batch-header-line"></span></div>`;
+        h += bjobs.map(renderJobCard).join('');
+        h += `</div>`;
+        return h;
+      }
+    });
   }
 
-  // Render singles
-  html += singles.map(renderJobCard).join('');
+  for (const job of singles) {
+    groups.push({
+      date: job.created_at,
+      render: () => renderJobCard(job),
+    });
+  }
+
+  // Sort newest first
+  groups.sort((a, b) => b.date.localeCompare(a.date));
+
+  let html = renderToolbar();
+  html += groups.map(g => g.render()).join('');
   list.innerHTML = html;
 
   // Show retention notice if any completed/failed jobs exist

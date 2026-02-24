@@ -4091,6 +4091,16 @@ document.addEventListener('keydown', (e) => {
 
 // ── Initial load ──
 checkAuth();
+
+// Auto-open info modals from URL params (e.g. ?info=terms, ?info=privacy)
+(function() {
+  const p = new URLSearchParams(window.location.search).get('info');
+  if (p && infoContent[p]) {
+    document.getElementById('infoModalTitle').textContent = infoContent[p].title;
+    document.getElementById('infoModalBody').innerHTML = infoContent[p].body;
+    document.getElementById('infoModal').classList.add('active');
+  }
+})();
 </script>
 </body>
 </html>

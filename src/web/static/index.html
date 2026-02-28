@@ -1497,6 +1497,57 @@
       color: var(--text-tertiary);
     }
 
+    /* ── Thank you modal ───────────────────────── */
+    .thankyou-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(45, 42, 38, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 110;
+      align-items: center;
+      justify-content: center;
+    }
+    .thankyou-overlay.active { display: flex; }
+    .thankyou-card {
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      padding: 2.5rem 2rem 2rem;
+      max-width: 420px;
+      width: 90%;
+      text-align: center;
+      animation: modalSlideIn 0.3s ease-out;
+    }
+    .thankyou-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1rem;
+      background: var(--success-bg);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--success);
+    }
+    .thankyou-icon svg { width: 28px; height: 28px; }
+    .thankyou-card h2 {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      color: var(--text);
+      margin: 0 0 0.5rem;
+    }
+    .thankyou-card p {
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      margin: 0 0 1.5rem;
+      line-height: 1.5;
+    }
+    .thankyou-card .btn-submit {
+      min-width: 140px;
+    }
+
     /* ── Info modal (TOS, Privacy, About, Credits) ── */
     .info-modal-overlay {
       display: none;
@@ -2277,15 +2328,6 @@
         <button type="submit" class="btn-submit" id="loginBtn">Sign in</button>
       </form>
 
-      <div class="auth-divider">or</div>
-
-      <button class="btn-oauth" onclick="oauthLogin('google')">
-        Sign in with Google
-      </button>
-      <button class="btn-oauth" onclick="oauthLogin('microsoft')">
-        Sign in with Microsoft
-      </button>
-
       <div class="auth-toggle">
         Don't have an account? <a href="#" onclick="toggleAuthForm(event, 'signup')">Create one</a>
       </div>
@@ -2314,15 +2356,6 @@
         <div class="form-error" id="signupError" role="alert" aria-live="assertive"></div>
         <button type="submit" class="btn-submit" id="signupBtn">Create account</button>
       </form>
-
-      <div class="auth-divider">or</div>
-
-      <button class="btn-oauth" onclick="oauthLogin('google')">
-        Sign up with Google
-      </button>
-      <button class="btn-oauth" onclick="oauthLogin('microsoft')">
-        Sign up with Microsoft
-      </button>
 
       <div class="auth-toggle">
         Already have an account? <a href="#" onclick="toggleAuthForm(event, 'login')">Sign in</a>
@@ -2677,6 +2710,18 @@
   </div>
 </div>
 
+<!-- Thank You Modal -->
+<div class="thankyou-overlay" id="thankyouModal" role="dialog" aria-modal="true" aria-labelledby="thankyouTitle">
+  <div class="thankyou-card">
+    <div class="thankyou-icon" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <h2 id="thankyouTitle">Thank you!</h2>
+    <p id="thankyouMessage">Your pages have been added to your account. Thanks for supporting accessible education.</p>
+    <button class="btn-submit" onclick="closeThankyou()">Continue</button>
+  </div>
+</div>
+
 <!-- Footer -->
 <footer class="site-footer">
   <nav class="footer-links" aria-label="Legal and information">
@@ -2685,6 +2730,8 @@
     <a href="#" onclick="openInfoModal(event, 'terms')">Terms of Service</a>
     <span class="footer-sep" aria-hidden="true">&middot;</span>
     <a href="#" onclick="openInfoModal(event, 'privacy')">Privacy</a>
+    <span class="footer-sep" aria-hidden="true">&middot;</span>
+    <a href="#" onclick="openInfoModal(event, 'contact')">Contact</a>
     <span class="footer-sep" aria-hidden="true">&middot;</span>
     <a href="#" onclick="openInfoModal(event, 'credits')">Credits</a>
   </nav>
@@ -3723,6 +3770,29 @@ const infoContent = {
       <h3>Acknowledgments</h3>
       <p>Thank you to the accessibility community, the W3C Web Accessibility Initiative, and the educators who are working to make course materials inclusive for all students.</p>
     `
+  },
+  contact: {
+    title: 'Contact & Feedback',
+    body: `
+      <h3>Get in touch</h3>
+      <p>Have a question, found a bug, or want to share feedback? We'd love to hear from you.</p>
+      <p><a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a></p>
+
+      <h3>Feature requests</h3>
+      <p>We're actively developing this tool and your input shapes what gets built next. If there's something that would make this more useful for your workflow, let us know.</p>
+
+      <h3>Reporting issues</h3>
+      <p>If a document didn't remediate correctly or you got unexpected results, email us with:</p>
+      <ul>
+        <li>The document type (Word, PDF, or PowerPoint)</li>
+        <li>What you expected vs. what happened</li>
+        <li>The compliance report, if available</li>
+      </ul>
+      <p>We review every report to improve the system.</p>
+
+      <h3>University partnerships</h3>
+      <p>Interested in deploying this for your department or institution? Reach out to discuss volume pricing and on-premises options.</p>
+    `
   }
 };
 
@@ -4075,8 +4145,7 @@ function checkPaymentSuccess() {
   const params = new URLSearchParams(window.location.search);
   const payment = params.get('payment');
   if (payment === 'success') {
-    showToast('Payment successful! Pages have been added to your account.');
-    // Clean URL
+    document.getElementById('thankyouModal').classList.add('active');
     window.history.replaceState({}, '', window.location.pathname);
   } else if (payment === 'cancelled') {
     showToast('Payment cancelled.');
@@ -4084,12 +4153,19 @@ function checkPaymentSuccess() {
   }
 }
 
+function closeThankyou() {
+  document.getElementById('thankyouModal').classList.remove('active');
+}
+document.getElementById('thankyouModal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeThankyou();
+});
+
 // Close edit modal on backdrop click, Escape
 document.getElementById('editUserModal').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) closeEditUserModal();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeEditUserModal();
+  if (e.key === 'Escape') { closeEditUserModal(); closeThankyou(); }
 });
 
 // ── Initial load ──

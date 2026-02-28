@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.web.jobs import _local, init_db
+from src.web.rate_limit import reset_limiter
 from src.web.users import init_users_db, update_user
 
 
@@ -23,6 +24,7 @@ def fresh_db(tmp_path, monkeypatch):
     # Disable auto-promotion in tests so we control admin status explicitly
     monkeypatch.setenv("ADMIN_EMAILS", "")
 
+    reset_limiter()
     init_db()
     init_users_db()
     yield

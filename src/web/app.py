@@ -24,7 +24,7 @@ import io
 import zipfile
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.agent.orchestrator import process
@@ -58,6 +58,7 @@ from src.web.jobs import (
     update_job,
 )
 from src.web.middleware import get_current_user, require_admin, require_user
+from src.web.rate_limit import rate_limit
 from src.web.users import (
     User,
     add_pages,
@@ -77,6 +78,15 @@ from src.web.users import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── Rate limiters ────────────────────────────────────────────────
+_login_limit = rate_limit(10, 60)                # 10/min per IP
+_register_limit = rate_limit(5, 3600)            # 5/hour per IP
+_forgot_password_limit = rate_limit(5, 3600)     # 5/hour per IP
+_reset_password_limit = rate_limit(10, 3600)     # 10/hour per IP
+_upload_limit = rate_limit(20, 3600)             # 20/hour per user (key set at endpoint)
+_checkout_limit = rate_limit(10, 3600)           # 10/hour per user
+_general_limit = rate_limit(120, 60)             # 120/min per IP
 
 UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "data" / "output"
@@ -157,16 +167,65 @@ async def health():
 
 # ── Static frontend ──────────────────────────────────────────────
 
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     index_path = STATIC_DIR / "index.html"
     return HTMLResponse(index_path.read_text())
 
 
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots_txt():
+    return (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /api/\n"
+        "\n"
+        "Sitemap: https://remediate.jenkleiman.com/sitemap.xml\n"
+    )
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        "  <url>\n"
+        "    <loc>https://remediate.jenkleiman.com/</loc>\n"
+        "    <changefreq>weekly</changefreq>\n"
+        "    <priority>1.0</priority>\n"
+        "  </url>\n"
+        "  <url>\n"
+        "    <loc>https://remediate.jenkleiman.com/?info=about</loc>\n"
+        "    <changefreq>monthly</changefreq>\n"
+        "    <priority>0.8</priority>\n"
+        "  </url>\n"
+        "  <url>\n"
+        "    <loc>https://remediate.jenkleiman.com/?info=contact</loc>\n"
+        "    <changefreq>monthly</changefreq>\n"
+        "    <priority>0.6</priority>\n"
+        "  </url>\n"
+        "  <url>\n"
+        "    <loc>https://remediate.jenkleiman.com/?info=terms</loc>\n"
+        "    <changefreq>monthly</changefreq>\n"
+        "    <priority>0.3</priority>\n"
+        "  </url>\n"
+        "  <url>\n"
+        "    <loc>https://remediate.jenkleiman.com/?info=privacy</loc>\n"
+        "    <changefreq>monthly</changefreq>\n"
+        "    <priority>0.3</priority>\n"
+        "  </url>\n"
+        "</urlset>\n"
+    )
+    return Response(content=xml, media_type="application/xml")
+
+
 # ── Auth endpoints ───────────────────────────────────────────────
 
 @app.post("/api/auth/register")
-async def register(data: dict):
+async def register(data: dict, _rate=Depends(_register_limit)):
     """Register a new user with email + password."""
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
@@ -196,7 +255,7 @@ async def register(data: dict):
 
 
 @app.post("/api/auth/login")
-async def login(data: dict):
+async def login(data: dict, _rate=Depends(_login_limit)):
     """Login with email + password."""
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
@@ -216,7 +275,7 @@ async def login(data: dict):
 
 
 @app.post("/api/auth/logout")
-async def logout():
+async def logout(_rate=Depends(_general_limit)):
     """Clear the session cookie."""
     response = JSONResponse(content={"ok": True})
     clear_session_cookie(response)
@@ -224,7 +283,7 @@ async def logout():
 
 
 @app.get("/api/auth/me")
-async def me(user: User | None = Depends(get_current_user)):
+async def me(user: User | None = Depends(get_current_user), _rate=Depends(_general_limit)):
     """Return current user info, or 401 if not authenticated."""
     if not user:
         return JSONResponse(status_code=401, content={"error": "Not authenticated"})
@@ -232,7 +291,7 @@ async def me(user: User | None = Depends(get_current_user)):
 
 
 @app.post("/api/auth/forgot-password")
-async def forgot_password(data: dict):
+async def forgot_password(data: dict, _rate=Depends(_forgot_password_limit)):
     """Send a password reset email. Always returns 200 to prevent email enumeration."""
     email = (data.get("email") or "").strip().lower()
     if not email:
@@ -252,7 +311,7 @@ async def forgot_password(data: dict):
 
 
 @app.post("/api/auth/reset-password")
-async def reset_password(data: dict):
+async def reset_password(data: dict, _rate=Depends(_reset_password_limit)):
     """Reset a user's password using a valid reset token."""
     token = (data.get("token") or "").strip()
     password = data.get("password") or ""
@@ -375,6 +434,7 @@ async def upload_file(
     course_name: str = Form(""),
     department: str = Form(""),
     batch_id: str = Form(""),
+    _rate=Depends(_upload_limit),
 ):
     """Upload a document for remediation. Requires authentication."""
     filename = file.filename or "unknown"
@@ -442,7 +502,7 @@ async def upload_file(
 
 
 @app.get("/api/jobs")
-async def get_jobs(user: User = Depends(require_user)):
+async def get_jobs(user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """List jobs for the authenticated user, with queue position info."""
     jobs = list_jobs(user_id=user.id)
     job_dicts = [j.to_dict() for j in jobs]
@@ -481,7 +541,7 @@ async def get_jobs(user: User = Depends(require_user)):
 
 
 @app.get("/api/jobs/{job_id}")
-async def get_job_status(job_id: str, user: User = Depends(require_user)):
+async def get_job_status(job_id: str, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Get status of a specific job. Requires ownership."""
     job = get_job(job_id)
     if not job or job.user_id != user.id:
@@ -490,7 +550,7 @@ async def get_job_status(job_id: str, user: User = Depends(require_user)):
 
 
 @app.get("/api/jobs/{job_id}/report")
-async def get_report(job_id: str, user: User = Depends(require_user)):
+async def get_report(job_id: str, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Get the HTML compliance report. Requires ownership."""
     job = get_job(job_id)
     if not job or job.user_id != user.id:
@@ -501,7 +561,7 @@ async def get_report(job_id: str, user: User = Depends(require_user)):
 
 
 @app.get("/api/jobs/{job_id}/download")
-async def download_file(job_id: str, user: User = Depends(require_user)):
+async def download_file(job_id: str, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Download the remediated document. Requires ownership."""
     job = get_job(job_id)
     if not job or job.user_id != user.id:
@@ -517,7 +577,7 @@ async def download_file(job_id: str, user: User = Depends(require_user)):
 
 
 @app.get("/api/jobs/{job_id}/download-original")
-async def download_original(job_id: str, user: User = Depends(require_user)):
+async def download_original(job_id: str, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Download the original uploaded document. Requires ownership."""
     job = get_job(job_id)
     if not job or job.user_id != user.id:
@@ -533,7 +593,7 @@ async def download_original(job_id: str, user: User = Depends(require_user)):
 
 
 @app.get("/api/jobs/{job_id}/download-accessible")
-async def download_accessible(job_id: str, user: User = Depends(require_user)):
+async def download_accessible(job_id: str, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Download the accessible HTML companion file. Requires ownership."""
     job = get_job(job_id)
     if not job or job.user_id != user.id:
@@ -562,7 +622,7 @@ def _cleanup_job_files(job) -> None:
 
 
 @app.delete("/api/jobs/{job_id}")
-async def delete_single_job(job_id: str, user: User = Depends(require_user)):
+async def delete_single_job(job_id: str, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Delete a single job. Cannot delete queued/processing jobs."""
     job = get_job(job_id)
     if not job or job.user_id != user.id:
@@ -575,7 +635,7 @@ async def delete_single_job(job_id: str, user: User = Depends(require_user)):
 
 
 @app.post("/api/jobs/bulk-delete")
-async def bulk_delete_jobs(data: dict, user: User = Depends(require_user)):
+async def bulk_delete_jobs(data: dict, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Bulk delete jobs. Skips queued/processing."""
     job_ids = data.get("job_ids")
     if not job_ids or not isinstance(job_ids, list):
@@ -589,7 +649,7 @@ async def bulk_delete_jobs(data: dict, user: User = Depends(require_user)):
 
 
 @app.post("/api/jobs/download-zip")
-async def download_zip(data: dict, user: User = Depends(require_user)):
+async def download_zip(data: dict, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Download a ZIP of remediated files for the given job IDs."""
     job_ids = data.get("job_ids")
     if not job_ids or not isinstance(job_ids, list):
@@ -627,7 +687,7 @@ async def download_zip(data: dict, user: User = Depends(require_user)):
 
 
 @app.get("/api/batches/{batch_id}")
-async def get_batch(batch_id: str, user: User = Depends(require_user)):
+async def get_batch(batch_id: str, user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Get aggregate stats for a batch of jobs."""
     jobs = list_jobs_by_batch(batch_id, user_id=user.id)
     if not jobs:
@@ -749,13 +809,13 @@ async def admin_stats(admin: User = Depends(require_admin)):
 # ── Billing endpoints ────────────────────────────────────────────
 
 @app.post("/api/billing/packs")
-async def billing_packs():
+async def billing_packs(_rate=Depends(_general_limit)):
     """Return available credit packs. No auth required."""
     return {"packs": get_packs_for_display()}
 
 
 @app.post("/api/billing/create-checkout")
-async def billing_create_checkout(data: dict, user: User = Depends(require_user)):
+async def billing_create_checkout(data: dict, user: User = Depends(require_user), _rate=Depends(_checkout_limit)):
     """Create a Stripe Checkout Session for a credit pack purchase."""
     pack_id = data.get("pack_id", "")
     if not pack_id:
@@ -796,7 +856,7 @@ async def billing_webhook(request: Request):
 
 
 @app.get("/api/billing/transactions")
-async def billing_transactions(user: User = Depends(require_user)):
+async def billing_transactions(user: User = Depends(require_user), _rate=Depends(_general_limit)):
     """Get the authenticated user's transaction history."""
     transactions = get_user_transactions(user.id)
     return {"transactions": transactions}

@@ -796,6 +796,105 @@
       .pricing-grid { grid-template-columns: 1fr; }
     }
 
+    /* ── Landing layout (logged-out visitors) ────── */
+    .landing-layout {
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 2.5rem;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 3rem 2rem;
+      align-items: start;
+    }
+
+    .landing-section {
+      animation: authFadeIn 0.5s var(--ease-out-expo) both;
+    }
+
+    .landing-heading {
+      font-family: var(--font-display);
+      font-size: 1.65rem;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      line-height: 1.3;
+    }
+
+    .landing-desc {
+      font-size: 0.92rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 1.25rem;
+    }
+
+    .landing-features {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+
+    .landing-how-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.6rem;
+    }
+
+    .landing-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .landing-step {
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .landing-step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      background: var(--accent-light);
+      color: var(--accent);
+      border-radius: 50%;
+      font-size: 0.72rem;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .landing-note {
+      font-size: 0.78rem;
+      color: var(--text-tertiary);
+      margin-top: 1.25rem;
+      line-height: 1.5;
+    }
+
+    /* On desktop, auth container sits inside the grid */
+    .landing-layout .auth-container {
+      margin: 0;
+    }
+
+    @media (max-width: 768px) {
+      .landing-layout {
+        grid-template-columns: 1fr;
+        padding: 1.5rem 1rem;
+        gap: 1rem;
+      }
+      .landing-heading { font-size: 1.25rem; }
+      .landing-desc { font-size: 0.85rem; }
+    }
+
     /* ── Welcome section ────────────────────────── */
     .welcome-section {
       background: var(--accent-light);
@@ -2328,6 +2427,39 @@
 
   <!-- Auth View -->
   <div id="authView" class="hidden">
+    <div class="landing-layout">
+
+    <!-- Landing content -->
+    <div class="landing-section">
+      <div class="landing-heading">Make your documents accessible</div>
+      <div class="landing-desc">
+        Upload course materials, get back fixed files and a compliance report. The tool reads each document in context, applies fixes, and flags what to double-check.
+      </div>
+      <div class="landing-features">
+        <span class="welcome-pill">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          WCAG 2.1 AA
+        </span>
+        <span class="welcome-pill">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          .docx .pdf .pptx
+        </span>
+        <span class="welcome-pill">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Minutes, not hours
+        </span>
+      </div>
+      <div class="landing-how-title">How it works</div>
+      <div class="landing-steps">
+        <div class="landing-step"><span class="landing-step-num">1</span> Upload your Word, PDF, or PowerPoint files</div>
+        <div class="landing-step"><span class="landing-step-num">2</span> AI reads the document and applies accessibility fixes</div>
+        <div class="landing-step"><span class="landing-step-num">3</span> Review the report, verify flagged items, download your files</div>
+      </div>
+      <div class="landing-note">
+        20 free pages to start. No credit card needed.
+      </div>
+    </div>
+
     <!-- Login form -->
     <div class="auth-container" id="loginForm">
       <h2>Sign in</h2>
@@ -2349,6 +2481,8 @@
         Don't have an account? <a href="#" onclick="toggleAuthForm(event, 'signup')">Create one</a>
       </div>
     </div>
+
+    </div><!-- end landing-layout -->
 
     <!-- Signup form -->
     <div class="auth-container hidden" id="signupForm">
@@ -2881,6 +3015,11 @@ function toggleAuthForm(e, target) {
   document.getElementById('signupForm').classList.toggle('hidden', target !== 'signup');
   document.getElementById('forgotForm').classList.toggle('hidden', target !== 'forgot');
   document.getElementById('resetForm').classList.toggle('hidden', target !== 'reset');
+  // Show landing layout only on login view
+  const landingLayout = document.querySelector('.landing-layout');
+  if (landingLayout) {
+    landingLayout.classList.toggle('hidden', target !== 'login');
+  }
   // Clear errors and success messages
   document.getElementById('loginError').textContent = '';
   document.getElementById('signupError').textContent = '';

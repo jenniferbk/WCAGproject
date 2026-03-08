@@ -161,7 +161,12 @@ def review(
             lines = response_text.split("\n")
             response_text = "\n".join(lines[1:-1])
 
-        result_data = parse_json_lenient(response_text)
+        logger.debug("Review raw response (first 500 chars): %s", response_text[:500])
+        try:
+            result_data = parse_json_lenient(response_text)
+        except Exception as parse_err:
+            logger.error("Review JSON parse failed. Raw response (first 1000 chars): %s", response_text[:1000])
+            raise parse_err
         logger.info("Review complete: %d findings", len(result_data.get("findings", [])))
 
     except Exception as e:

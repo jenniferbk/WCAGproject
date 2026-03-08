@@ -225,7 +225,12 @@ def strategize(
             lines = response_text.split("\n")
             response_text = "\n".join(lines[1:-1])
 
-        result_data = parse_json_lenient(response_text)
+        logger.debug("Strategy raw response (first 500 chars): %s", response_text[:500])
+        try:
+            result_data = parse_json_lenient(response_text)
+        except Exception as parse_err:
+            logger.error("Strategy JSON parse failed. Raw response (first 1000 chars): %s", response_text[:1000])
+            raise parse_err
         logger.info("Strategy created: %d actions", len(result_data.get("actions", [])))
 
     except Exception as e:

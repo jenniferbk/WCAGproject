@@ -255,7 +255,11 @@ def _describe_images_batch(
     if resp_text is None:
         logger.warning("Gemini returned empty text for image batch (possible safety block)")
         return {}, usage
-    result = parse_json_lenient(resp_text)
+    try:
+        result = parse_json_lenient(resp_text)
+    except Exception as parse_err:
+        logger.error("Image batch JSON parse failed. Raw response (first 1000 chars): %s", resp_text[:1000])
+        raise parse_err
     descriptions = {}
     for desc in result.get("descriptions", []):
         img_id = desc.get("image_id", "")
@@ -473,7 +477,12 @@ def comprehend(
             resp_text = resp.text
             if resp_text is None:
                 raise ValueError("Gemini returned empty response (possible safety block)")
-            return parse_json_lenient(resp_text), _extract_gemini_usage(resp, "comprehension", model)
+            try:
+                parsed = parse_json_lenient(resp_text)
+            except Exception as parse_err:
+                logger.error("Comprehension JSON parse failed. Raw response (first 1000 chars): %s", resp_text[:1000])
+                raise parse_err
+            return parsed, _extract_gemini_usage(resp, "comprehension", model)
 
         result_data, comp_usage = _call_with_retry(_comprehension_call, label="Document comprehension")
         usage_records.append(comp_usage)

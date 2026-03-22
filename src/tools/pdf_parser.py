@@ -267,7 +267,7 @@ def parse_pdf(filepath: str | Path) -> ParseResult:
                     page_paras.append(ParagraphInfo(
                         id=anchor_id,
                         text="",
-                        style_name="Normal",
+                        style_name="ScannedPageAnchor",
                         image_ids=[img.id for img in page_images],
                         page_number=page_num,
                     ))
@@ -1041,15 +1041,43 @@ def _collect_struct_xrefs(
 
 
 def _detect_scanned_pages(doc: fitz.Document) -> list[int]:
-    """Detect pages that appear to be scanned (images but <20 chars of text)."""
+    """Detect pages that appear to be scanned images rather than digital text.
+
+    A page is considered scanned if it has images and very little extractable
+    text.  Two checks are used:
+      1. Simple: has images AND fewer than 20 characters of text.
+      2. Area-based: a single image covers >80% of the page area AND fewer
+         than 100 characters of text (catches pages with minor OCR artifacts).
+    """
     scanned: list[int] = []
     for page_num in range(len(doc)):
         page = doc[page_num]
         try:
             text = page.get_text("text").strip()
             images = page.get_images(full=True)
-            if images and len(text) < 20:
+            if not images:
+                continue
+
+            # Simple threshold — classic scanned page
+            if len(text) < 20:
                 scanned.append(page_num)
+                continue
+
+            # Area-based — image covers most of the page with little text
+            if len(text) < 100:
+                page_area = page.rect.width * page.rect.height
+                if page_area > 0:
+                    for img_info in images:
+                        xref = img_info[0]
+                        try:
+                            rects = page.get_image_rects(xref)
+                        except Exception:
+                            continue
+                        if rects:
+                            img_area = rects[0].width * rects[0].height
+                            if img_area / page_area > 0.8:
+                                scanned.append(page_num)
+                                break
         except Exception:
             continue
     return scanned

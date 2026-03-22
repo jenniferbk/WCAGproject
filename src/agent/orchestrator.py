@@ -11,7 +11,15 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from src.models.document import DocumentModel
+from src.models.document import (
+    ContentOrderItem,
+    ContentType,
+    DocumentModel,
+    DocumentStats,
+    ImageInfo,
+    ParagraphInfo,
+    TableInfo,
+)
 from src.models.pipeline import (
     CostSummary,
     RemediationAction,
@@ -23,6 +31,7 @@ from src.tools.docx_parser import parse_docx
 from src.tools.pdf_parser import parse_pdf
 from src.tools.pptx_parser import parse_pptx
 from src.tools.report_generator import generate_report_html
+from src.tools.scanned_page_ocr import ScannedPageResult, process_scanned_pages
 from src.tools.validator import format_report, validate_document
 
 from .comprehension import comprehend
@@ -94,6 +103,132 @@ def _apply_struct_tag_fixes(
         return post_doc
 
 
+def _merge_ocr_into_model(
+    doc_model: DocumentModel,
+    ocr_result: ScannedPageResult,
+    scanned_page_numbers: list[int],
+) -> DocumentModel:
+    """Replace synthetic scanned-page placeholders with OCR-extracted content.
+
+    Removes the empty ``ScannedPageAnchor`` paragraphs and their full-page
+    ``ImageInfo`` entries for scanned pages, then inserts the real paragraphs,
+    tables, and figure images produced by the OCR step.
+
+    Returns a new ``DocumentModel`` (the original is unchanged).
+    """
+    scanned_set = set(scanned_page_numbers)
+
+    # ── Collect IDs to remove ────────────────────────────────────
+    # Synthetic anchor paragraphs for scanned pages
+    remove_para_ids: set[str] = set()
+    # Full-page images attached to those anchors
+    remove_img_ids: set[str] = set()
+
+    for para in doc_model.paragraphs:
+        if (
+            para.style_name == "ScannedPageAnchor"
+            and para.page_number is not None
+            and para.page_number in scanned_set
+        ):
+            remove_para_ids.add(para.id)
+            remove_img_ids.update(para.image_ids)
+
+    # ── Build filtered lists ─────────────────────────────────────
+    kept_paras = [p for p in doc_model.paragraphs if p.id not in remove_para_ids]
+    kept_images = [i for i in doc_model.images if i.id not in remove_img_ids]
+    kept_tables = list(doc_model.tables)
+
+    # ── Insert OCR content ───────────────────────────────────────
+    # Group OCR paragraphs/tables/figures by page so we can insert in order
+    ocr_paras_by_page: dict[int, list[ParagraphInfo]] = {}
+    for p in ocr_result.paragraphs:
+        pg = p.page_number if p.page_number is not None else 0
+        ocr_paras_by_page.setdefault(pg, []).append(p)
+
+    logger.debug(
+        "OCR page distribution: %s",
+        {pg: len(paras) for pg, paras in sorted(ocr_paras_by_page.items())},
+    )
+
+    ocr_tables_by_page: dict[int, list[TableInfo]] = {}
+    for t in ocr_result.tables:
+        pg = t.page_number if t.page_number is not None else 0
+        ocr_tables_by_page.setdefault(pg, []).append(t)
+
+    # Add OCR-extracted items to the model lists
+    new_paras = kept_paras + ocr_result.paragraphs
+    new_tables = kept_tables + ocr_result.tables
+    new_images = kept_images + ocr_result.figures
+
+    # ── Rebuild content_order ────────────────────────────────────
+    # Keep non-scanned-page items in their original order, then append
+    # OCR items grouped by page in reading order.
+    new_order: list[ContentOrderItem] = []
+
+    # Existing items that are NOT from scanned pages
+    for item in doc_model.content_order:
+        if item.id not in remove_para_ids:
+            new_order.append(item)
+
+    # OCR items: iterate scanned pages in order
+    for page_num in sorted(scanned_set):
+        for para in ocr_paras_by_page.get(page_num, []):
+            new_order.append(ContentOrderItem(
+                content_type=ContentType.PARAGRAPH, id=para.id,
+            ))
+        for tbl in ocr_tables_by_page.get(page_num, []):
+            new_order.append(ContentOrderItem(
+                content_type=ContentType.TABLE, id=tbl.id,
+            ))
+
+    # ── Rebuild stats ────────────────────────────────────────────
+    heading_count = sum(
+        1 for p in new_paras if p.heading_level is not None
+    )
+    fake_heading_count = sum(
+        1 for p in new_paras
+        if p.fake_heading_signals and p.fake_heading_signals.score >= 0.5
+    )
+    images_missing_alt = sum(
+        1 for i in new_images if not i.alt_text and not i.is_decorative
+    )
+    new_stats = DocumentStats(
+        paragraph_count=len(new_paras),
+        table_count=len(new_tables),
+        image_count=len(new_images),
+        link_count=len(doc_model.links),
+        heading_count=heading_count,
+        images_missing_alt=images_missing_alt,
+        fake_heading_candidates=fake_heading_count,
+    )
+
+    try:
+        merged = DocumentModel(
+            source_format=doc_model.source_format,
+            source_path=doc_model.source_path,
+            metadata=doc_model.metadata,
+            paragraphs=new_paras,
+            tables=new_tables,
+            images=new_images,
+            links=doc_model.links,
+            content_order=new_order,
+            contrast_issues=doc_model.contrast_issues,
+            stats=new_stats,
+            parse_warnings=doc_model.parse_warnings,
+        )
+        logger.info(
+            "Merged OCR: removed %d anchor paras + %d page images, "
+            "added %d paragraphs, %d tables, %d figures",
+            len(remove_para_ids), len(remove_img_ids),
+            len(ocr_result.paragraphs), len(ocr_result.tables),
+            len(ocr_result.figures),
+        )
+        return merged
+    except Exception as e:
+        logger.warning("Failed to merge OCR into model: %s", e)
+        return doc_model
+
+
 def process(
     request: RemediationRequest,
     on_phase: Callable[[str, str], None] | None = None,
@@ -151,6 +286,49 @@ def process(
         )
 
     doc_model = parse_result.document
+
+    # ── Phase 0.5: Scanned Page OCR (Gemini) ───────────────────────
+    # For PDFs with scanned pages, run OCR to extract real text content
+    # before comprehension so the rest of the pipeline sees paragraphs,
+    # not image placeholders.
+    ocr_usage: list = []
+    if suffix == ".pdf" and hasattr(parse_result, "scanned_page_numbers") and parse_result.scanned_page_numbers:
+        n_scanned = len(parse_result.scanned_page_numbers)
+        logger.info("Detected %d scanned page(s) — running OCR", n_scanned)
+        if on_phase:
+            on_phase("ocr", f"Extracting text from {n_scanned} scanned page(s)")
+
+        course_ctx = ""
+        if request.course_context:
+            parts = []
+            if request.course_context.course_name:
+                parts.append(request.course_context.course_name)
+            if request.course_context.department:
+                parts.append(request.course_context.department)
+            if request.course_context.description:
+                parts.append(request.course_context.description)
+            course_ctx = " — ".join(parts)
+
+        ocr_result = process_scanned_pages(
+            pdf_path=doc_path,
+            scanned_page_numbers=parse_result.scanned_page_numbers,
+            course_context=course_ctx,
+            on_progress=lambda detail: on_phase("ocr", detail) if on_phase else None,
+        )
+
+        if ocr_result.success and (ocr_result.paragraphs or ocr_result.tables):
+            doc_model = _merge_ocr_into_model(
+                doc_model, ocr_result, parse_result.scanned_page_numbers,
+            )
+            ocr_usage = list(ocr_result.api_usage)
+            logger.info(
+                "OCR merged: %d paragraphs, %d tables, %d figures from %d pages",
+                len(ocr_result.paragraphs), len(ocr_result.tables),
+                len(ocr_result.figures), len(ocr_result.pages_processed),
+            )
+        elif not ocr_result.success:
+            logger.warning("OCR failed: %s — falling back to image descriptions", ocr_result.error)
+
     pre_report = validate_document(doc_model)
     pre_summary = format_report(pre_report)
     issues_before = pre_report.failed + pre_report.warnings
@@ -301,6 +479,7 @@ def process(
 
     # ── Aggregate API costs ──────────────────────────────────────────
     all_usage = []
+    all_usage.extend(ocr_usage)
     all_usage.extend(comprehension.api_usage)
     all_usage.extend(strategy.api_usage)
     all_usage.extend(review_usage)

@@ -11,6 +11,7 @@ Source files:
 - `src/tools/pdf_writer.py` — in-place PDF modification (Tier 1 only: metadata, alt text)
 - `src/tools/itext_tagger.py` — Python wrapper for iText 7 Java CLI (position-based structure tagging)
 - `src/tools/gemini_html.py` — Gemini multimodal PDF → semantic HTML
+- `src/tools/scanned_page_ocr.py` — Gemini vision OCR for scanned PDF pages → DocumentModel objects
 - `src/tools/html_to_pdf.py` — Python wrapper for OpenHTMLtoPDF Java CLI (HTML → PDF/UA)
 - `src/tools/pdf_output.py` — HTML → PDF/UA-1 renderer (WeasyPrint, companion HTML)
 - `src/web/users.py` — User accounts, usage tracking, tier limits
@@ -341,7 +342,7 @@ Token usage from a single API call.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `phase` | `str` | `"comprehension"`, `"comprehension_images"`, `"strategy"`, `"review"`, `"gemini_html"` |
+| `phase` | `str` | `"comprehension"`, `"comprehension_images"`, `"strategy"`, `"review"`, `"gemini_html"`, `"ocr"` |
 | `model` | `str` | e.g. `"gemini-2.5-flash"`, `"claude-sonnet-4-5-20250929"` |
 | `input_tokens` | `int` | |
 | `output_tokens` | `int` | |
@@ -398,6 +399,9 @@ These are `@dataclass` (not Pydantic) since they're internal to tool execution, 
 
 ### From `src/tools/gemini_html.py`
 - **`GeminiHtmlResult`**: Result of Gemini multimodal HTML generation (success, html, html_path, pages_processed, warnings, error)
+
+### From `src/tools/scanned_page_ocr.py`
+- **`ScannedPageResult`**: Result of OCR processing for scanned PDF pages (success, paragraphs, tables, figures, pages_processed, api_usage, warnings, error). OCR uses Gemini vision to segment scanned pages into regions (headings, paragraphs, tables, figures, equations, captions, footnotes) and converts them into standard DocumentModel objects (ParagraphInfo, TableInfo, ImageInfo). Inserted between Parse and Comprehend phases in the orchestrator. Uses `ocr_p_N`, `ocr_tbl_N`, `ocr_img_N` ID prefixes.
 
 ### From `src/tools/html_to_pdf.py`
 - **`ConversionResult`**: Result of OpenHTMLtoPDF conversion (success, output_path, changes, warnings, errors)

@@ -72,6 +72,7 @@ def build_html(
         # Build body content in document order
         body_parts: list[str] = []
 
+
         for item in doc.content_order:
             if item.content_type == ContentType.PARAGRAPH:
                 para = para_map.get(item.id)

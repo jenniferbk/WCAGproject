@@ -3,28 +3,31 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Post-launch — adding billing and polish
+- **Phase**: Post-launch — billing live, polish and testing
 
-## Current Work: Stripe Billing Integration
-- **Status**: Code complete, tests passing (28 new, 157 web tests green)
-- **Files created**: `src/web/billing.py`, `tests/test_billing.py`
-- **Files modified**: `pyproject.toml`, `src/web/app.py`, `src/web/static/index.html`, `.env`
-- **Stripe CLI**: Installed locally (`brew install stripe/stripe-cli/stripe`)
-- **Stripe account**: New account created (existing Discord one is platform-locked)
-- **Stripe secret key**: Obtained, needs to be added to `.env`
-- **Webhook**: Not yet created in Stripe dashboard — needs endpoint `https://remediate.jenkleiman.com/api/billing/webhook` listening for `checkout.session.completed`
-- **Local dev webhook**: Use `stripe listen --forward-to localhost:8000/api/billing/webhook`
+## Stripe Billing — COMPLETE
+- Live mode active (real charges)
+- Webhook configured: `checkout.session.completed` → `/api/billing/webhook`
+- Packs: Starter 50/$5, Standard 200/$15, Bulk 500/$30
+- Pricing hidden by default, revealed via "Buy more" link in account card or low-balance/limit-reached CTAs
+- 28 tests in `tests/test_billing.py`
+- `dotenv` loading added to `app.py` (was missing, caused env var issues)
 
-## Remaining Steps for Billing
-- [ ] Add Stripe keys to `.env` locally
-- [ ] Run `stripe login` and `stripe listen` for local testing
-- [ ] Test full buy flow locally with test card 4242 4242 4242 4242
-- [ ] Set up production webhook in Stripe dashboard
-- [ ] Deploy to server (install stripe, add env vars, restart)
-- [ ] Test production flow in Stripe test mode
-- [ ] Switch to Stripe live mode when ready
+## Scanned Page OCR — IN PROGRESS
+- **Problem**: Scanned PDFs (e.g., Erlwanger) got alt-text summaries instead of actual text. UGA remediation specialist flagged this.
+- **Solution**: Gemini vision OCR extracts real text with formatting + layout from scanned pages, replaces image placeholders with real ParagraphInfo/TableInfo/ImageInfo.
+- **Code complete**: `src/tools/scanned_page_ocr.py` (new), modified `orchestrator.py` and `pdf_parser.py`. 37 new tests, 704 total passing.
+- **What's done**:
+  - `ScannedPageResult` dataclass + Gemini structured JSON schema for page regions
+  - `process_scanned_pages()` — renders pages to PNG, sends to Gemini in batches, converts regions to model objects
+  - `_regions_to_model_objects()` — heading/paragraph/table/figure/equation/caption/footnote conversion
+  - `_merge_ocr_into_model()` in orchestrator — replaces ScannedPageAnchor placeholders with OCR content
+  - Improved `_detect_scanned_pages()` with area-based detection
+  - Prompt at `src/prompts/scanned_ocr.md`
+- **Next**: Test with real Erlwanger PDF (`python scripts/test_batch.py --doc "Erlwanger"`) to validate OCR quality and tune the prompt
 
-## Up Next (After Billing)
-- Production hardening
+## Up Next
 - End-to-end testing with real faculty documents
+- Production hardening
 - Admin tooling improvements
+- Future: Mac Mini on-premises deployment for university

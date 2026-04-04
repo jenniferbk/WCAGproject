@@ -17,8 +17,12 @@ from src.models.document import (
 from src.models.pipeline import ApiUsage
 from src.tools.scanned_page_ocr import (
     ScannedPageResult,
+    _find_garbled_pages,
+    _is_garbled_text,
+    _is_leaked_header_footer,
     _regions_to_model_objects,
     _relative_to_pt,
+    _sort_regions_by_column,
 )
 
 
@@ -751,3 +755,384 @@ class TestMixedRegionsOnPage:
             assert p.page_number == 5
         assert tables[0].page_number == 5
         assert figures[0].page_number == 5
+
+
+# ── Tests for _sort_regions_by_column ─────────────────────────────
+
+
+class TestSortRegionsByColumn:
+    def test_no_column_info_sorts_by_reading_order(self):
+        regions = [
+            {"type": "paragraph", "text": "C", "reading_order": 3},
+            {"type": "paragraph", "text": "A", "reading_order": 1},
+            {"type": "paragraph", "text": "B", "reading_order": 2},
+        ]
+        result = _sort_regions_by_column(regions)
+        assert [r["text"] for r in result] == ["A", "B", "C"]
+
+    def test_left_before_right_column(self):
+        regions = [
+            {"type": "paragraph", "text": "R1", "column": 2, "reading_order": 1},
+            {"type": "paragraph", "text": "L1", "column": 1, "reading_order": 2},
+            {"type": "paragraph", "text": "R2", "column": 2, "reading_order": 3},
+            {"type": "paragraph", "text": "L2", "column": 1, "reading_order": 4},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        # Left column first, then right — regardless of reading_order
+        assert texts == ["L1", "L2", "R1", "R2"]
+
+    def test_interleaved_columns_deinterleaved(self):
+        """Simulates Gemini assigning cross-column reading_order (the actual bug)."""
+        regions = [
+            {"type": "heading", "text": "Intro", "column": 1, "reading_order": 1},
+            {"type": "paragraph", "text": "Left body", "column": 1, "reading_order": 2},
+            {"type": "heading", "text": "Section 2", "column": 2, "reading_order": 3},
+            {"type": "paragraph", "text": "Thorndike...", "column": 1, "reading_order": 4},
+            {"type": "paragraph", "text": "Right body", "column": 2, "reading_order": 5},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        # All left-column items should come before right-column items
+        assert texts == ["Intro", "Left body", "Thorndike...", "Section 2", "Right body"]
+
+    def test_full_width_before_columns(self):
+        regions = [
+            {"type": "heading", "text": "Title", "column": 0, "reading_order": 1},
+            {"type": "paragraph", "text": "Left", "column": 1, "reading_order": 2},
+            {"type": "paragraph", "text": "Right", "column": 2, "reading_order": 3},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts == ["Title", "Left", "Right"]
+
+    def test_full_width_after_columns(self):
+        regions = [
+            {"type": "paragraph", "text": "Left", "column": 1, "reading_order": 1},
+            {"type": "paragraph", "text": "Right", "column": 2, "reading_order": 2},
+            {"type": "paragraph", "text": "Footer note", "column": 0, "reading_order": 3},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts == ["Left", "Right", "Footer note"]
+
+    def test_full_width_between_columns(self):
+        """Full-width item in the middle (e.g., a table spanning both columns)."""
+        regions = [
+            {"type": "paragraph", "text": "Left", "column": 1, "reading_order": 1},
+            {"type": "table", "text": "Wide table", "column": 0, "reading_order": 2},
+            {"type": "paragraph", "text": "Right", "column": 2, "reading_order": 3},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        # Left → full-width-middle → right
+        assert texts == ["Left", "Wide table", "Right"]
+
+    def test_full_width_fence_separates_column_groups(self):
+        """Full-width item acts as fence: Left A, Right A, Figure, Left B, Right B."""
+        regions = [
+            {"type": "paragraph", "text": "Left A", "column": 1, "reading_order": 1},
+            {"type": "paragraph", "text": "Right A", "column": 2, "reading_order": 2},
+            {"type": "figure", "text": "Full-width figure", "column": 0, "reading_order": 3},
+            {"type": "paragraph", "text": "Left B", "column": 1, "reading_order": 4},
+            {"type": "paragraph", "text": "Right B", "column": 2, "reading_order": 5},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts == ["Left A", "Right A", "Full-width figure", "Left B", "Right B"]
+
+    def test_missing_column_treated_as_full_width(self):
+        regions = [
+            {"type": "paragraph", "text": "No col", "reading_order": 1},
+            {"type": "paragraph", "text": "Left", "column": 1, "reading_order": 2},
+            {"type": "paragraph", "text": "Right", "column": 2, "reading_order": 3},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts == ["No col", "Left", "Right"]
+
+
+# ── Tests for _is_leaked_header_footer ────────────────────────────
+
+
+class TestIsLeakedHeaderFooter:
+    def test_all_caps_with_page_number(self):
+        assert _is_leaked_header_footer("LEARNERS AS INFORMATION PROCESSORS 157") is True
+
+    def test_page_number_then_caps_author(self):
+        assert _is_leaked_header_footer("158 MAYER") is True
+
+    def test_just_page_number(self):
+        assert _is_leaked_header_footer("42") is True
+
+    def test_normal_paragraph_not_detected(self):
+        assert _is_leaked_header_footer(
+            "The information-processing metaphor focused attention away from behavior."
+        ) is False
+
+    def test_short_caps_heading_not_detected(self):
+        # Real headings in all caps without page numbers should pass through
+        assert _is_leaked_header_footer("HISTORICAL OVERVIEW") is False
+
+    def test_long_text_not_detected(self):
+        assert _is_leaked_header_footer(
+            "This is a normal paragraph with many words that should not be "
+            "detected as a header or footer in any case."
+        ) is False
+
+    def test_caps_with_colon_and_number(self):
+        assert _is_leaked_header_footer("EDUCATIONAL PSYCHOLOGIST, 31(3/4), 151-161") is False
+
+    def test_three_digit_page_number_with_author(self):
+        assert _is_leaked_header_footer("234 SMITH") is True
+
+    def test_empty_string(self):
+        assert _is_leaked_header_footer("") is False
+
+
+# ── Tests for _is_garbled_text ────────────────────────────────────
+
+
+class TestIsGarbledText:
+    def test_clean_english_text(self):
+        assert _is_garbled_text(
+            "The information-processing metaphor focused attention away "
+            "from behavior and toward mental representations."
+        ) is False
+
+    def test_garbled_no_vowel_words(self):
+        assert _is_garbled_text(
+            "found the nee supnbudien of rheril snddels ctiral elledente"
+        ) is True
+
+    def test_garbled_accented_chars(self):
+        assert _is_garbled_text(
+            "classi nation-proceéssing conception of menl représentation "
+            "was incomplete lé ig as the acquisition of symbéls"
+        ) is True
+
+    def test_mixed_garbled_and_clean(self):
+        # Below threshold — some OCR artifacts in mostly clean text
+        assert _is_garbled_text(
+            "The classic information-processing model was an incomplete "
+            "framework for describing the architecture of the human mind. "
+            "The lines dividing sensory memory and short-term memory."
+        ) is False
+
+    def test_short_text_not_judged(self):
+        # Too short to make a reliable judgment
+        assert _is_garbled_text("te 2 etn") is False
+
+    def test_pure_gibberish(self):
+        assert _is_garbled_text(
+            "wnheesitesseeee rndslt prcssng hmnty kndwldge frmwrk"
+        ) is True
+
+    def test_mostly_clean_with_few_errors_passes(self):
+        # Only 2-3 garbled words in ~20 — below threshold, not a garbled page
+        assert _is_garbled_text(
+            "account for rote éaming of word lists it was unable to "
+            "account for compl hk2 teaming situations they found the"
+        ) is False
+
+    def test_heavily_garbled_real_mayer_output(self):
+        # Actual garbled text from Mayer PDF OCR — worst-case degradation
+        # (accented Latin chars like é now pass through correctly per review fix #1)
+        assert _is_garbled_text(
+            "found the nee supnbudien of rheril snddels ctiral elledente "
+            "te 2 etn Sr renee wnheesitesseeee hmnty kndwldge frmwrk "
+            "The box models downplay the role of executive ocessing "
+            "classi proceéssing menl incomplté passivi leatning complhk thng"
+        ) is True
+
+
+# ── Tests for _find_garbled_pages ─────────────────────────────────
+
+
+class TestFindGarbledPages:
+    def test_no_garbled_pages(self):
+        paras = [
+            ParagraphInfo(id="p1", text="Clean text on page one.", page_number=0),
+            ParagraphInfo(id="p2", text="More clean text here.", page_number=1),
+        ]
+        assert _find_garbled_pages(paras) == []
+
+    def test_detects_garbled_page(self):
+        paras = [
+            ParagraphInfo(id="p1", text="Clean text on page zero.", page_number=0),
+            ParagraphInfo(
+                id="p2",
+                text="supnbudien rheril snddels ctiral elledente garbled nonsense wthout vwls",
+                page_number=1,
+            ),
+        ]
+        result = _find_garbled_pages(paras)
+        assert result == [1]
+
+    def test_multiple_garbled_pages(self):
+        paras = [
+            ParagraphInfo(
+                id="p1",
+                text="garbl txts hre wthout prpr vwls snddels ctiral",
+                page_number=0,
+            ),
+            ParagraphInfo(id="p2", text="This page is fine and readable.", page_number=1),
+            ParagraphInfo(
+                id="p3",
+                text="mre grbled txts snddels ctiral prblms wnheesitesseeee",
+                page_number=2,
+            ),
+        ]
+        result = _find_garbled_pages(paras)
+        assert 0 in result
+        assert 2 in result
+        assert 1 not in result
+
+
+# ── Tests for leaked header/footer filtering in regions ───────────
+
+
+class TestHeaderFooterFilteringInRegions:
+    def test_misclassified_header_filtered(self):
+        """A running header that Gemini classified as paragraph gets filtered."""
+        page_data = {
+            "page_type": "text_dominant",
+            "regions": [
+                {"type": "paragraph", "text": "LEARNERS AS INFORMATION PROCESSORS 157", "reading_order": 1},
+                {"type": "paragraph", "text": "Real body text here.", "reading_order": 2},
+            ],
+        }
+        paras, _, _ = _regions_to_model_objects(
+            page_data, page_number=0, para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 1
+        assert paras[0].text == "Real body text here."
+
+    def test_page_number_author_filtered(self):
+        page_data = {
+            "page_type": "text_dominant",
+            "regions": [
+                {"type": "paragraph", "text": "158 MAYER", "reading_order": 1},
+                {"type": "paragraph", "text": "Body text continues.", "reading_order": 2},
+            ],
+        }
+        paras, _, _ = _regions_to_model_objects(
+            page_data, page_number=0, para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 1
+        assert paras[0].text == "Body text continues."
+
+    def test_real_heading_not_filtered(self):
+        """A heading in all caps without page number should not be affected."""
+        page_data = {
+            "page_type": "text_dominant",
+            "regions": [
+                {"type": "heading", "text": "HISTORICAL OVERVIEW", "heading_level": 2, "reading_order": 1},
+                {"type": "paragraph", "text": "Body.", "reading_order": 2},
+            ],
+        }
+        paras, _, _ = _regions_to_model_objects(
+            page_data, page_number=0, para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 2
+        assert paras[0].text == "HISTORICAL OVERVIEW"
+
+    def test_header_misclassified_as_heading_filtered(self):
+        """A running header that Gemini classified as heading gets filtered."""
+        page_data = {
+            "page_type": "text_dominant",
+            "regions": [
+                {"type": "heading", "text": "LEARNERS AS INFORMATION PROCESSORS 155", "heading_level": 1, "reading_order": 1},
+                {"type": "paragraph", "text": "Body text.", "reading_order": 2},
+            ],
+        }
+        paras, _, _ = _regions_to_model_objects(
+            page_data, page_number=0, para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 1
+        assert paras[0].text == "Body text."
+
+
+# ── Tests for deduplication ───────────────────────────────────────
+
+
+class TestDeduplicateOcrParagraphs:
+    def _dedup(self, paras):
+        from src.agent.orchestrator import _deduplicate_ocr_paragraphs
+        return _deduplicate_ocr_paragraphs(paras)
+
+    def test_exact_duplicates_removed(self):
+        paras = [
+            ParagraphInfo(id="p1", text="This is a long paragraph that should be deduplicated when it appears twice in the output.", page_number=0),
+            ParagraphInfo(id="p2", text="This is a long paragraph that should be deduplicated when it appears twice in the output.", page_number=0),
+        ]
+        result = self._dedup(paras)
+        assert len(result) == 1
+        assert result[0].id == "p1"
+
+    def test_near_duplicates_with_hyphens_removed(self):
+        paras = [
+            ParagraphInfo(id="p1", text="The information-processing metaphor focused atten- tion away from behavior.", page_number=0),
+            ParagraphInfo(id="p2", text="The information-processing metaphor focused attention away from behavior.", page_number=1),
+        ]
+        result = self._dedup(paras)
+        assert len(result) == 1
+
+    def test_near_duplicates_with_dash_variants_removed(self):
+        paras = [
+            ParagraphInfo(id="p1", text="S-R associations — a key concept in behaviorist psychology and learning theory.", page_number=0),
+            ParagraphInfo(id="p2", text="S-R associations - a key concept in behaviorist psychology and learning theory.", page_number=0),
+        ]
+        result = self._dedup(paras)
+        assert len(result) == 1
+
+    def test_short_text_not_deduped(self):
+        paras = [
+            ParagraphInfo(id="p1", text="Table 1", page_number=0),
+            ParagraphInfo(id="p2", text="Table 1", page_number=1),
+        ]
+        result = self._dedup(paras)
+        assert len(result) == 2
+
+    def test_different_text_preserved(self):
+        paras = [
+            ParagraphInfo(id="p1", text="First unique paragraph with enough text to pass the length threshold.", page_number=0),
+            ParagraphInfo(id="p2", text="Second unique paragraph with enough text to pass the length threshold.", page_number=0),
+        ]
+        result = self._dedup(paras)
+        assert len(result) == 2
+
+    def test_prefix_match_removes_near_duplicate(self):
+        """Two paragraphs sharing first 60 normalized chars are near-dupes."""
+        shared = "The information-processing metaphor was an incomplete transition away from S-R"
+        paras = [
+            ParagraphInfo(id="p1", text=shared + " behaviorism and its rigid view of cognition.", page_number=0),
+            ParagraphInfo(id="p2", text=shared + " behaviorism. Its rigid view of cognition was limiting.", page_number=1),
+        ]
+        result = self._dedup(paras)
+        assert len(result) == 1
+        assert result[0].id == "p1"
+
+
+class TestNormalizeForDedup:
+    def _norm(self, text):
+        from src.agent.orchestrator import _normalize_for_dedup
+        return _normalize_for_dedup(text)
+
+    def test_collapses_whitespace(self):
+        assert self._norm("hello   world\n\tfoo") == "hello world foo"
+
+    def test_fixes_hyphenation(self):
+        assert self._norm("informa- tion") == "information"
+
+    def test_normalizes_dashes(self):
+        n = self._norm("S\u2014R associations")
+        assert "-" in n
+        assert "\u2014" not in n
+
+    def test_normalizes_quotes(self):
+        n = self._norm("\u201cquoted\u201d")
+        assert '"quoted"' == n
+
+    def test_lowercases(self):
+        assert self._norm("HELLO") == "hello"

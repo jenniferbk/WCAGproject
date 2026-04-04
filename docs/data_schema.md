@@ -168,6 +168,7 @@ Heuristic signals populated by the parser. The **agent decides** whether these a
 | `fake_heading_signals` | `FakeHeadingSignals \| None` | Only set on candidates |
 | `bbox` | `tuple[float,float,float,float] \| None` | PDF only: bounding box (x0, y0, x1, y1) in points |
 | `page_number` | `int \| None` | PDF only: 0-based page number |
+| `column` | `int \| None` | OCR only: 0=full-width, 1=left, 2=right |
 
 ### MetadataInfo
 

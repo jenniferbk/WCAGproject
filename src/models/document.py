@@ -117,6 +117,7 @@ class ParagraphInfo(BaseModel, frozen=True):
     fake_heading_signals: FakeHeadingSignals | None = None
     bbox: tuple[float, float, float, float] | None = None  # PDF: (x0, y0, x1, y1) in points
     page_number: int | None = None  # PDF: 0-based page number
+    column: int | None = None  # OCR: 0=full-width, 1=left, 2=right
 
 
 class MetadataInfo(BaseModel, frozen=True):

@@ -69,22 +69,67 @@ def build_html(
         table_map = {tbl.id: tbl for tbl in doc.tables}
         para_map = {p.id: p for p in doc.paragraphs}
 
-        # Build body content in document order
+        # Build body content in document order, grouping column content
         body_parts: list[str] = []
+        # Track whether we have any column info (enables two-column CSS)
+        has_columns = any(
+            (para_map.get(item.id) and para_map[item.id].column in (1, 2))
+            for item in doc.content_order
+            if item.content_type == ContentType.PARAGRAPH and item.id in para_map
+        )
 
+        # Current column section state
+        in_column_section = False
+        current_col = 0  # 0=full-width, 1=left, 2=right
 
         for item in doc.content_order:
             if item.content_type == ContentType.PARAGRAPH:
                 para = para_map.get(item.id)
-                if para:
-                    para_html = _render_paragraph(para, image_map, embed_images, warnings)
-                    if para_html:
-                        body_parts.append(para_html)
+                if not para:
+                    continue
+                para_html = _render_paragraph(para, image_map, embed_images, warnings)
+                if not para_html:
+                    continue
+
+                col = para.column or 0
+
+                if has_columns and col in (1, 2):
+                    # Entering or continuing a column section
+                    if not in_column_section:
+                        body_parts.append('  <div class="two-column">')
+                        body_parts.append('    <div class="column">')
+                        in_column_section = True
+                        current_col = col
+                    elif col != current_col and current_col == 1:
+                        # Switching from left to right column
+                        body_parts.append('    </div>')
+                        body_parts.append('    <div class="column">')
+                        current_col = col
+                    body_parts.append(f"  {para_html}")
+                else:
+                    # Full-width — close any open column section
+                    if in_column_section:
+                        body_parts.append('    </div>')
+                        body_parts.append('  </div>')
+                        in_column_section = False
+                        current_col = 0
+                    body_parts.append(para_html)
 
             elif item.content_type == ContentType.TABLE:
+                # Tables are always full-width
+                if in_column_section:
+                    body_parts.append('    </div>')
+                    body_parts.append('  </div>')
+                    in_column_section = False
+                    current_col = 0
                 table = table_map.get(item.id)
                 if table:
                     body_parts.append(_render_table(table, warnings))
+
+        # Close any trailing column section
+        if in_column_section:
+            body_parts.append('    </div>')
+            body_parts.append('  </div>')
 
         body_content = "\n".join(body_parts)
 
@@ -103,6 +148,15 @@ def build_html(
       th, td { border: 1px solid #666; padding: 0.5em; text-align: left; }
       th { background-color: #f0f0f0; font-weight: bold; }
       img { max-width: 100%; height: auto; }
+      .two-column {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: 2em;
+        margin: 1em 0;
+      }
+      @media (max-width: 600px) {
+        .two-column { grid-template-columns: 1fr; }
+      }
 """
         style_block = default_css + ("\n" + css if css else "")
 

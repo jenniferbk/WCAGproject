@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -103,6 +104,67 @@ def _apply_struct_tag_fixes(
         return post_doc
 
 
+def _normalize_for_dedup(text: str) -> str:
+    """Normalize text for duplicate comparison.
+
+    OCR of the same content from different columns can produce slight
+    differences: extra spaces, hyphenation, punctuation variants.
+    Normalize these away for comparison.
+    """
+    # Collapse all whitespace to single spaces
+    s = re.sub(r'\s+', ' ', text.strip())
+    # Remove soft hyphens and hyphenation at line breaks ("pro- cessing" → "processing")
+    s = re.sub(r'(\w)- (\w)', r'\1\2', s)
+    # Normalize dashes
+    s = s.replace('—', '-').replace('–', '-')
+    # Normalize quotes
+    s = s.replace('\u201c', '"').replace('\u201d', '"')
+    s = s.replace('\u2018', "'").replace('\u2019', "'")
+    return s.lower()
+
+
+def _deduplicate_ocr_paragraphs(
+    paragraphs: list[ParagraphInfo],
+) -> list[ParagraphInfo]:
+    """Remove duplicate paragraphs from OCR output.
+
+    Gemini sometimes assigns full-width content to both column 1 and column 2,
+    producing exact or near-duplicate text after column-aware sorting.  We keep
+    the first occurrence (which may have better formatting) and drop subsequent
+    duplicates.  Only considers paragraphs with substantial text (>50 chars)
+    to avoid accidentally deduplicating legitimately repeated short phrases.
+    """
+    seen: set[str] = set()
+    seen_prefixes: set[str] = set()  # first 60 normalized chars for fuzzy matching
+    result: list[ParagraphInfo] = []
+
+    for para in paragraphs:
+        text = para.text.strip()
+        # Short text may legitimately repeat (e.g., table cells, list markers)
+        if len(text) <= 50:
+            result.append(para)
+            continue
+
+        normalized = _normalize_for_dedup(text)
+        if normalized in seen:
+            logger.debug("Dedup: removed exact duplicate %r (%s)", text[:60], para.id)
+            continue
+
+        # Fuzzy check: if the first 60 normalized chars match an existing
+        # paragraph, it's likely the same content with minor OCR variations
+        prefix = normalized[:60]
+        if len(prefix) >= 60 and prefix in seen_prefixes:
+            logger.debug("Dedup: removed near-duplicate %r (%s)", text[:60], para.id)
+            continue
+
+        seen.add(normalized)
+        if len(prefix) >= 60:
+            seen_prefixes.add(prefix)
+        result.append(para)
+
+    return result
+
+
 def _merge_ocr_into_model(
     doc_model: DocumentModel,
     ocr_result: ScannedPageResult,
@@ -139,7 +201,8 @@ def _merge_ocr_into_model(
     kept_tables = list(doc_model.tables)
 
     # ── Insert OCR content ───────────────────────────────────────
-    # Group OCR paragraphs/tables/figures by page so we can insert in order
+    # Group OCR paragraphs by page for content_order building.
+    # Built from original list; content_order loop filters by deduped_ids.
     ocr_paras_by_page: dict[int, list[ParagraphInfo]] = {}
     for p in ocr_result.paragraphs:
         pg = p.page_number if p.page_number is not None else 0
@@ -155,8 +218,16 @@ def _merge_ocr_into_model(
         pg = t.page_number if t.page_number is not None else 0
         ocr_tables_by_page.setdefault(pg, []).append(t)
 
+    # ── Deduplicate OCR paragraphs ────────────────────────────────
+    # Gemini sometimes assigns full-width content to both columns,
+    # causing exact duplicate paragraphs after column-aware sorting.
+    deduped_paras = _deduplicate_ocr_paragraphs(ocr_result.paragraphs)
+    if len(deduped_paras) < len(ocr_result.paragraphs):
+        removed = len(ocr_result.paragraphs) - len(deduped_paras)
+        logger.info("Deduplication removed %d duplicate paragraphs", removed)
+
     # Add OCR-extracted items to the model lists
-    new_paras = kept_paras + ocr_result.paragraphs
+    new_paras = kept_paras + deduped_paras
     new_tables = kept_tables + ocr_result.tables
     new_images = kept_images + ocr_result.figures
 
@@ -170,12 +241,14 @@ def _merge_ocr_into_model(
         if item.id not in remove_para_ids:
             new_order.append(item)
 
-    # OCR items: iterate scanned pages in order
+    # OCR items: iterate scanned pages in order (only deduped paragraphs)
+    deduped_ids = {p.id for p in deduped_paras}
     for page_num in sorted(scanned_set):
         for para in ocr_paras_by_page.get(page_num, []):
-            new_order.append(ContentOrderItem(
-                content_type=ContentType.PARAGRAPH, id=para.id,
-            ))
+            if para.id in deduped_ids:
+                new_order.append(ContentOrderItem(
+                    content_type=ContentType.PARAGRAPH, id=para.id,
+                ))
         for tbl in ocr_tables_by_page.get(page_num, []):
             new_order.append(ContentOrderItem(
                 content_type=ContentType.TABLE, id=tbl.id,

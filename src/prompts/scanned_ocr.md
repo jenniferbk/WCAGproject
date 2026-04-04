@@ -30,15 +30,23 @@ Analyze each page image and identify content regions. For each region, provide t
 
 3. **TWO-COLUMN LAYOUT**: Academic documents often use two-column format. When you see columns:
    - Set `column` to 1 for left-column regions and 2 for right-column regions.
+   - **Full-width elements** (title, abstract, tables, figures spanning both columns): set `column` to 0. Do NOT assign full-width content to both column 1 and column 2 — that causes duplication.
    - Set `reading_order` so that left column reads top-to-bottom first, then right column.
-   - Full-width elements (spanning both columns): set `column` to 0.
+   - The title, author affiliation, and abstract at the top of an article are almost always full-width (column=0), even in a two-column paper.
+   - **Landscape/rotated pages**: Some pages may appear in landscape orientation (wider than tall), often used for large tables or figures. These are single-column (column=0 for all regions). Do not try to detect columns on landscape pages.
 
 4. **READING ORDER**: Number all regions with `reading_order` for correct screen reader sequence. This determines the order a blind user experiences the content.
 
-5. **FORMATTING**: For each text region, note:
-   - `bold`: true if text appears bold
-   - `italic`: true if text appears italic
+5. **FORMATTING**: For each text region, carefully detect visual formatting:
+   - `bold`: true if text appears **bold** (heavier stroke weight than body text)
+   - `italic`: true if text appears *italic* (slanted or cursive style). Common italic uses in academic papers:
+     - Abstracts are often entirely italic
+     - Block quotations are often italic
+     - Book and journal titles within text
+     - Key terms on first use
+     - Foreign words and phrases
    - `font_size_relative`: "large" for headings/titles, "normal" for body text, "small" for footnotes/captions
+   - Be precise: if only part of a region is italic, set italic=true for the whole region (a screen reader user benefits from knowing the formatting intent)
 
 6. **TABLES**: Extract all cell values. Identify header rows. Use `table_data` with `headers` (array of strings) and `rows` (array of arrays of strings).
 

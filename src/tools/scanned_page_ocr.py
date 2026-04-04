@@ -16,6 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import re
+
 import fitz  # PyMuPDF
 
 from src.utils.json_repair import parse_json_lenient
@@ -39,6 +41,7 @@ DELAY_BETWEEN_BATCHES = 10  # seconds
 MAX_RETRIES = 3
 INITIAL_BACKOFF = 30  # seconds, doubles each retry
 PAGE_DPI = 200  # render resolution for Gemini vision
+PAGE_DPI_RETRY = 300  # higher resolution for retry on garbled output
 
 
 @dataclass
@@ -209,6 +212,8 @@ def process_scanned_pages(
         batch_pages = scanned_page_numbers[batch_idx:batch_idx + PAGES_PER_BATCH]
         batch_num = batch_idx // PAGES_PER_BATCH + 1
 
+        para_offset_before_batch = len(all_paragraphs)
+
         if on_progress:
             on_progress(
                 f"OCR batch {batch_num}/{total_batches}: "
@@ -321,6 +326,70 @@ def process_scanned_pages(
                 table_offset = len(all_tables)
                 img_offset = len(all_figures)
 
+        # ── Quality check: detect garbled pages and retry ──────────
+        # Check paragraphs added in this batch for garbled text
+        new_para_count = len(all_paragraphs) - para_offset_before_batch
+        if new_para_count > 0:
+            garbled_pages = _find_garbled_pages(
+                all_paragraphs[para_offset_before_batch:],
+            )
+            if garbled_pages:
+                logger.warning(
+                    "Garbled OCR detected on pages %s, retrying at %d DPI",
+                    [p + 1 for p in garbled_pages], PAGE_DPI_RETRY,
+                )
+                # Remove garbled paragraphs for those pages
+                garbled_set = set(garbled_pages)
+                all_paragraphs[para_offset_before_batch:] = [
+                    p for p in all_paragraphs[para_offset_before_batch:]
+                    if p.page_number not in garbled_set
+                ]
+                # Also remove from pages_processed so they get re-added
+                for gp in garbled_pages:
+                    if gp in pages_processed:
+                        pages_processed.remove(gp)
+
+                # Retry each garbled page individually at higher DPI
+                for gp in garbled_pages:
+                    if on_progress:
+                        on_progress(f"OCR quality retry: page {gp + 1} at {PAGE_DPI_RETRY} DPI")
+                    time.sleep(5)
+                    try:
+                        retry_result = _process_ocr_batch(
+                            client, model, doc, [gp], prompt,
+                            dpi=PAGE_DPI_RETRY,
+                        )
+                        if retry_result is not None:
+                            retry_pages, retry_usage = retry_result
+                            if retry_usage:
+                                all_usage.append(retry_usage)
+                            _integrate_page_data(
+                                retry_pages, doc,
+                                all_paragraphs, all_tables, all_figures,
+                                pages_processed, len(all_paragraphs),
+                                len(all_tables), len(all_figures),
+                                known_page_numbers=[gp],
+                            )
+                        else:
+                            # Gemini refused — Tesseract fallback
+                            tess_paras = _tesseract_fallback(doc, gp, len(all_paragraphs))
+                            if tess_paras:
+                                all_paragraphs.extend(tess_paras)
+                                pages_processed.append(gp)
+                            else:
+                                all_warnings.append(
+                                    f"OCR page {gp + 1}: garbled output, retry failed"
+                                )
+                    except Exception as e_retry:
+                        all_warnings.append(
+                            f"OCR page {gp + 1}: garble retry failed: {e_retry}"
+                        )
+
+                # Update offsets after quality retry
+                para_offset = len(all_paragraphs)
+                table_offset = len(all_tables)
+                img_offset = len(all_figures)
+
         # Rate limit pause between batches
         if batch_idx + PAGES_PER_BATCH < len(scanned_page_numbers):
             logger.info("Waiting %ds before next OCR batch...", DELAY_BETWEEN_BATCHES)
@@ -421,6 +490,7 @@ def _process_ocr_batch(
     doc: fitz.Document,
     page_numbers: list[int],
     prompt: str,
+    dpi: int = PAGE_DPI,
 ) -> tuple[list[dict], ApiUsage | None] | None:
     """Send a batch of page images to Gemini for OCR.
 
@@ -432,7 +502,7 @@ def _process_ocr_batch(
 
     for page_num in page_numbers:
         page = doc[page_num]
-        pix = page.get_pixmap(dpi=PAGE_DPI)
+        pix = page.get_pixmap(dpi=dpi)
         png_bytes = pix.tobytes("png")
 
         content_parts.append(
@@ -513,6 +583,167 @@ def _extract_usage(response, model: str) -> ApiUsage | None:
         return None
 
 
+def _is_leaked_header_footer(text: str) -> bool:
+    """Detect page headers/footers that Gemini failed to classify.
+
+    Common academic paper patterns:
+    - "TITLE IN ALL CAPS 157"
+    - "158 AUTHOR LAST NAME"
+    - "Journal Name, Vol(Issue), pp-pp" style lines
+    """
+    text = text.strip()
+    words = text.split()
+    if not words or len(words) > 12:
+        return False
+
+    # Pattern: ALL CAPS words followed by a page number
+    # e.g. "LEARNERS AS INFORMATION PROCESSORS 157"
+    if re.match(r'^[A-Z][A-Z\s\'\u2019:,\-]+\d{1,4}\s*$', text):
+        return True
+
+    # Pattern: page number followed by ALL CAPS author name
+    # e.g. "158 MAYER"
+    if re.match(r'^\d{1,4}\s+[A-Z]{2,}(\s+[A-Z]{2,})*\s*$', text):
+        return True
+
+    # Pattern: just a page number (1-3 digits, possibly with surrounding whitespace)
+    if re.match(r'^\d{1,3}$', text):
+        return True
+
+    return False
+
+
+def _is_garbled_text(text: str, threshold: float = 0.15) -> bool:
+    """Detect garbled OCR output that should be retried or discarded.
+
+    Checks for:
+    - Words with no vowels (longer than 3 chars)
+    - Unusual consonant clusters (3+ consonants not in common English patterns)
+    - Excessive accented/special characters in English text
+    - Digit-letter mixtures like "hk2"
+
+    Args:
+        text: The OCR text to check.
+        threshold: Fraction of garbled words to trigger detection (default 20%).
+
+    Returns:
+        True if the text appears garbled.
+    """
+    # Common English 3+ consonant clusters (lowercase)
+    _COMMON_CLUSTERS = frozenset({
+        "str", "thr", "scr", "spr", "spl", "shr", "ght", "ngs", "nts",
+        "sts", "rds", "nds", "rts", "lts", "mps", "nks", "lps", "lks",
+        "rks", "nch", "nth", "lds", "lms", "rms", "rns", "wns",
+        "cts", "pts", "ngth", "ckl", "sch", "chr", "phr", "rst",
+        "nst", "mbl", "ndl", "ngl", "ntl", "tch", "dth",
+    })
+
+    words = text.split()
+    if len(words) < 4:
+        return False  # too short to judge
+
+    garbled_count = 0
+    checked = 0
+    for word in words:
+        clean = word.strip('.,;:!?()[]{}"\'-–—')
+        if not clean or len(clean) < 3:
+            continue
+        checked += 1
+        lower = clean.lower()
+
+        # No vowels in a word > 3 chars
+        if len(clean) > 3 and not re.search(r'[aeiouAEIOU]', clean):
+            garbled_count += 1
+            continue
+
+        # Unusual consonant clusters: 3+ consecutive consonants
+        # not matching common English patterns
+        clusters = re.findall(r'[bcdfghjklmnpqrstvwxyz]{3,}', lower)
+        has_unusual = False
+        for cluster in clusters:
+            # Check if ANY common cluster is a substring
+            if not any(cc in cluster for cc in _COMMON_CLUSTERS):
+                has_unusual = True
+                break
+        if has_unusual and len(clean) > 3:
+            garbled_count += 1
+            continue
+
+        # Non-ASCII chars outside Latin Extended range are likely OCR artifacts.
+        # Common accented Latin chars (U+00C0-U+024F) are legitimate in
+        # academic text (author names, French/Spanish/German citations).
+        non_latin_exotic = sum(
+            1 for c in clean
+            if ord(c) > 127 and not (0x00C0 <= ord(c) <= 0x024F)
+        )
+        if non_latin_exotic >= 1 and len(clean) > 3:
+            garbled_count += 1
+            continue
+
+        # Digit-letter mix (e.g., "hk2", "8s" is ok because it's short)
+        if len(clean) > 2 and re.match(r'^[a-z]+\d[a-z]+$', clean, re.IGNORECASE):
+            garbled_count += 1
+            continue
+
+    if checked == 0:
+        return False
+    return garbled_count / checked >= threshold
+
+
+def _sort_regions_by_column(regions: list[dict]) -> list[dict]:
+    """Sort regions respecting two-column layout.
+
+    Gemini's cross-column ``reading_order`` is often wrong — content from
+    left and right columns gets interleaved.  Instead we:
+
+    1. Sort all regions by ``reading_order``.
+    2. Split into segments separated by full-width "fences" (column 0).
+    3. Within each segment, group left (1) and right (2) and output
+       left-then-right.
+
+    Full-width items act as fences so that a page with structure
+    [Title] [Left A] [Right A] [Full-width fig] [Left B] [Right B]
+    produces correct order rather than merging all lefts then all rights.
+    """
+    key = lambda r: r.get("reading_order", 0)
+
+    # Check if any column info exists
+    has_columns = any(r.get("column", 0) in (1, 2) for r in regions)
+    if not has_columns:
+        return sorted(regions, key=key)
+
+    # Sort by reading_order first to establish baseline order
+    sorted_regions = sorted(regions, key=key)
+
+    # Split into segments at full-width fences
+    result: list[dict] = []
+    current_left: list[dict] = []
+    current_right: list[dict] = []
+
+    def _flush_columns():
+        """Emit accumulated left-then-right column content."""
+        result.extend(sorted(current_left, key=key))
+        result.extend(sorted(current_right, key=key))
+        current_left.clear()
+        current_right.clear()
+
+    for r in sorted_regions:
+        col = r.get("column", 0) or 0
+        if col == 1:
+            current_left.append(r)
+        elif col == 2:
+            current_right.append(r)
+        else:
+            # Full-width item acts as a fence
+            _flush_columns()
+            result.append(r)
+
+    # Flush any trailing column content
+    _flush_columns()
+
+    return result
+
+
 def _regions_to_model_objects(
     page_data: dict,
     page_number: int,
@@ -535,8 +766,8 @@ def _regions_to_model_objects(
         Tuple of (paragraphs, tables, figures).
     """
     regions = page_data.get("regions", [])
-    # Sort by reading_order
-    regions.sort(key=lambda r: r.get("reading_order", 0))
+    # Column-aware sort: left col → right col, not raw reading_order
+    regions = _sort_regions_by_column(regions)
 
     paragraphs: list[ParagraphInfo] = []
     tables: list[TableInfo] = []
@@ -549,9 +780,15 @@ def _regions_to_model_objects(
     for region in regions:
         region_type = region.get("type", "")
         text = region.get("text", "").strip()
+        region_column = region.get("column", 0) or 0  # 0=full-width, 1=left, 2=right
 
         # Skip page headers/footers/page numbers — repeated nav elements
         if region_type in ("page_header", "page_footer"):
+            continue
+
+        # Catch headers/footers that Gemini misclassified as paragraphs or headings
+        if text and _is_leaked_header_footer(text):
+            logger.debug("Filtered leaked header/footer: %r", text[:80])
             continue
 
         if region_type == "heading":
@@ -570,6 +807,7 @@ def _regions_to_model_objects(
                     font_size_pt=_relative_to_pt(region.get("font_size_relative", "large")),
                 )],
                 page_number=page_number,
+                column=region_column,
             ))
             para_idx += 1
 
@@ -589,6 +827,7 @@ def _regions_to_model_objects(
                     font_size_pt=_relative_to_pt(region.get("font_size_relative", "normal")),
                 )],
                 page_number=page_number,
+                column=region_column,
             ))
             para_idx += 1
 
@@ -605,6 +844,7 @@ def _regions_to_model_objects(
                     font_size_pt=_relative_to_pt(region.get("font_size_relative", "normal")),
                 )],
                 page_number=page_number,
+                column=region_column,
             ))
             para_idx += 1
 
@@ -621,6 +861,7 @@ def _regions_to_model_objects(
                     font_size_pt=_relative_to_pt("small"),
                 )],
                 page_number=page_number,
+                column=region_column,
             ))
             para_idx += 1
 
@@ -636,6 +877,7 @@ def _regions_to_model_objects(
                     font_size_pt=_relative_to_pt("small"),
                 )],
                 page_number=page_number,
+                column=region_column,
             ))
             para_idx += 1
 
@@ -652,6 +894,7 @@ def _regions_to_model_objects(
                         text=text,
                         style_name="Normal",
                         page_number=page_number,
+                        column=region_column,
                     ))
                     para_idx += 1
                 continue
@@ -718,6 +961,25 @@ def _regions_to_model_objects(
     return paragraphs, tables, figures
 
 
+def _find_garbled_pages(paragraphs: list[ParagraphInfo]) -> list[int]:
+    """Check a list of paragraphs for garbled OCR and return affected page numbers.
+
+    Groups paragraphs by page, concatenates their text, and runs the garble
+    detector.  Returns sorted list of 0-based page numbers with garbled output.
+    """
+    by_page: dict[int, list[str]] = {}
+    for p in paragraphs:
+        pg = p.page_number if p.page_number is not None else 0
+        by_page.setdefault(pg, []).append(p.text)
+
+    garbled: list[int] = []
+    for pg, texts in sorted(by_page.items()):
+        combined = " ".join(texts)
+        if _is_garbled_text(combined):
+            garbled.append(pg)
+    return garbled
+
+
 def _relative_to_pt(relative: str) -> float:
     """Convert relative font size label to approximate point size."""
     return {
@@ -777,6 +1039,11 @@ def _tesseract_fallback(
             block_text = " ".join(block_text.split("\n"))
             # Skip very short fragments (page numbers, artifacts)
             if len(block_text) < 3:
+                continue
+
+            # Filter leaked page headers/footers
+            if _is_leaked_header_footer(block_text):
+                logger.debug("Tesseract: filtered header/footer: %r", block_text[:80])
                 continue
 
             paragraphs.append(ParagraphInfo(

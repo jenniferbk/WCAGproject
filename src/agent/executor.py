@@ -461,6 +461,22 @@ def _apply_pdf_action(
             model_dict.setdefault("links", [])[idx]["text"] = new_text
             return _action_dict(action, "executed", f"Set link text: {new_text[:80]}")
 
+        elif action_type == "add_math_description":
+            description = params.get("description", "")
+            if not description:
+                return _action_dict(action, "failed", "Empty description")
+            math_list = model_dict.get("math", [])
+            math_idx = next(
+                (i for i, m in enumerate(math_list) if m.get("id") == element_id),
+                None,
+            )
+            if math_idx is None:
+                return _action_dict(action, "failed", f"Math element not found: {element_id}")
+            confidence = params.get("confidence", 0.95)
+            model_dict["math"][math_idx]["description"] = description
+            model_dict["math"][math_idx]["confidence"] = confidence
+            return _action_dict(action, "executed", f"Set math description: {description[:80]}")
+
         elif action_type == "fix_all_contrast":
             # For PDFs, check each run's color against background and fix if needed
             default_bg = params.get("default_bg", "#FFFFFF")
@@ -615,6 +631,11 @@ def _execute_action(doc_or_prs, action: RemediationAction, paragraphs: list | No
             if result.success:
                 return _action_dict(action, "executed", f"Set link text: {new_text[:80]}")
             return _action_dict(action, "failed", result.error)
+
+        elif action_type == "add_math_description":
+            # Math descriptions live on the DocumentModel, not the docx/pptx file directly.
+            # The executor acknowledges the action; the model update happens in execute_pdf.
+            return _action_dict(action, "skipped", "Math descriptions apply to document model only (not docx/pptx)")
 
         elif action_type == "fix_all_contrast":
             if is_pptx:

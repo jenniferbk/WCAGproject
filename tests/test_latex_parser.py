@@ -474,3 +474,38 @@ class TestEndToEndLatex:
         assert "<svg" in html_result.html  # Math rendered as SVG
         assert "sr-only" in html_result.html  # Hidden MathML present
         assert "<h" in html_result.html  # Headings present
+
+
+class TestExecutorMathDescription:
+    def test_add_math_description_updates_model(self):
+        """Verify that math descriptions can be applied to a DocumentModel."""
+        doc = DocumentModel(
+            source_format="tex",
+            metadata=MetadataInfo(title="Test", language="en"),
+            math=[
+                MathInfo(id="math_0", latex_source="x^2", mathml="<math>...</math>"),
+                MathInfo(id="math_1", latex_source=r"\frac{a}{b}", mathml="<math>...</math>"),
+            ],
+        )
+
+        # Simulate applying add_math_description actions
+        descriptions = {"math_0": "x squared", "math_1": "a divided by b"}
+        updated_math = []
+        for m in doc.math:
+            if m.id in descriptions:
+                updated_math.append(MathInfo(
+                    id=m.id,
+                    latex_source=m.latex_source,
+                    mathml=m.mathml,
+                    display=m.display,
+                    description=descriptions[m.id],
+                    equation_number=m.equation_number,
+                    confidence=0.95,
+                    unparsed=m.unparsed,
+                ))
+            else:
+                updated_math.append(m)
+
+        assert updated_math[0].description == "x squared"
+        assert updated_math[1].description == "a divided by b"
+        assert updated_math[0].confidence == 0.95

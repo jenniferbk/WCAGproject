@@ -321,3 +321,14 @@ class TestRunVisualQA:
                 data = json.loads(findings_path.read_text())
                 assert "findings" in data
                 assert "pages_checked" in data
+
+
+class TestOrchestratorIntegration:
+    def test_visual_qa_import(self):
+        from src.tools.visual_qa import run_visual_qa
+        assert callable(run_visual_qa)
+
+    def test_visual_qa_result_in_pipeline_models(self):
+        from src.models.pipeline import RemediationResult, VisualQAResult
+        result = VisualQAResult(pages_checked=5)
+        assert result.pages_checked == 5

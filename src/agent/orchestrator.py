@@ -35,6 +35,7 @@ from src.tools.pptx_parser import parse_pptx
 from src.tools.report_generator import generate_report_html
 from src.tools.scanned_page_ocr import ScannedPageResult, process_scanned_pages
 from src.tools.validator import format_report, validate_document
+from src.tools.visual_qa import run_visual_qa
 
 from .comprehension import comprehend
 from .executor import execute, execute_pdf
@@ -487,6 +488,43 @@ def process(
     if exec_result.companion_html_path:
         logger.info("Companion HTML: %s", exec_result.companion_html_path)
 
+    # ── Phase 3.5: Visual Diff QA (scanned PDFs only) ──────────────
+    visual_qa_result = None
+    if (
+        suffix == ".pdf"
+        and hasattr(parse_result, "scanned_page_numbers")
+        and parse_result.scanned_page_numbers
+        and exec_result.companion_html_path
+    ):
+        if on_phase:
+            on_phase("visual_qa", "Visual quality check")
+        logger.info(
+            "Phase 3.5: Visual Diff QA (%d scanned pages)",
+            len(parse_result.scanned_page_numbers),
+        )
+        try:
+            import os
+            from google import genai
+            gemini_key = os.environ.get("GEMINI_API_KEY")
+            if gemini_key:
+                gemini_client = genai.Client(api_key=gemini_key)
+                visual_qa_result = run_visual_qa(
+                    pdf_path=doc_path,
+                    html_path=exec_result.companion_html_path,
+                    scanned_page_numbers=parse_result.scanned_page_numbers,
+                    client=gemini_client,
+                    model="gemini-2.5-flash",
+                    output_dir=output_dir,
+                )
+                logger.info(
+                    "Visual QA: %d findings (%d pages checked)",
+                    len(visual_qa_result.findings), visual_qa_result.pages_checked,
+                )
+            else:
+                logger.warning("Visual QA: GEMINI_API_KEY not set, skipping")
+        except Exception as e:
+            logger.warning("Visual QA failed (non-fatal): %s", e)
+
     # ── Phase 4: Review (Claude) ────────────────────────────────────
     if on_phase:
         on_phase(
@@ -559,6 +597,8 @@ def process(
     all_usage.extend(comprehension.api_usage)
     all_usage.extend(strategy.api_usage)
     all_usage.extend(review_usage)
+    if visual_qa_result and visual_qa_result.api_usage:
+        all_usage.extend(visual_qa_result.api_usage)
     cost_summary = CostSummary(usage_records=all_usage)
     logger.info(
         "API costs: %d calls, %d input tokens, %d output tokens, ~$%.4f",
@@ -590,7 +630,12 @@ def process(
     # Write HTML compliance report
     report_path = Path(exec_result.output_path).with_suffix(".html")
     try:
-        report_html = generate_report_html(final_result)
+        visual_qa_findings = visual_qa_result.findings if visual_qa_result else None
+        report_html = generate_report_html(
+            final_result,
+            visual_qa_findings=visual_qa_findings,
+            output_dir=output_dir,
+        )
         report_path.write_text(report_html)
         final_result = RemediationResult(
             **{**final_result.model_dump(), "report_path": str(report_path)}

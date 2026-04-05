@@ -462,32 +462,10 @@ def _process_single_page(
     except Exception as e:
         logger.warning("Page %d: Gemini HD failed (%s)", page_number + 1, e)
 
-    # ── Try 2.5: Gemini with higher temperature (RECITATION workaround) ──
-    logger.info("Page %d: retrying with temperature=1.2 (RECITATION workaround)", page_number + 1)
-    try:
-        time.sleep(3)
-        batch_result = _process_ocr_batch(
-            client, model, doc, [page_number], prompt, dpi=PAGE_DPI, temperature=1.2,
-        )
-        if batch_result is not None:
-            page_data_list, usage = batch_result
-            if usage:
-                result.api_usage.append(usage)
-            if page_data_list:
-                paras, tables, figures = _regions_to_model_objects(
-                    page_data_list[0], page_number=page_number,
-                    para_offset=0, table_offset=0, img_offset=0, pdf_doc=doc,
-                )
-                if paras and not _find_garbled_pages(paras):
-                    result.paragraphs = paras
-                    result.tables = tables
-                    result.figures = figures
-                    result.source = "gemini_warm"
-                    return result
-    except Exception as e:
-        logger.warning("Page %d: Gemini warm retry failed (%s)", page_number + 1, e)
-
-    # ── Try 2.75: Half-page crops (persistent RECITATION) ──────────
+    # ── Try 2.5: Half-page crops (RECITATION workaround) ─────────
+    # NOTE: temperature bump removed — higher temp encourages hallucination
+    # instead of faithful transcription. Crops send smaller page sections
+    # at normal temperature to avoid triggering copyright filter.
     logger.info("Page %d: trying half-page crops", page_number + 1)
     try:
         page = doc[page_number]

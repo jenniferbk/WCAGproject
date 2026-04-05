@@ -36,8 +36,6 @@ from src.models.pipeline import ApiUsage
 logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────
-PAGES_PER_BATCH = 2  # small batches — dense scanned pages produce large OCR output
-DELAY_BETWEEN_BATCHES = 10  # seconds
 MAX_RETRIES = 3
 INITIAL_BACKOFF = 30  # seconds, doubles each retry
 PAGE_DPI = 200  # render resolution for Gemini vision
@@ -177,18 +175,9 @@ def process_scanned_pages(
 ) -> ScannedPageResult:
     """Process scanned PDF pages through Gemini for OCR + layout analysis.
 
-    Renders each scanned page to a high-res PNG, sends to Gemini in batches,
-    and converts the structured response into DocumentModel objects.
-
-    Args:
-        pdf_path: Path to the original PDF file.
-        scanned_page_numbers: 0-based page numbers identified as scanned.
-        course_context: Course context string for the prompt.
-        model: Gemini model ID.
-        on_progress: Optional callback for progress updates.
-
-    Returns:
-        ScannedPageResult with extracted paragraphs, tables, and figure images.
+    Processes each page individually with a clean retry chain:
+    Gemini (200 DPI) → Gemini (300 DPI if garbled) → Tesseract fallback.
+    Each page gets exactly one result — no duplication from retries.
     """
     from dotenv import load_dotenv
     load_dotenv()
@@ -217,215 +206,57 @@ def process_scanned_pages(
     prompt_template = _load_prompt()
     prompt = prompt_template.replace("{course_context}", course_context or "Not specified")
 
-    all_paragraphs: list[ParagraphInfo] = []
-    all_tables: list[TableInfo] = []
-    all_figures: list[ImageInfo] = []
+    # ── Process each page individually ──────────────────────────
+    total_pages = len(scanned_page_numbers)
+    page_results: list[PageOCRResult] = []
+
+    for i, page_num in enumerate(scanned_page_numbers):
+        if on_progress:
+            on_progress(f"OCR page {i + 1}/{total_pages}: page {page_num + 1}")
+        logger.info("OCR page %d/%d: page %d", i + 1, total_pages, page_num + 1)
+
+        page_result = _process_single_page(client, model, doc, page_num, prompt)
+        page_results.append(page_result)
+
+        logger.info(
+            "Page %d: %s → %d paragraphs, %d tables",
+            page_num + 1, page_result.source,
+            len(page_result.paragraphs), len(page_result.tables),
+        )
+
+        # Rate limit between pages
+        if i + 1 < total_pages:
+            time.sleep(DELAY_BETWEEN_PAGES)
+
+    # ── Stitch page results ─────────────────────────────────────
+    all_paragraphs, all_tables, all_figures = _stitch_page_results(page_results)
+
+    # ── Table rescue on stitched result ─────────────────────────
+    if all_paragraphs:
+        rescued_paras, rescued_tables, rescue_usage = _rescue_missed_tables(
+            all_paragraphs, all_tables, doc, client, model,
+        )
+        if len(rescued_tables) > len(all_tables):
+            logger.info(
+                "Table rescue: %d paragraphs removed, %d tables added",
+                len(all_paragraphs) - len(rescued_paras),
+                len(rescued_tables) - len(all_tables),
+            )
+            all_paragraphs = rescued_paras
+            all_tables = rescued_tables
+
+    doc.close()
+
+    # ── Collect usage and warnings ──────────────────────────────
     all_usage: list[ApiUsage] = []
     all_warnings: list[str] = []
     pages_processed: list[int] = []
 
-    # Track offsets for unique IDs across batches
-    para_offset = 0
-    table_offset = 0
-    img_offset = 0
-
-    # Process in batches
-    total_batches = (len(scanned_page_numbers) + PAGES_PER_BATCH - 1) // PAGES_PER_BATCH
-
-    for batch_idx in range(0, len(scanned_page_numbers), PAGES_PER_BATCH):
-        batch_pages = scanned_page_numbers[batch_idx:batch_idx + PAGES_PER_BATCH]
-        batch_num = batch_idx // PAGES_PER_BATCH + 1
-
-        para_offset_before_batch = len(all_paragraphs)
-
-        if on_progress:
-            on_progress(
-                f"OCR batch {batch_num}/{total_batches}: "
-                f"pages {', '.join(str(p + 1) for p in batch_pages)}"
-            )
-        logger.info(
-            "OCR batch %d/%d: pages %s",
-            batch_num, total_batches,
-            [p + 1 for p in batch_pages],
-        )
-
-        try:
-            batch_result = _process_ocr_batch(
-                client, model, doc, batch_pages, prompt,
-            )
-
-            if batch_result is None:
-                all_warnings.append(f"OCR batch {batch_num} returned empty")
-                # Fall through to single-page retry below
-                raise ValueError("Empty batch result")
-
-            page_data_list, usage = batch_result
-            if usage:
-                all_usage.append(usage)
-
-            _integrate_page_data(
-                page_data_list, doc,
-                all_paragraphs, all_tables, all_figures,
-                pages_processed, para_offset, table_offset, img_offset,
-                known_page_numbers=batch_pages,
-                gemini_client=client,
-                gemini_model=model,
-            )
-            # Recalculate offsets from actual lists
-            para_offset = len(all_paragraphs)
-            table_offset = len(all_tables)
-            img_offset = len(all_figures)
-
-        except Exception as e:
-            # Batch failed — retry each page individually
-            if len(batch_pages) > 1:
-                logger.warning(
-                    "OCR batch %d failed (%s), retrying %d pages individually",
-                    batch_num, e, len(batch_pages),
-                )
-                for single_page in batch_pages:
-                    try:
-                        if on_progress:
-                            on_progress(f"OCR retry: page {single_page + 1}")
-                        time.sleep(5)  # brief pause between retries
-                        single_result = _process_ocr_batch(
-                            client, model, doc, [single_page], prompt,
-                        )
-                        if single_result is not None:
-                            page_data_list, usage = single_result
-                            if usage:
-                                all_usage.append(usage)
-                            _integrate_page_data(
-                                page_data_list, doc,
-                                all_paragraphs, all_tables, all_figures,
-                                pages_processed, len(all_paragraphs),
-                                len(all_tables), len(all_figures),
-                                known_page_numbers=[single_page],
-                                gemini_client=client,
-                                gemini_model=model,
-                            )
-                        else:
-                            # Gemini refused (likely RECITATION) — try Tesseract
-                            logger.info(
-                                "Gemini refused page %d, trying Tesseract fallback",
-                                single_page + 1,
-                            )
-                            tess_paras = _tesseract_fallback(doc, single_page, len(all_paragraphs))
-                            if tess_paras:
-                                all_paragraphs.extend(tess_paras)
-                                pages_processed.append(single_page)
-                                logger.info(
-                                    "Tesseract extracted %d paragraphs from page %d",
-                                    len(tess_paras), single_page + 1,
-                                )
-                            else:
-                                w = f"OCR page {single_page + 1}: both Gemini and Tesseract failed"
-                                logger.warning(w)
-                                all_warnings.append(w)
-                    except Exception as e2:
-                        w = f"OCR page {single_page + 1} failed: {e2}"
-                        logger.warning(w)
-                        all_warnings.append(w)
-                # Update offsets after retry loop so next batch uses correct IDs
-                para_offset = len(all_paragraphs)
-                table_offset = len(all_tables)
-                img_offset = len(all_figures)
-            else:
-                # Single-page batch failed — try Tesseract
-                single_page = batch_pages[0]
-                logger.info(
-                    "Gemini failed for page %d (%s), trying Tesseract fallback",
-                    single_page + 1, e,
-                )
-                tess_paras = _tesseract_fallback(doc, single_page, len(all_paragraphs))
-                if tess_paras:
-                    all_paragraphs.extend(tess_paras)
-                    pages_processed.append(single_page)
-                    logger.info(
-                        "Tesseract extracted %d paragraphs from page %d",
-                        len(tess_paras), single_page + 1,
-                    )
-                else:
-                    warning = f"OCR page {single_page + 1}: both Gemini and Tesseract failed"
-                    logger.warning(warning)
-                    all_warnings.append(warning)
-                # Update offsets after single-page fallback
-                para_offset = len(all_paragraphs)
-                table_offset = len(all_tables)
-                img_offset = len(all_figures)
-
-        # ── Quality check: detect garbled pages and retry ──────────
-        # Check paragraphs added in this batch for garbled text
-        new_para_count = len(all_paragraphs) - para_offset_before_batch
-        if new_para_count > 0:
-            garbled_pages = _find_garbled_pages(
-                all_paragraphs[para_offset_before_batch:],
-            )
-            if garbled_pages:
-                logger.warning(
-                    "Garbled OCR detected on pages %s, retrying at %d DPI",
-                    [p + 1 for p in garbled_pages], PAGE_DPI_RETRY,
-                )
-                # Remove garbled paragraphs for those pages
-                garbled_set = set(garbled_pages)
-                all_paragraphs[para_offset_before_batch:] = [
-                    p for p in all_paragraphs[para_offset_before_batch:]
-                    if p.page_number not in garbled_set
-                ]
-                # Also remove from pages_processed so they get re-added
-                for gp in garbled_pages:
-                    if gp in pages_processed:
-                        pages_processed.remove(gp)
-
-                # Retry each garbled page individually at higher DPI
-                for gp in garbled_pages:
-                    if on_progress:
-                        on_progress(f"OCR quality retry: page {gp + 1} at {PAGE_DPI_RETRY} DPI")
-                    time.sleep(5)
-                    try:
-                        retry_result = _process_ocr_batch(
-                            client, model, doc, [gp], prompt,
-                            dpi=PAGE_DPI_RETRY,
-                        )
-                        if retry_result is not None:
-                            retry_pages, retry_usage = retry_result
-                            if retry_usage:
-                                all_usage.append(retry_usage)
-                            _integrate_page_data(
-                                retry_pages, doc,
-                                all_paragraphs, all_tables, all_figures,
-                                pages_processed, len(all_paragraphs),
-                                len(all_tables), len(all_figures),
-                                known_page_numbers=[gp],
-                                gemini_client=client,
-                                gemini_model=model,
-                            )
-                        else:
-                            # Gemini refused — Tesseract fallback
-                            tess_paras = _tesseract_fallback(doc, gp, len(all_paragraphs))
-                            if tess_paras:
-                                all_paragraphs.extend(tess_paras)
-                                pages_processed.append(gp)
-                            else:
-                                all_warnings.append(
-                                    f"OCR page {gp + 1}: garbled output, retry failed"
-                                )
-                    except Exception as e_retry:
-                        all_warnings.append(
-                            f"OCR page {gp + 1}: garble retry failed: {e_retry}"
-                        )
-
-                # Update offsets after quality retry
-                para_offset = len(all_paragraphs)
-                table_offset = len(all_tables)
-                img_offset = len(all_figures)
-
-        # Rate limit pause between batches
-        if batch_idx + PAGES_PER_BATCH < len(scanned_page_numbers):
-            logger.info("Waiting %ds before next OCR batch...", DELAY_BETWEEN_BATCHES)
-            time.sleep(DELAY_BETWEEN_BATCHES)
-
-    doc.close()
+    for pr in page_results:
+        all_usage.extend(pr.api_usage)
+        all_warnings.extend(pr.warnings)
+        if pr.source != "failed":
+            pages_processed.append(pr.page_number)
 
     logger.info(
         "OCR complete: %d pages → %d paragraphs, %d tables, %d figures",
@@ -644,6 +475,38 @@ def _process_single_page(
     result.warnings.append(f"Page {page_number + 1}: all OCR methods failed")
     logger.warning("Page %d: all OCR methods failed", page_number + 1)
     return result
+
+
+def _stitch_page_results(
+    page_results: list[PageOCRResult],
+) -> tuple[list[ParagraphInfo], list[TableInfo], list[ImageInfo]]:
+    """Merge per-page OCR results into unified lists with sequential IDs.
+
+    Each page's paragraphs/tables/figures get their IDs reassigned to be
+    globally sequential: ocr_p_0, ocr_p_1, ..., ocr_tbl_0, ocr_tbl_1, etc.
+    """
+    all_paragraphs: list[ParagraphInfo] = []
+    all_tables: list[TableInfo] = []
+    all_figures: list[ImageInfo] = []
+
+    para_idx = 0
+    tbl_idx = 0
+    fig_idx = 0
+
+    for page_result in page_results:
+        for para in page_result.paragraphs:
+            all_paragraphs.append(para.model_copy(update={"id": f"ocr_p_{para_idx}"}))
+            para_idx += 1
+
+        for table in page_result.tables:
+            all_tables.append(table.model_copy(update={"id": f"ocr_tbl_{tbl_idx}"}))
+            tbl_idx += 1
+
+        for figure in page_result.figures:
+            all_figures.append(figure.model_copy(update={"id": f"ocr_img_{fig_idx}"}))
+            fig_idx += 1
+
+    return all_paragraphs, all_tables, all_figures
 
 
 def _process_ocr_batch(

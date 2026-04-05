@@ -32,6 +32,7 @@ from src.tools.scanned_page_ocr import (
     _relative_to_pt,
     _rescue_missed_tables,
     _sort_regions_by_column,
+    _stitch_page_results,
 )
 
 
@@ -1719,3 +1720,58 @@ class TestProcessSinglePage:
         assert result.paragraphs == []
         assert result.tables == []
         assert result.source == "failed"
+
+
+# ── Tests for _stitch_page_results ───────────────────────────────
+
+
+class TestStitchPageResults:
+    def test_stitches_two_pages_in_order(self):
+        page0 = PageOCRResult(page_number=0, source="gemini")
+        page0.paragraphs = [
+            ParagraphInfo(id="ocr_p_0", text="Page 1 text", style_name="Normal", page_number=0),
+        ]
+        page1 = PageOCRResult(page_number=1, source="gemini")
+        page1.paragraphs = [
+            ParagraphInfo(id="ocr_p_0", text="Page 2 text", style_name="Normal", page_number=1),
+        ]
+
+        paras, tables, figures = _stitch_page_results([page0, page1])
+
+        assert len(paras) == 2
+        assert paras[0].text == "Page 1 text"
+        assert paras[1].text == "Page 2 text"
+        assert paras[0].id == "ocr_p_0"
+        assert paras[1].id == "ocr_p_1"
+
+    def test_stitches_with_tables(self):
+        page0 = PageOCRResult(page_number=0, source="gemini")
+        page0.tables = [
+            TableInfo(id="ocr_tbl_0", rows=[], row_count=0, col_count=0, page_number=0),
+        ]
+        page1 = PageOCRResult(page_number=1, source="gemini")
+        page1.tables = [
+            TableInfo(id="ocr_tbl_0", rows=[], row_count=0, col_count=0, page_number=1),
+        ]
+
+        paras, tables, figures = _stitch_page_results([page0, page1])
+
+        assert len(tables) == 2
+        assert tables[0].id == "ocr_tbl_0"
+        assert tables[1].id == "ocr_tbl_1"
+
+    def test_empty_page_included(self):
+        page0 = PageOCRResult(page_number=0, source="gemini")
+        page0.paragraphs = [
+            ParagraphInfo(id="ocr_p_0", text="Content", style_name="Normal", page_number=0),
+        ]
+        page1 = PageOCRResult(page_number=1, source="failed")
+
+        paras, tables, figures = _stitch_page_results([page0, page1])
+        assert len(paras) == 1
+
+    def test_empty_list(self):
+        paras, tables, figures = _stitch_page_results([])
+        assert paras == []
+        assert tables == []
+        assert figures == []

@@ -17,6 +17,7 @@ from src.models.document import (
 from src.models.pipeline import ApiUsage
 from src.tools.scanned_page_ocr import (
     ScannedPageResult,
+    _collect_table_paragraphs,
     _find_garbled_pages,
     _find_table_captions,
     _is_garbled_text,
@@ -1213,3 +1214,64 @@ class TestFindTableCaptions:
         ]
         result = _find_table_captions(paras)
         assert len(result) == 1
+
+
+class TestCollectTableParagraphs:
+    """Tests for collecting paragraphs belonging to a missed table."""
+
+    def test_collects_until_next_heading(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 1 Metaphors", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="Column A", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_2", text="Column B", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_3", text="Value 1", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_4", text="Next Section", style_name="Heading 2", heading_level=2),
+        ]
+        indices = _collect_table_paragraphs(paras, caption_index=0)
+        assert indices == [1, 2, 3]
+
+    def test_collects_until_next_caption(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 1 First", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="Cell A", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_2", text="Cell B", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_3", text="TABLE 2 Second", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_4", text="Cell C", style_name="Normal"),
+        ]
+        indices = _collect_table_paragraphs(paras, caption_index=0)
+        assert indices == [1, 2]
+
+    def test_collects_until_long_prose(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 1 Results", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="Header A", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_2", text="Value 1", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_3", text="This is a long body paragraph that clearly is not a table cell. It contains multiple sentences describing the methodology and results of the experiment in detail, which would never appear in a single table cell." , style_name="Normal"),
+        ]
+        indices = _collect_table_paragraphs(paras, caption_index=0)
+        assert indices == [1, 2]
+
+    def test_collects_until_end(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 1 Results", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="A", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_2", text="B", style_name="Normal"),
+        ]
+        indices = _collect_table_paragraphs(paras, caption_index=0)
+        assert indices == [1, 2]
+
+    def test_empty_after_caption(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 1 Results", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="Next Section", style_name="Heading 2", heading_level=2),
+        ]
+        indices = _collect_table_paragraphs(paras, caption_index=0)
+        assert indices == []
+
+    def test_caption_at_end_of_list(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="Some text", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="TABLE 5 Final", style_name="Normal"),
+        ]
+        indices = _collect_table_paragraphs(paras, caption_index=1)
+        assert indices == []

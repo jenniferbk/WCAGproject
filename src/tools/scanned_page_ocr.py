@@ -1021,6 +1021,46 @@ def _find_table_captions(
     return results
 
 
+# Threshold: a paragraph longer than this is likely body prose, not a table cell.
+_MAX_TABLE_CELL_CHARS = 200
+
+
+def _collect_table_paragraphs(
+    paragraphs: list[ParagraphInfo],
+    caption_index: int,
+) -> list[int]:
+    """Collect indices of paragraphs that likely belong to a missed table.
+
+    Starting from caption_index + 1, collects consecutive paragraphs until
+    hitting a stop signal:
+      - Another table caption
+      - A heading (heading_level > 0)
+      - A long prose paragraph (> 300 chars)
+      - End of list
+
+    Returns list of paragraph indices (not including the caption itself).
+    """
+    indices: list[int] = []
+    for i in range(caption_index + 1, len(paragraphs)):
+        para = paragraphs[i]
+
+        # Stop at headings
+        if para.heading_level and para.heading_level > 0:
+            break
+
+        # Stop at another table caption
+        if _TABLE_CAPTION_RE.match(para.text.strip()):
+            break
+
+        # Stop at long prose (unlikely to be a table cell)
+        if len(para.text.strip()) > _MAX_TABLE_CELL_CHARS:
+            break
+
+        indices.append(i)
+
+    return indices
+
+
 def _tesseract_fallback(
     doc: fitz.Document,
     page_number: int,

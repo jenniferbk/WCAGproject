@@ -270,6 +270,39 @@ def main():
     logger.info("Report: %s", report_path)
     logger.info("Output: %s", OUTPUT_DIR)
 
+    # ── Aggregate visual QA findings ──────────────────────────────
+    import json as _json
+    all_visual_findings = []
+    for doc_path in docs:
+        # Check both possible locations for findings
+        findings_path = OUTPUT_DIR / "visual_qa_findings.json"
+        if not findings_path.exists():
+            findings_path = OUTPUT_DIR / doc_path.stem / "visual_qa_findings.json"
+        if findings_path.exists():
+            try:
+                data = _json.loads(findings_path.read_text())
+                for f in data.get("findings", []):
+                    f["document"] = data.get("document", doc_path.name)
+                    all_visual_findings.append(f)
+            except Exception:
+                pass
+
+    if all_visual_findings:
+        summary_path = OUTPUT_DIR / "visual_qa_summary.json"
+        summary_path.write_text(
+            _json.dumps({"findings": all_visual_findings}, indent=2),
+            encoding="utf-8",
+        )
+        logger.info(
+            "Visual QA summary: %d findings across all documents → %s",
+            len(all_visual_findings), summary_path,
+        )
+
+        from collections import Counter
+        type_counts = Counter(f.get("type", "other") for f in all_visual_findings)
+        for ftype, count in type_counts.most_common():
+            logger.info("  %s: %d", ftype, count)
+
     # Exit with error code if any failed
     if passed < len(results):
         sys.exit(1)

@@ -4,7 +4,44 @@
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
 - **Phase**: LaTeX + OCR fixes shipped, polish and table recognition next
-- **Tests**: 835+ passing
+- **Tests**: 891 passing
+
+## What Was Shipped (2026-04-05 session — OCR Quality Fixes)
+
+### OCR Quality Fixes (driven by visual QA findings)
+- **Column sorting validation**: detects imbalanced columns (col=2 but no col=1), reassigns mislabeled col=0 regions — fixed Mayer page 9 text loss
+- **Table deduplication**: `_deduplicate_ocr_tables()` removes duplicate tables (80% cell overlap threshold) — fixed duplicate Table 2
+- **Multi-table rescue**: removed `pages_with_tables` skip so multiple tables on same page can all be rescued — fixed missing Table 3
+- **Prompt improvement**: table captions must keep number + title together
+- All 3 original high-severity findings RESOLVED
+- 3 new findings are Gemini RECITATION refusals (copyright content), not pipeline bugs
+- 891 tests passing
+
+## What Was Shipped (2026-04-05 session — Visual Diff QA)
+
+### Visual Diff QA
+- Gemini-powered content comparison: original scanned pages vs rendered HTML output
+- HTML→PDF (WeasyPrint) → per-page PNG (PyMuPDF) — zero new dependencies
+- Batched Gemini calls (4 pages per batch), no 1:1 page alignment assumed
+- "Visual Quality Check" section in report with side-by-side thumbnails (base64 embedded)
+- High + medium findings surfaced; low logged only
+- Findings persisted to `visual_qa_findings.json` for cross-document pattern analysis
+- Batch aggregation in `test_batch.py` → `visual_qa_summary.json`
+- Mayer test: 6 findings (3 high, 2 medium, 1 low) — real content gaps detected
+  - Missing Table 3, missing headings, entire text column dropped from page 9
+- Integrated as Phase 3.5 (between execution and review), scanned PDFs only
+- 877 tests passing
+
+## What Was Shipped (2026-04-05 session — OCR Table Recognition)
+
+### OCR Table Recognition
+- Improved Gemini OCR prompt with table visual indicators and caption guidance
+- Post-OCR table rescue pipeline: `_find_table_captions()` → `_collect_table_paragraphs()` → `_rescue_table_from_page()` → `_rescue_missed_tables()`
+- Focused table extraction prompt (`src/prompts/table_rescue.md`) for Gemini re-send
+- Integrated into all OCR code paths (main batch, single-page retry, garble retry)
+- Mayer paper: 1→5 tables extracted, all with proper headers and cell data
+- 855 tests passing, ~$0.001 additional cost per rescued table
+- Prompt improvement alone was sufficient for Mayer; rescue pipeline is safety net
 
 ## What Was Shipped (2026-04-04/05 session)
 
@@ -36,11 +73,10 @@
 - Page sections kept for semantic grouping
 
 ## Up Next (Priority Order)
-1. **OCR table recognition** — Gemini returns table cells as paragraphs for some tables (Mayer TABLE 2/3/4). Improve OCR prompt + post-processing detection.
-2. **Visual diff QA** — AI compares original page image vs rendered HTML to detect gaps. Low cost (~$0.03/doc), adds ~30s. Surfaces issues in report.
-3. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
-4. **Per-equation review in report** — for LaTeX docs, show rendered equation + LaTeX + description for professor verification
-5. **LaTeX .tex remediation output** — return fixed .tex source (Phase 2+)
+1. **Gemini RECITATION workarounds** — pages 10-11 (references/acknowledgments) refused by Gemini; improve Tesseract fallback quality or use alternate prompt strategies
+2. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
+3. **Per-equation review in report** — for LaTeX docs, show rendered equation + LaTeX + description for professor verification
+4. **LaTeX .tex remediation output** — return fixed .tex source (Phase 2+)
 
 ## Key Architecture Notes
 - `src/tools/latex_parser.py` (1122 lines) — LaTeXML subprocess + HTML→DocumentModel

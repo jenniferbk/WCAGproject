@@ -16,6 +16,7 @@ class ContentType(str, Enum):
     """Type of content element in document order."""
     PARAGRAPH = "paragraph"
     TABLE = "table"
+    MATH = "math"
 
 
 class ContentOrderItem(BaseModel, frozen=True):
@@ -118,6 +119,19 @@ class ParagraphInfo(BaseModel, frozen=True):
     bbox: tuple[float, float, float, float] | None = None  # PDF: (x0, y0, x1, y1) in points
     page_number: int | None = None  # PDF: 0-based page number
     column: int | None = None  # OCR: 0=full-width, 1=left, 2=right
+    math_ids: list[str] = Field(default_factory=list)  # IDs of MathInfo objects in this paragraph
+
+
+class MathInfo(BaseModel, frozen=True):
+    """A mathematical expression extracted from a LaTeX document."""
+    id: str
+    latex_source: str
+    mathml: str
+    display: str = "block"
+    description: str = ""
+    equation_number: str | None = None
+    confidence: float = 1.0
+    unparsed: bool = False
 
 
 class MetadataInfo(BaseModel, frozen=True):
@@ -153,6 +167,8 @@ class DocumentStats(BaseModel, frozen=True):
     heading_count: int = 0
     images_missing_alt: int = 0
     fake_heading_candidates: int = 0
+    math_count: int = 0
+    math_missing_description: int = 0
 
 
 class DocumentModel(BaseModel, frozen=True):
@@ -164,6 +180,7 @@ class DocumentModel(BaseModel, frozen=True):
     tables: list[TableInfo] = Field(default_factory=list)
     images: list[ImageInfo] = Field(default_factory=list)
     links: list[LinkInfo] = Field(default_factory=list)
+    math: list[MathInfo] = Field(default_factory=list)
     content_order: list[ContentOrderItem] = Field(default_factory=list)
     contrast_issues: list[ContrastIssue] = Field(default_factory=list)
     stats: DocumentStats = Field(default_factory=DocumentStats)

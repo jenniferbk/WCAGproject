@@ -55,6 +55,7 @@ Analyze each page image and identify content regions. For each region, provide t
    - For multi-line cell content, join the text with spaces into a single cell string.
    - The caption itself should be a separate `caption` region BEFORE the table region.
    - Common mistake: extracting each table cell as a separate `paragraph` region. If you see short, aligned text blocks that form a grid pattern, they are table cells, not paragraphs.
+   - Table captions always start with "TABLE" or "Table" followed by a number (e.g., "TABLE 3 Two Views of..."). Keep the number and title together in a single `caption` region. Do NOT split "TABLE 3" into one region and the title into another.
 
 7. **FIGURES**: Provide thorough description in `figure_description` capturing content, data, labels, and meaning for alt text.
 

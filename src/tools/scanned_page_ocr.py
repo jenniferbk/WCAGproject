@@ -1276,9 +1276,6 @@ def _rescue_missed_tables(
     if not captions:
         return paragraphs, tables, []
 
-    # Build set of pages that already have tables (from initial extraction only)
-    pages_with_tables: set[int | None] = {t.page_number for t in tables}
-
     # Track which paragraph indices to remove
     indices_to_remove: set[int] = set()
     new_tables: list[TableInfo] = list(tables)
@@ -1295,15 +1292,7 @@ def _rescue_missed_tables(
         cell_indices = _collect_table_paragraphs(paragraphs, caption_idx)
 
         if not cell_indices:
-            # No cell paragraphs found — might already be extracted as a table
-            continue
-
-        # Check if this page already has a table (likely already extracted)
-        if page_num in pages_with_tables:
-            logger.debug(
-                "Table rescue: page %s already has a table, skipping caption %r",
-                page_num, caption_text,
-            )
+            # No cell paragraphs found — likely already extracted as a table
             continue
 
         # Render page image for Gemini

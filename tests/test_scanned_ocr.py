@@ -1550,3 +1550,79 @@ class TestColumnSortingValidation:
         texts = [r["text"] for r in result]
         assert texts[0] == "Section Title"
         assert texts.index("Left A") < texts.index("Right A")
+
+
+class TestRescueMultipleTablesOnSamePage:
+    """Verify that multiple tables on the same page can all be rescued."""
+
+    def test_two_captions_same_page_both_rescued(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 3 Two Views", style_name="Normal", page_number=5),
+            ParagraphInfo(id="ocr_p_1", text="View Content", style_name="Normal", page_number=5),
+            ParagraphInfo(id="ocr_p_2", text="Literal Info", style_name="Normal", page_number=5),
+            ParagraphInfo(id="ocr_p_3", text="TABLE 4 Legacies", style_name="Normal", page_number=5),
+            ParagraphInfo(id="ocr_p_4", text="Legacy 1", style_name="Normal", page_number=5),
+        ]
+        tables: list[TableInfo] = []
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"headers": ["Col"], "rows": [["Val"]]}'
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=10)
+
+        new_paras, new_tables, usage = _rescue_missed_tables(
+            paras, tables, mock_doc, mock_client, "gemini-2.5-flash",
+        )
+
+        # Both tables should be rescued
+        assert len(new_tables) == 2
+        assert len(new_paras) == 0  # all were captions or cells
+
+    def test_caption_skipped_when_existing_table_on_page(self):
+        """If a table already exists (extracted by Gemini), and there's a caption
+        with cell paragraphs on the same page, the rescue should still try."""
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 3 Missing Table", style_name="Normal", page_number=5),
+            ParagraphInfo(id="ocr_p_1", text="Cell A", style_name="Normal", page_number=5),
+            ParagraphInfo(id="ocr_p_2", text="Cell B", style_name="Normal", page_number=5),
+        ]
+        existing_table = TableInfo(
+            id="ocr_tbl_0",
+            rows=[[CellInfo(text="X", paragraphs=["X"])]],
+            header_row_count=1,
+            row_count=1,
+            col_count=1,
+            page_number=5,
+        )
+        tables = [existing_table]
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"headers": ["H"], "rows": [["V"]]}'
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=10)
+
+        new_paras, new_tables, usage = _rescue_missed_tables(
+            paras, tables, mock_doc, mock_client, "gemini-2.5-flash",
+        )
+
+        # The existing table PLUS the rescued table
+        assert len(new_tables) == 2
+        assert len(new_paras) == 0

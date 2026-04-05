@@ -4,7 +4,19 @@
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
 - **Phase**: LaTeX + OCR fixes shipped, polish and table recognition next
-- **Tests**: 899 passing
+- **Tests**: 900 passing
+
+## What Was Shipped (2026-04-05 session — OCR Fallback Improvements)
+
+### OCR Fallback + Quality
+- DPI bumped 200→300 (retry 300→400) for better baseline accuracy
+- Half-page crop splitting for RECITATION pages (before Tesseract fallback)
+- Enhanced Tesseract: `image_to_data()` with block-level column detection (x-coordinate clustering) and heading heuristics (ALL CAPS → H2)
+- REFERENCES and ACKNOWLEDGMENTS now render as proper `<h2>` headings from Tesseract
+- Removed temperature bump retry (would encourage hallucination, not faithful transcription)
+- Research: img2table (MIT, lightweight table detection), PaddleOCR (future Mac Mini)
+- 900 tests passing
+- **Next: Hybrid OCR architecture** — Tesseract for text, Gemini for structure understanding
 
 ## What Was Shipped (2026-04-05 session — Page-by-Page OCR Rewrite)
 
@@ -85,7 +97,7 @@
 - Page sections kept for semantic grouping
 
 ## Up Next (Priority Order)
-1. **Gemini RECITATION workarounds** — pages 10-11 (references/acknowledgments) refused by Gemini. Options: crop splitting (send quarter-page crops), better Tesseract post-processing (detect headings/structure), or alternate model for refused pages
+1. **Hybrid OCR architecture** — Tesseract for ALL text extraction (no copyright issues), Gemini for structure understanding only (tables, figures, headings, reading order). Separates "what text" from "how structured" to eliminate RECITATION quality gaps. Design agreed, needs spec + implementation.
 2. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
 3. **Per-equation review in report** — for LaTeX docs, show rendered equation + LaTeX + description for professor verification
 4. **LaTeX .tex remediation output** — return fixed .tex source (Phase 2+)

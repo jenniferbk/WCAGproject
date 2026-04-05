@@ -3,60 +3,51 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: LaTeX support shipped, report redesign + formatting improvements next
+- **Phase**: LaTeX + OCR fixes shipped, polish and table recognition next
+- **Tests**: 835+ passing
 
-## LaTeX Accessibility Support — COMPLETE (this session)
-Full .tex/.zip LaTeX document support deployed:
+## What Was Shipped (2026-04-04/05 session)
 
-### Pipeline
-- LaTeXML converts LaTeX → HTML with MathML (subprocess, 2-step: latexml → latexmlpost)
-- BeautifulSoup parses LaTeXML HTML into DocumentModel with MathInfo
-- ziamath renders MathML → SVG for PDF and LMS-safe HTML
-- Math complexity classifier: trivial (deterministic) vs complex (Claude API)
-- Algorithm pseudocode parser: \Function/\If/\State → formatted `<pre>` blocks
+### OCR Quality Fixes
+- Column-aware sorting with full-width fences (`_sort_regions_by_column`)
+- Garbled text detection + 300 DPI retry (`_is_garbled_text`)
+- Page header/footer pattern filtering (`_is_leaked_header_footer`)
+- Paragraph deduplication with normalized + fuzzy prefix matching
+- Improved OCR prompt (formatting, anti-duplication, landscape pages)
+
+### LaTeX Accessibility Support
+- LaTeXML conversion (LaTeX → HTML with MathML, subprocess 2-step)
+- MathML → SVG rendering via ziamath (pure Python, verified 169/169)
+- MathInfo model, math complexity classifier (trivial/complex)
+- Algorithm pseudocode parser (`\Function`/`\If`/`\State` → formatted blocks)
 - TikZ diagram detection → descriptive placeholders
-- ltx_ERROR cleanup strips leaked LaTeX commands
-- Zip upload with security (path traversal, size limits)
+- ltx_ERROR cleanup (strips leaked LaTeX commands)
+- Zip upload with security validation
+- .tex/.zip accepted in web app and orchestrator
 
-### New files
-- `src/tools/latex_parser.py` (1122 lines) — LaTeXML subprocess + HTML→DocumentModel parser
-- `src/tools/math_renderer.py` — MathML/LaTeX → SVG via ziamath
-- `src/tools/math_descriptions.py` — classify trivial/complex, trivial descriptions
-- `src/prompts/math_description.md` — Claude prompt for equation descriptions
-- `tests/test_latex_parser.py` (65 tests), `tests/test_math_descriptions.py` (16 tests), `tests/test_math_renderer.py` (7 tests)
-- 5 test documents in `tests/test_docs/` (.tex files)
+### Report Redesign
+- Human-readable summary at top: "What We Did" / "What Needs Attention" / "Your Output Files"
+- Plain language grouped by impact (navigation, images, text, math)
+- WCAG technical details in collapsible `<details>` section at bottom
+- No more element IDs or WCAG codes in the faculty-facing summary
 
-### Dependencies added
-- LaTeXML (system: `apt install latexml` / `brew install latexml`)
-- ziamath (Python: pure Python MathML→SVG, ~1.3MB)
-- BeautifulSoup4 (Python: HTML parsing)
-
-### Known issues (Batch 2)
-- Algorithm pseudocode: args/conditions not fully extracted from split error spans
-- Two-column CSS grid layout causes broken rendering for scanned PDFs (Mayer)
-- OCR table recognition: Gemini returns table cells as paragraphs for some tables
-- Problem ordering in homework.tex: correct (matches source), but looks odd
-
-## OCR Quality Fixes — COMPLETE (this session, earlier)
-- Column-aware sorting with full-width fences
-- Garbled text detection + 300 DPI retry
-- Page header/footer pattern filtering
-- Paragraph deduplication (normalized + fuzzy prefix)
-- Improved OCR prompt for formatting and anti-duplication
-- 747 → 806+ tests
+### Layout
+- Dropped two-column CSS (unreliable with OCR data, single-column is better)
+- Page sections kept for semantic grouping
 
 ## Up Next (Priority Order)
-1. **Report redesign** — combined WCAG compliance + human-readable summary
-   - "What we did" / "What needs attention" / "Your outputs" at top
-   - WCAG technical details as expandable section at bottom
-   - Per-equation review for LaTeX, per-image review for all types
-   - Benefits ALL document types, not just LaTeX
-2. **Page-section layout (Approach B)** — wrap content by page with CSS column-count for scanned PDFs
-3. **Better OCR table recognition** — strengthen prompt, add post-processing detection
-4. **Visual diff QA** (Phase 2) — AI compares original page image vs rendered HTML to detect gaps
-5. **TikZ AI descriptions** — send TikZ source to Claude for diagram description (Phase 2)
-6. **LaTeX .tex remediation output** — return fixed .tex source (Phase 2, needs LaTeX3 maturity)
+1. **OCR table recognition** — Gemini returns table cells as paragraphs for some tables (Mayer TABLE 2/3/4). Improve OCR prompt + post-processing detection.
+2. **Visual diff QA** — AI compares original page image vs rendered HTML to detect gaps. Low cost (~$0.03/doc), adds ~30s. Surfaces issues in report.
+3. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
+4. **Per-equation review in report** — for LaTeX docs, show rendered equation + LaTeX + description for professor verification
+5. **LaTeX .tex remediation output** — return fixed .tex source (Phase 2+)
 
-## Test Counts
-- 806+ tests all passing (up from 704 at start of session)
-- ~95 new tests added this session
+## Key Architecture Notes
+- `src/tools/latex_parser.py` (1122 lines) — LaTeXML subprocess + HTML→DocumentModel
+- `src/tools/math_renderer.py` — ziamath MathML/LaTeX → SVG
+- `src/tools/math_descriptions.py` — classify trivial/complex, trivial descriptions
+- `src/tools/report_generator.py` — redesigned with human + technical layers
+- MathInfo on DocumentModel, math_ids on ParagraphInfo, ContentType.MATH
+- Algorithm: `format_algorithmic_block()` handles algpseudocode → `<pre class="algorithm">`
+- Known: algorithm parser incomplete (args/conditions from split error spans)
+- LaTeX test docs in `tests/test_docs/*.tex` (5 files)

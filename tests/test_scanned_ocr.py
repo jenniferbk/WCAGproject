@@ -18,6 +18,7 @@ from src.models.pipeline import ApiUsage
 from src.tools.scanned_page_ocr import (
     ScannedPageResult,
     _find_garbled_pages,
+    _find_table_captions,
     _is_garbled_text,
     _is_leaked_header_footer,
     _regions_to_model_objects,
@@ -1136,3 +1137,79 @@ class TestNormalizeForDedup:
 
     def test_lowercases(self):
         assert self._norm("HELLO") == "hello"
+
+
+class TestFindTableCaptions:
+    """Tests for detecting table captions in OCR paragraphs."""
+
+    def test_detects_TABLE_N(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="Some intro text.", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="TABLE 1", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_2", text="Cell A", style_name="Normal"),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 1
+        assert result[0]["caption_text"] == "TABLE 1"
+        assert result[0]["caption_index"] == 1
+        assert result[0]["paragraph_id"] == "ocr_p_1"
+
+    def test_detects_Table_N_colon(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="Table 2: Three Metaphors", style_name="Normal"),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 1
+        assert result[0]["caption_text"] == "Table 2: Three Metaphors"
+
+    def test_detects_roman_numeral(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE III Summary of Results", style_name="Normal"),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 1
+
+    def test_detects_table_with_period(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="Table 4. Comparison of Methods", style_name="Normal"),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 1
+
+    def test_ignores_mid_sentence_reference(self):
+        """'see Table 1 for details' should NOT trigger."""
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="As shown in Table 1, the results vary.", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="Refer to TABLE 2 for the full data.", style_name="Normal"),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 0
+
+    def test_ignores_the_table_below(self):
+        """Prose mentioning 'the table' should not trigger."""
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="The table below shows the results.", style_name="Normal"),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 0
+
+    def test_multiple_captions(self):
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="TABLE 1 First Table", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_1", text="cell a", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_2", text="cell b", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_3", text="TABLE 2 Second Table", style_name="Normal"),
+            ParagraphInfo(id="ocr_p_4", text="cell c", style_name="Normal"),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 2
+        assert result[0]["caption_index"] == 0
+        assert result[1]["caption_index"] == 3
+
+    def test_skips_headings(self):
+        """Headings with table captions ARE valid — heading_level doesn't disqualify."""
+        paras = [
+            ParagraphInfo(id="ocr_p_0", text="Table 1 Results", style_name="Heading 2", heading_level=2),
+        ]
+        result = _find_table_captions(paras)
+        assert len(result) == 1

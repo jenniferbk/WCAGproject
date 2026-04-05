@@ -989,6 +989,38 @@ def _relative_to_pt(relative: str) -> float:
     }.get(relative, 12.0)
 
 
+# Matches "TABLE 1", "Table 2:", "TABLE III.", "Table 4. Title text"
+# Must be at the START of the paragraph text (not mid-sentence).
+_TABLE_CAPTION_RE = re.compile(
+    r'^(?:TABLE|Table|table)\s+(?:\d+|[IVXLC]+)\b[\s.:]*',
+)
+
+
+def _find_table_captions(
+    paragraphs: list[ParagraphInfo],
+) -> list[dict]:
+    """Find paragraphs that are table captions (e.g., 'TABLE 1', 'Table 2:').
+
+    Only matches captions at the START of paragraph text to avoid
+    mid-sentence references like 'see Table 1 for details'.
+
+    Returns list of dicts with keys:
+        caption_text: Full paragraph text
+        caption_index: Index in the paragraphs list
+        paragraph_id: The paragraph's ID
+    """
+    results: list[dict] = []
+    for i, para in enumerate(paragraphs):
+        text = para.text.strip()
+        if _TABLE_CAPTION_RE.match(text):
+            results.append({
+                "caption_text": text,
+                "caption_index": i,
+                "paragraph_id": para.id,
+            })
+    return results
+
+
 def _tesseract_fallback(
     doc: fitz.Document,
     page_number: int,

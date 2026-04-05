@@ -22,6 +22,7 @@ from src.tools.scanned_page_ocr import (
     _collect_table_paragraphs,
     _find_garbled_pages,
     _find_table_captions,
+    _integrate_page_data,
     _is_garbled_text,
     _is_leaked_header_footer,
     _regions_to_model_objects,
@@ -1454,3 +1455,32 @@ class TestRescueMissedTables:
 
         assert len(new_paras) == 0  # all paragraphs were table cells or captions
         assert len(new_tables) == 2
+
+
+class TestIntegratePageDataWithRescue:
+    """Test that _integrate_page_data passes through to rescue when client is provided."""
+
+    def test_no_rescue_without_client(self):
+        """Without client, paragraphs with table captions stay as paragraphs."""
+        page_data_list = [{
+            "page_number": 1,
+            "page_type": "text_dominant",
+            "regions": [
+                {"type": "paragraph", "text": "TABLE 1 Test", "reading_order": 1},
+                {"type": "paragraph", "text": "Cell A", "reading_order": 2},
+            ],
+        }]
+
+        all_paragraphs: list[ParagraphInfo] = []
+        all_tables: list[TableInfo] = []
+        all_figures: list[ImageInfo] = []
+        pages_processed: list[int] = []
+
+        _integrate_page_data(
+            page_data_list, None,
+            all_paragraphs, all_tables, all_figures,
+            pages_processed, 0, 0, 0,
+            known_page_numbers=[0],
+        )
+        assert len(all_paragraphs) == 2
+        assert len(all_tables) == 0

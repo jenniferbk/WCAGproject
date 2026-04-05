@@ -255,6 +255,8 @@ def process_scanned_pages(
                 all_paragraphs, all_tables, all_figures,
                 pages_processed, para_offset, table_offset, img_offset,
                 known_page_numbers=batch_pages,
+                gemini_client=client,
+                gemini_model=model,
             )
             # Recalculate offsets from actual lists
             para_offset = len(all_paragraphs)
@@ -286,6 +288,8 @@ def process_scanned_pages(
                                 pages_processed, len(all_paragraphs),
                                 len(all_tables), len(all_figures),
                                 known_page_numbers=[single_page],
+                                gemini_client=client,
+                                gemini_model=model,
                             )
                         else:
                             # Gemini refused (likely RECITATION) — try Tesseract
@@ -380,6 +384,8 @@ def process_scanned_pages(
                                 pages_processed, len(all_paragraphs),
                                 len(all_tables), len(all_figures),
                                 known_page_numbers=[gp],
+                                gemini_client=client,
+                                gemini_model=model,
                             )
                         else:
                             # Gemini refused — Tesseract fallback
@@ -436,6 +442,8 @@ def _integrate_page_data(
     table_offset: int,
     img_offset: int,
     known_page_numbers: list[int] | None = None,
+    gemini_client=None,
+    gemini_model: str = "gemini-2.5-flash",
 ) -> None:
     """Convert page data from Gemini and append to accumulator lists.
 
@@ -443,6 +451,10 @@ def _integrate_page_data(
         known_page_numbers: 0-based page numbers we KNOW were sent to Gemini.
             Used to override Gemini's self-reported page_number which can be
             unreliable (e.g., returning 1 instead of 11 for a single-page batch).
+        gemini_client: Optional Gemini client for table rescue. When provided,
+            paragraphs that look like missed table captions are re-sent to Gemini
+            for structured re-extraction.
+        gemini_model: Gemini model name to use for table rescue.
     """
     p_off = para_offset
     t_off = table_offset
@@ -493,6 +505,31 @@ def _integrate_page_data(
         p_off += len(paras)
         t_off += len(tables)
         i_off += len(figures)
+
+    # ── Table rescue: detect missed tables and re-extract ──────────
+    if gemini_client is not None and pdf_doc is not None:
+        batch_paras = all_paragraphs[para_offset:]
+        batch_tables = all_tables[table_offset:]
+
+        rescued_paras, rescued_tables, rescue_usage = _rescue_missed_tables(
+            batch_paras,
+            batch_tables,
+            pdf_doc,
+            gemini_client,
+            gemini_model,
+        )
+
+        if len(rescued_paras) != len(batch_paras) or len(rescued_tables) != len(batch_tables):
+            # Rescue changed something — update the accumulator lists
+            del all_paragraphs[para_offset:]
+            all_paragraphs.extend(rescued_paras)
+            del all_tables[table_offset:]
+            all_tables.extend(rescued_tables)
+            logger.info(
+                "Table rescue: %d paragraphs removed, %d tables added",
+                len(batch_paras) - len(rescued_paras),
+                len(rescued_tables) - len(batch_tables),
+            )
 
 
 def _process_ocr_batch(

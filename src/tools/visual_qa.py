@@ -199,3 +199,121 @@ def compare_pages(
     except Exception as e:
         logger.warning("Visual QA comparison failed: %s", e)
         return [], None
+
+
+PAGES_PER_BATCH = 4
+
+
+def _save_page_pngs(
+    original_pngs: dict[int, bytes],
+    rendered_pngs: list[bytes],
+    output_dir: str,
+) -> Path:
+    """Save page PNGs to output directory for report thumbnail embedding."""
+    qa_dir = Path(output_dir) / "visual_qa"
+    qa_dir.mkdir(exist_ok=True)
+
+    for page_num, png_bytes in original_pngs.items():
+        (qa_dir / f"original_page_{page_num}.png").write_bytes(png_bytes)
+
+    for i, png_bytes in enumerate(rendered_pngs):
+        (qa_dir / f"rendered_page_{i}.png").write_bytes(png_bytes)
+
+    return qa_dir
+
+
+def run_visual_qa(
+    pdf_path: str,
+    html_path: str,
+    scanned_page_numbers: list[int],
+    client,
+    model: str,
+    output_dir: str,
+) -> VisualQAResult:
+    """Run visual diff QA comparing original pages against rendered output.
+
+    Args:
+        pdf_path: Path to the original PDF file.
+        html_path: Path to the companion HTML file.
+        scanned_page_numbers: 0-based page numbers that were scanned/OCR'd.
+        client: google.genai.Client instance.
+        model: Gemini model ID.
+        output_dir: Directory to save PNGs and findings JSON.
+
+    Returns:
+        VisualQAResult with findings and API usage.
+    """
+    logger.info("Visual QA: rendering %d original pages", len(scanned_page_numbers))
+
+    original_pngs = render_original_pages(pdf_path, scanned_page_numbers)
+    if not original_pngs:
+        logger.warning("Visual QA: no original pages rendered")
+        return VisualQAResult()
+
+    rendered_pngs = render_html_to_page_pngs(html_path)
+    if not rendered_pngs:
+        logger.warning("Visual QA: HTML rendering failed, skipping comparison")
+        return VisualQAResult()
+
+    logger.info(
+        "Visual QA: %d original pages, %d rendered pages",
+        len(original_pngs), len(rendered_pngs),
+    )
+
+    _save_page_pngs(original_pngs, rendered_pngs, output_dir)
+
+    all_findings: list[VisualQAFinding] = []
+    all_usage: list[ApiUsage] = []
+    sorted_pages = sorted(original_pngs.keys())
+
+    for batch_start in range(0, len(sorted_pages), PAGES_PER_BATCH):
+        batch_page_nums = sorted_pages[batch_start:batch_start + PAGES_PER_BATCH]
+        batch_pngs = {p: original_pngs[p] for p in batch_page_nums}
+
+        logger.info(
+            "Visual QA: comparing original pages %s against %d rendered pages",
+            [p + 1 for p in batch_page_nums], len(rendered_pngs),
+        )
+
+        findings, usage = compare_pages(batch_pngs, rendered_pngs, client, model)
+        all_findings.extend(findings)
+        if usage:
+            all_usage.append(usage)
+
+    findings_data = {
+        "document": Path(pdf_path).name,
+        "pages_checked": len(original_pngs),
+        "original_page_count": len(original_pngs),
+        "rendered_page_count": len(rendered_pngs),
+        "findings": [
+            {
+                "page": f.original_page + 1,
+                "rendered_page": (f.rendered_page + 1) if f.rendered_page is not None else None,
+                "type": f.finding_type,
+                "description": f.description,
+                "severity": f.severity,
+            }
+            for f in all_findings
+        ],
+    }
+
+    findings_path = Path(output_dir) / "visual_qa_findings.json"
+    findings_path.write_text(json.dumps(findings_data, indent=2), encoding="utf-8")
+    logger.info("Visual QA: saved findings to %s", findings_path)
+
+    result = VisualQAResult(
+        findings=all_findings,
+        pages_checked=len(original_pngs),
+        api_usage=all_usage,
+    )
+
+    if all_findings:
+        high_medium = [f for f in all_findings if f.severity in ("high", "medium")]
+        logger.info(
+            "Visual QA: %d findings (%d high/medium)",
+            len(all_findings), len(high_medium),
+        )
+    else:
+        logger.info("Visual QA: no content gaps detected")
+
+    return result

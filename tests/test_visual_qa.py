@@ -57,7 +57,7 @@ class TestVisualQAModels:
         assert result.pages_checked == 5
 
 
-from src.tools.visual_qa import render_original_pages, render_html_to_page_pngs, compare_pages
+from src.tools.visual_qa import render_original_pages, render_html_to_page_pngs, compare_pages, run_visual_qa
 
 
 class TestRenderOriginalPages:
@@ -164,3 +164,97 @@ class TestComparePages:
             {0: b"fake"}, [b"fake"], mock_client, "gemini-2.5-flash",
         )
         assert findings == []
+
+
+class TestRunVisualQA:
+    def test_full_flow_with_mocks(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = json.dumps({
+            "findings": [{
+                "original_page": 3,
+                "rendered_page": 2,
+                "type": "truncated_text",
+                "description": "Paragraph cut off at bottom of page",
+                "severity": "medium",
+            }]
+        })
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        with patch("src.tools.visual_qa.render_original_pages") as mock_render_orig, \
+             patch("src.tools.visual_qa.render_html_to_page_pngs") as mock_render_html:
+
+            mock_render_orig.return_value = {
+                0: b"fake_page_1",
+                1: b"fake_page_2",
+                2: b"fake_page_3",
+            }
+            mock_render_html.return_value = [b"fake_rendered_1", b"fake_rendered_2"]
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                result = run_visual_qa(
+                    pdf_path="test.pdf",
+                    html_path="test.html",
+                    scanned_page_numbers=[0, 1, 2],
+                    client=mock_client,
+                    model="gemini-2.5-flash",
+                    output_dir=tmpdir,
+                )
+
+                assert result.pages_checked == 3
+                assert len(result.findings) == 1
+                assert result.findings[0].finding_type == "truncated_text"
+
+                qa_dir = Path(tmpdir) / "visual_qa"
+                assert qa_dir.exists()
+
+    def test_skips_when_no_rendered_pages(self):
+        with patch("src.tools.visual_qa.render_original_pages") as mock_orig, \
+             patch("src.tools.visual_qa.render_html_to_page_pngs") as mock_html:
+            mock_orig.return_value = {0: b"fake"}
+            mock_html.return_value = []
+
+            mock_client = MagicMock()
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                result = run_visual_qa(
+                    pdf_path="test.pdf",
+                    html_path="test.html",
+                    scanned_page_numbers=[0],
+                    client=mock_client,
+                    model="gemini-2.5-flash",
+                    output_dir=tmpdir,
+                )
+
+            assert result.pages_checked == 0
+            assert result.findings == []
+            mock_client.models.generate_content.assert_not_called()
+
+    def test_saves_findings_json(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"findings": []}'
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        with patch("src.tools.visual_qa.render_original_pages") as mock_orig, \
+             patch("src.tools.visual_qa.render_html_to_page_pngs") as mock_html:
+            mock_orig.return_value = {0: b"fake"}
+            mock_html.return_value = [b"fake"]
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                run_visual_qa(
+                    pdf_path="test.pdf",
+                    html_path="test.html",
+                    scanned_page_numbers=[0],
+                    client=mock_client,
+                    model="gemini-2.5-flash",
+                    output_dir=tmpdir,
+                )
+
+                findings_path = Path(tmpdir) / "visual_qa_findings.json"
+                assert findings_path.exists()
+                data = json.loads(findings_path.read_text())
+                assert "findings" in data
+                assert "pages_checked" in data

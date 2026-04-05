@@ -94,3 +94,108 @@ def render_html_to_page_pngs(html_path: str) -> list[bytes]:
     finally:
         if tmp_pdf_path:
             Path(tmp_pdf_path).unlink(missing_ok=True)
+
+
+def _load_visual_qa_prompt() -> str:
+    """Load the visual QA prompt from the prompts directory."""
+    prompt_path = Path(__file__).parent.parent / "prompts" / "visual_qa.md"
+    if prompt_path.exists():
+        return prompt_path.read_text(encoding="utf-8")
+    return (
+        "Compare original scanned pages against rendered pages. "
+        "Identify educational content that is missing, truncated, or garbled. "
+        "Return JSON with 'findings' array."
+    )
+
+
+def _extract_usage(response, model: str) -> ApiUsage | None:
+    """Extract token usage from a Gemini response."""
+    try:
+        meta = response.usage_metadata
+        return ApiUsage(
+            phase="visual_qa",
+            model=model,
+            input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+            output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+        )
+    except Exception:
+        return None
+
+
+def compare_pages(
+    original_pngs: dict[int, bytes],
+    rendered_pngs: list[bytes],
+    client,
+    model: str,
+) -> tuple[list[VisualQAFinding], ApiUsage | None]:
+    """Send original and rendered page images to Gemini for content comparison.
+
+    Args:
+        original_pngs: Dict of {0-based page_number: PNG bytes} for originals.
+        rendered_pngs: List of PNG bytes for rendered pages.
+        client: google.genai.Client instance.
+        model: Gemini model ID.
+
+    Returns:
+        (list of findings, ApiUsage or None). Findings have 0-based page numbers.
+    """
+    from google.genai import types
+
+    prompt = _load_visual_qa_prompt()
+
+    content_parts: list = [prompt]
+
+    for page_num in sorted(original_pngs.keys()):
+        content_parts.append(
+            types.Part.from_bytes(data=original_pngs[page_num], mime_type="image/png")
+        )
+        content_parts.append(f"Original page {page_num + 1}")
+
+    for i, png in enumerate(rendered_pngs):
+        content_parts.append(
+            types.Part.from_bytes(data=png, mime_type="image/png")
+        )
+        content_parts.append(f"Rendered page {i + 1}")
+
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=content_parts,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1,
+            ),
+        )
+
+        resp_text = response.text
+        if resp_text is None:
+            logger.warning("Visual QA: Gemini returned empty response")
+            return [], None
+
+        try:
+            data = json.loads(resp_text)
+        except json.JSONDecodeError:
+            data = parse_json_lenient(resp_text)
+
+        usage = _extract_usage(response, model)
+
+        findings: list[VisualQAFinding] = []
+        for f in data.get("findings", []):
+            orig_page = f.get("original_page", 1) - 1
+            rend_page = f.get("rendered_page")
+            if rend_page is not None:
+                rend_page = rend_page - 1
+
+            findings.append(VisualQAFinding(
+                original_page=orig_page,
+                rendered_page=rend_page,
+                finding_type=f.get("type", "other"),
+                description=f.get("description", ""),
+                severity=f.get("severity", "medium"),
+            ))
+
+        return findings, usage
+
+    except Exception as e:
+        logger.warning("Visual QA comparison failed: %s", e)
+        return [], None

@@ -57,7 +57,7 @@ class TestVisualQAModels:
         assert result.pages_checked == 5
 
 
-from src.tools.visual_qa import render_original_pages, render_html_to_page_pngs
+from src.tools.visual_qa import render_original_pages, render_html_to_page_pngs, compare_pages
 
 
 class TestRenderOriginalPages:
@@ -99,3 +99,68 @@ class TestRenderHtmlToPagePngs:
     def test_nonexistent_html_returns_empty(self):
         result = render_html_to_page_pngs("/nonexistent/path.html")
         assert result == []
+
+
+class TestComparePages:
+    def test_returns_findings_on_issues(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = json.dumps({
+            "findings": [
+                {
+                    "original_page": 5,
+                    "rendered_page": 4,
+                    "type": "missing_table",
+                    "description": "Table 2 not found in rendered output",
+                    "severity": "high",
+                }
+            ]
+        })
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        original_pngs = {4: b"fake_png_page5"}
+        rendered_pngs = [b"fake_png_rendered1", b"fake_png_rendered2"]
+
+        findings, usage = compare_pages(
+            original_pngs, rendered_pngs, mock_client, "gemini-2.5-flash",
+        )
+
+        assert len(findings) == 1
+        assert findings[0].original_page == 4  # converted from 1-based to 0-based
+        assert findings[0].rendered_page == 3  # converted from 1-based to 0-based
+        assert findings[0].finding_type == "missing_table"
+        assert findings[0].severity == "high"
+
+    def test_returns_empty_on_no_issues(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"findings": []}'
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        findings, usage = compare_pages(
+            {0: b"fake"}, [b"fake"], mock_client, "gemini-2.5-flash",
+        )
+        assert findings == []
+
+    def test_handles_gemini_exception(self):
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = Exception("API error")
+
+        findings, usage = compare_pages(
+            {0: b"fake"}, [b"fake"], mock_client, "gemini-2.5-flash",
+        )
+        assert findings == []
+        assert usage is None
+
+    def test_handles_none_response(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        findings, usage = compare_pages(
+            {0: b"fake"}, [b"fake"], mock_client, "gemini-2.5-flash",
+        )
+        assert findings == []

@@ -462,6 +462,104 @@ def _process_single_page(
     except Exception as e:
         logger.warning("Page %d: Gemini HD failed (%s)", page_number + 1, e)
 
+    # ── Try 2.5: Gemini with higher temperature (RECITATION workaround) ──
+    logger.info("Page %d: retrying with temperature=1.2 (RECITATION workaround)", page_number + 1)
+    try:
+        time.sleep(3)
+        batch_result = _process_ocr_batch(
+            client, model, doc, [page_number], prompt, dpi=PAGE_DPI, temperature=1.2,
+        )
+        if batch_result is not None:
+            page_data_list, usage = batch_result
+            if usage:
+                result.api_usage.append(usage)
+            if page_data_list:
+                paras, tables, figures = _regions_to_model_objects(
+                    page_data_list[0], page_number=page_number,
+                    para_offset=0, table_offset=0, img_offset=0, pdf_doc=doc,
+                )
+                if paras and not _find_garbled_pages(paras):
+                    result.paragraphs = paras
+                    result.tables = tables
+                    result.figures = figures
+                    result.source = "gemini_warm"
+                    return result
+    except Exception as e:
+        logger.warning("Page %d: Gemini warm retry failed (%s)", page_number + 1, e)
+
+    # ── Try 2.75: Half-page crops (persistent RECITATION) ──────────
+    logger.info("Page %d: trying half-page crops", page_number + 1)
+    try:
+        page = doc[page_number]
+        rect = page.rect
+        mid_y = (rect.y0 + rect.y1) / 2
+
+        top_rect = fitz.Rect(rect.x0, rect.y0, rect.x1, mid_y)
+        bot_rect = fitz.Rect(rect.x0, mid_y, rect.x1, rect.y1)
+
+        combined_paras = []
+        combined_tables = []
+        combined_figures = []
+
+        for half_idx, clip_rect in enumerate([top_rect, bot_rect]):
+            pix = page.get_pixmap(dpi=PAGE_DPI, clip=clip_rect)
+            png_bytes = pix.tobytes("png")
+
+            from google.genai import types
+            content_parts = [
+                prompt,
+                types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
+                f"This is the {'top' if half_idx == 0 else 'bottom'} half of page {page_number + 1}. Extract all content.",
+            ]
+
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=content_parts,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_json_schema=OCR_PAGE_SCHEMA,
+                        temperature=1.0,
+                    ),
+                )
+                resp_text = response.text
+                if resp_text:
+                    try:
+                        data = json.loads(resp_text)
+                    except json.JSONDecodeError:
+                        data = parse_json_lenient(resp_text)
+
+                    usage_obj = _extract_usage(response, model)
+                    if usage_obj:
+                        result.api_usage.append(usage_obj)
+
+                    pages_data = data.get("pages", [])
+                    if pages_data:
+                        paras, tables, figures = _regions_to_model_objects(
+                            pages_data[0], page_number=page_number,
+                            para_offset=len(combined_paras),
+                            table_offset=len(combined_tables),
+                            img_offset=len(combined_figures),
+                            pdf_doc=doc,
+                        )
+                        combined_paras.extend(paras)
+                        combined_tables.extend(tables)
+                        combined_figures.extend(figures)
+            except Exception as crop_e:
+                logger.warning("Page %d %s half crop failed: %s",
+                             page_number + 1, "top" if half_idx == 0 else "bottom", crop_e)
+
+        if combined_paras:
+            result.paragraphs = combined_paras
+            result.tables = combined_tables
+            result.figures = combined_figures
+            result.source = "gemini_crops"
+            logger.info("Page %d: crop OCR extracted %d paragraphs, %d tables",
+                       page_number + 1, len(combined_paras), len(combined_tables))
+            return result
+    except Exception as e:
+        logger.warning("Page %d: crop splitting failed (%s)", page_number + 1, e)
+
     # ── Try 3: Tesseract fallback ───────────────────────────────
     logger.info("Page %d: falling back to Tesseract", page_number + 1)
     tess_paras = _tesseract_fallback(doc, page_number, 0)
@@ -516,6 +614,7 @@ def _process_ocr_batch(
     page_numbers: list[int],
     prompt: str,
     dpi: int = PAGE_DPI,
+    temperature: float = 0.1,
 ) -> tuple[list[dict], ApiUsage | None] | None:
     """Send a batch of page images to Gemini for OCR.
 
@@ -547,7 +646,7 @@ def _process_ocr_batch(
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_json_schema=OCR_PAGE_SCHEMA,
-                    temperature=0.1,  # low temperature for accurate transcription
+                    temperature=temperature,
                 ),
             )
             resp_text = response.text
@@ -1329,11 +1428,12 @@ def _tesseract_fallback(
     page_number: int,
     para_offset: int,
 ) -> list[ParagraphInfo]:
-    """Extract text from a scanned page using Tesseract OCR.
+    """Extract text from a scanned page using Tesseract OCR with structure detection.
 
-    Used as a fallback when Gemini refuses a page (e.g., RECITATION filter).
-    Tesseract provides raw text without semantic structure, so all text is
-    returned as plain paragraphs without heading detection or formatting.
+    Uses image_to_data() for block-level bounding boxes, enabling:
+    - Column detection via x-coordinate clustering
+    - Heading detection via ALL CAPS heuristic
+    - Proper reading order (left column -> right column)
 
     Args:
         doc: Open PyMuPDF document.
@@ -1353,41 +1453,169 @@ def _tesseract_fallback(
 
     try:
         page = doc[page_number]
-        pix = page.get_pixmap(dpi=300)  # higher DPI for better Tesseract accuracy
+        pix = page.get_pixmap(dpi=PAGE_DPI)  # Use same DPI as Gemini
         img_bytes = pix.tobytes("png")
         img = Image.open(io.BytesIO(img_bytes))
 
-        # Run Tesseract OCR
-        text = pytesseract.image_to_string(img, lang="eng")
-        if not text or not text.strip():
+        # Get structured data with bounding boxes
+        data = pytesseract.image_to_data(img, lang="eng", output_type=pytesseract.Output.DICT)
+
+        if not data or not data.get("text"):
             return []
 
-        # Split into paragraphs on double newlines
-        raw_blocks = text.split("\n\n")
-        paragraphs: list[ParagraphInfo] = []
+        # Group words into blocks with position info
+        from collections import defaultdict
+        blocks: dict[int, dict] = {}
 
-        for block in raw_blocks:
-            block_text = block.strip()
-            if not block_text:
+        for i in range(len(data["text"])):
+            text = data["text"][i].strip()
+            conf = int(data["conf"][i]) if data["conf"][i] != "-1" else 0
+            if not text or conf < 20:
                 continue
-            # Collapse single newlines within a paragraph to spaces
-            block_text = " ".join(block_text.split("\n"))
+
+            block_num = data["block_num"][i]
+            if block_num not in blocks:
+                blocks[block_num] = {
+                    "words": [],
+                    "left_positions": [],
+                    "top": data["top"][i],
+                    "heights": [],
+                }
+            blocks[block_num]["words"].append(text)
+            blocks[block_num]["left_positions"].append(data["left"][i])
+            blocks[block_num]["heights"].append(data["height"][i])
+            # Track the topmost position for vertical ordering
+            blocks[block_num]["top"] = min(blocks[block_num]["top"], data["top"][i])
+
+        if not blocks:
+            return []
+
+        # Detect columns: check if blocks cluster into left and right groups
+        page_width = pix.width
+        mid_x = page_width / 2
+
+        left_blocks = []
+        right_blocks = []
+        full_width_blocks = []
+
+        for block_num, block_data in blocks.items():
+            avg_left = sum(block_data["left_positions"]) / len(block_data["left_positions"])
+            max_left = max(block_data["left_positions"])
+            block_text = " ".join(block_data["words"])
+
             # Skip very short fragments (page numbers, artifacts)
             if len(block_text) < 3:
                 continue
 
-            # Filter leaked page headers/footers
+            # Filter leaked headers/footers
             if _is_leaked_header_footer(block_text):
-                logger.debug("Tesseract: filtered header/footer: %r", block_text[:80])
                 continue
+
+            block_info = {
+                "block_num": block_num,
+                "text": block_text,
+                "avg_left": avg_left,
+                "top": block_data["top"],
+                "avg_height": sum(block_data["heights"]) / len(block_data["heights"]),
+            }
+
+            # Classify as left column, right column, or full-width
+            if avg_left < mid_x * 0.75:
+                if max_left > mid_x:
+                    full_width_blocks.append(block_info)
+                else:
+                    left_blocks.append(block_info)
+            else:
+                right_blocks.append(block_info)
+
+        # Sort each group by vertical position
+        left_blocks.sort(key=lambda b: b["top"])
+        right_blocks.sort(key=lambda b: b["top"])
+        full_width_blocks.sort(key=lambda b: b["top"])
+
+        # Build reading order: full-width at their position, then left, then right
+        all_ordered = []
+        for b in full_width_blocks:
+            all_ordered.append(("full", b))
+        for b in left_blocks:
+            all_ordered.append(("left", b))
+        for b in right_blocks:
+            all_ordered.append(("right", b))
+
+        # Full-width blocks above columns come first, then left, then right,
+        # then full-width blocks below columns
+        top_of_columns = min(
+            (b["top"] for b in left_blocks + right_blocks),
+            default=9999,
+        )
+
+        ordered_blocks = []
+        # Full-width blocks above columns (title, abstract, etc.)
+        for col_type, b in all_ordered:
+            if col_type == "full" and b["top"] < top_of_columns:
+                ordered_blocks.append(b)
+        # Left column
+        ordered_blocks.extend(left_blocks)
+        # Right column
+        ordered_blocks.extend(right_blocks)
+        # Full-width blocks below columns (if any)
+        for col_type, b in all_ordered:
+            if col_type == "full" and b["top"] >= top_of_columns:
+                ordered_blocks.append(b)
+
+        # Detect headings and build paragraphs
+        # Average height of body text blocks
+        all_heights = [b["avg_height"] for b in ordered_blocks if len(b["text"]) > 20]
+        avg_body_height = sum(all_heights) / len(all_heights) if all_heights else 20
+
+        paragraphs: list[ParagraphInfo] = []
+
+        for block in ordered_blocks:
+            text = block["text"]
+
+            # Heading detection heuristics
+            is_heading = False
+            heading_level = 0
+
+            # ALL CAPS short text (e.g., "REFERENCES", "ACKNOWLEDGMENTS")
+            words = text.split()
+            if (len(words) <= 8
+                and text == text.upper()
+                and any(c.isalpha() for c in text)
+                and len(text) > 3):
+                is_heading = True
+                heading_level = 2
+
+            # Significantly larger font than body text
+            elif block["avg_height"] > avg_body_height * 1.3 and len(words) <= 10:
+                is_heading = True
+                heading_level = 2
+
+            font_size = 12.0
+            if is_heading:
+                font_size = 16.0
 
             paragraphs.append(ParagraphInfo(
                 id=f"ocr_p_{para_offset + len(paragraphs)}",
-                text=block_text,
-                style_name="Normal",
-                runs=[RunInfo(text=block_text, font_size_pt=12.0)],
+                text=text,
+                style_name=f"Heading {heading_level}" if is_heading else "Normal",
+                heading_level=heading_level if is_heading else None,
+                runs=[RunInfo(
+                    text=text,
+                    bold=is_heading or None,
+                    font_size_pt=font_size,
+                )],
                 page_number=page_number,
             ))
+
+        if paragraphs:
+            has_columns = bool(left_blocks) and bool(right_blocks)
+            logger.info(
+                "Tesseract enhanced: page %d -> %d paragraphs (%s), %d headings detected",
+                page_number + 1, len(paragraphs),
+                "two-column" if has_columns else "single-column",
+                sum(1 for p in paragraphs if p.heading_level),
+            )
 
         return paragraphs
 

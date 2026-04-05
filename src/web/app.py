@@ -440,15 +440,17 @@ async def upload_file(
     filename = file.filename or "unknown"
     suffix = Path(filename).suffix.lower()
 
-    if suffix not in (".docx", ".pdf", ".pptx"):
+    if suffix not in (".docx", ".pdf", ".pptx", ".tex", ".ltx", ".zip"):
         return JSONResponse(
             status_code=400,
-            content={"error": f"Unsupported file type: {suffix}. Accepts .docx, .pdf, .pptx"},
+            content={"error": f"Unsupported file type: {suffix}. Accepts .docx, .pdf, .pptx, .tex, .zip"},
         )
 
     # Read and check file size
     content = await file.read()
     max_bytes = user.max_file_size_mb * 1024 * 1024
+    if suffix == ".zip":
+        max_bytes = 50 * 1024 * 1024  # 50MB for zip uploads
     if len(content) > max_bytes:
         return JSONResponse(
             status_code=413,

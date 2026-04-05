@@ -116,6 +116,98 @@ def _is_algorithmic(text: str) -> bool:
     return False
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# TikZ detection and placeholder generation
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Patterns that indicate TikZ source code.
+_TIKZ_PATTERNS = re.compile(
+    r"\\node\b|\\draw\b|\\path\b|\\tikz\b|tikzpicture|\\begin\{tikzpicture\}"
+)
+
+# Commands that are LaTeX setup/formatting only — no content value.
+# Single-command error spans whose text matches these are silently dropped.
+_LATEX_SETUP_COMMANDS = re.compile(
+    r"^\\[A-Za-z]+\*?$"  # a single \commandName (optionally with *), nothing else
+)
+
+
+def _is_tikz_content(text: str) -> bool:
+    """Return True if *text* appears to contain TikZ drawing commands."""
+    return bool(_TIKZ_PATTERNS.search(text))
+
+
+def _tikz_placeholder(tikz_source: str) -> str:
+    """Generate a descriptive placeholder for a TikZ diagram.
+
+    Extracts semantic information (node/edge counts) from the TikZ source
+    and returns a human-readable placeholder string.
+    """
+    # Count \node entries (state machine nodes, graph nodes, etc.)
+    node_count = len(re.findall(r"\\node\b", tikz_source))
+    # Count edges / connections (\draw ... edge, -- , ->)
+    edge_count = len(re.findall(r"\\draw\b|\\path\b.*?edge\b|--\s*\(", tikz_source))
+    # Detect state machines (automata library keywords)
+    is_automaton = bool(re.search(r"\\node\s*\[.*?state", tikz_source))
+
+    if is_automaton and node_count > 0:
+        diagram_type = "finite automaton"
+        detail = f"with {node_count} state{'s' if node_count != 1 else ''}"
+        if edge_count > 0:
+            detail += f" and {edge_count} transition{'s' if edge_count != 1 else ''}"
+    elif node_count > 0 or edge_count > 0:
+        diagram_type = "diagram"
+        parts = []
+        if node_count > 0:
+            parts.append(f"{node_count} node{'s' if node_count != 1 else ''}")
+        if edge_count > 0:
+            parts.append(f"{edge_count} edge{'s' if edge_count != 1 else ''}")
+        detail = "with " + " and ".join(parts) if parts else ""
+    else:
+        diagram_type = "drawing"
+        detail = ""
+
+    desc_parts = [f"[Diagram: This {diagram_type} could not be automatically converted."]
+    if detail:
+        desc_parts.append(f"It contains a TikZ {diagram_type} {detail}.")
+    else:
+        desc_parts.append("It contains TikZ drawing commands.")
+    desc_parts.append("Please refer to the original document or provide a description.]")
+    return " ".join(desc_parts)
+
+
+def _strip_error_commands(p_tag: "Tag") -> str:
+    """Extract text from a paragraph, stripping bare LaTeX command names from
+    ltx_ERROR spans while preserving real surrounding text.
+
+    Rules:
+    - If an ltx_ERROR span contains only a single LaTeX command (``\\foo``),
+      drop it entirely.
+    - If it contains a command plus substantive text, keep the text part.
+    - Non-error children are included as-is.
+    """
+    parts: list[str] = []
+    for child in p_tag.children:
+        if isinstance(child, Tag):
+            classes = child.get("class") or []
+            if isinstance(classes, str):
+                classes = classes.split()
+            if "ltx_ERROR" in classes:
+                raw = child.get_text(strip=True)
+                # Drop pure single-command spans: \foo or \foo*
+                if _LATEX_SETUP_COMMANDS.match(raw):
+                    continue
+                # Strip command tokens, keep any real text
+                cleaned = re.sub(r"\\[A-Za-z]+\*?", "", raw).strip()
+                if cleaned:
+                    parts.append(cleaned)
+            else:
+                parts.append(child.get_text())
+        else:
+            parts.append(str(child))
+    return "".join(parts).strip()
+
+
 def _substitute_latex_symbols(text: str) -> str:
     """Replace known LaTeX math symbols with Unicode equivalents."""
     for latex, unicode_char in _LATEX_SYMBOLS:
@@ -604,10 +696,13 @@ def _parse_latexml_html(
         nonlocal p_idx
 
         # Collect all ltx_ERROR span texts from this paragraph to check for
-        # algorithmic commands before doing general paragraph processing.
+        # algorithmic or TikZ commands before doing general paragraph processing.
         error_spans_in_p = p_tag.find_all("span", class_=lambda c: c and "ltx_ERROR" in str(c))
         if error_spans_in_p:
+            # Build combined error text for detection heuristics.
             error_text = " ".join(s.get_text(strip=True) for s in error_spans_in_p)
+
+            # 1. Algorithmic pseudocode (Task 24)
             algo_html = format_algorithmic_block(error_text)
             if algo_html is not None:
                 pid = f"p_{p_idx}"
@@ -616,6 +711,34 @@ def _parse_latexml_html(
                     id=pid, text=algo_html, style_name="Normal",
                     runs=[RunInfo(text=algo_html, font_size_pt=12.0)],
                 )
+
+            # 2. TikZ diagram — collect full paragraph text (error + non-error)
+            #    to check for tikz patterns that may span multiple nodes.
+            full_para_text = p_tag.get_text()
+            if _is_tikz_content(error_text) or _is_tikz_content(full_para_text):
+                tikz_source = full_para_text
+                placeholder = _tikz_placeholder(tikz_source)
+                warnings.append(
+                    f"TikZ diagram detected (paragraph p_{p_idx}); "
+                    f"replaced with placeholder. Source: {tikz_source[:200]}"
+                )
+                pid = f"p_{p_idx}"
+                p_idx += 1
+                return ParagraphInfo(
+                    id=pid, text=placeholder, style_name="Normal",
+                    runs=[RunInfo(text=placeholder, font_size_pt=12.0)],
+                )
+
+            # 3. Otherwise — strip bare command names, keep real text
+            text = _strip_error_commands(p_tag)
+            if not text:
+                return None
+            pid = f"p_{p_idx}"
+            p_idx += 1
+            return ParagraphInfo(
+                id=pid, text=text, style_name="Normal",
+                runs=[RunInfo(text=text, font_size_pt=12.0)],
+            )
 
         inline_math_ids: list[str] = []
         text_parts: list[str] = []

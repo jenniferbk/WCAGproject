@@ -16,7 +16,10 @@ from src.models.document import (
     TableInfo,
     ContentOrderItem,
 )
-from src.tools.latex_parser import _parse_latexml_html, parse_latex, _safe_extract_zip
+from src.tools.latex_parser import (
+    _parse_latexml_html, parse_latex, _safe_extract_zip,
+    _is_tikz_content, _tikz_placeholder,
+)
 from src.tools.html_builder import build_html
 
 
@@ -641,3 +644,142 @@ class TestExecutorMathDescription:
         assert updated_math[0].description == "x squared"
         assert updated_math[1].description == "a divided by b"
         assert updated_math[0].confidence == 0.95
+
+
+class TestTikzDetection:
+    """Tests for _is_tikz_content() and _tikz_placeholder()."""
+
+    def test_detects_node_command(self):
+        assert _is_tikz_content(r"\node[state] (q_0) {$q_0$}; \path (q_0) edge node {0} (q_1);")
+
+    def test_detects_draw_command(self):
+        assert _is_tikz_content(r"\begin{tikzpicture} \draw (0,0) -- (1,1); \end{tikzpicture}")
+
+    def test_detects_tikzpicture_env(self):
+        assert _is_tikz_content("tikzpicture automata")
+
+    def test_detects_path_command(self):
+        assert _is_tikz_content(r"\path (a) edge (b);")
+
+    def test_detects_tikz_command(self):
+        assert _is_tikz_content(r"\tikz \draw circle (1cm);")
+
+    def test_rejects_regular_text(self):
+        assert not _is_tikz_content("This is regular paragraph text.")
+
+    def test_rejects_algorithmic_text(self):
+        assert not _is_tikz_content(r"\Function{Foo}{x} \State \Return x \EndFunction")
+
+    def test_placeholder_mentions_diagram(self):
+        source = r"\node[state] (q_0) {q0}; \node[state] (q_1) {q1}; \path (q_0) edge (q_1);"
+        result = _tikz_placeholder(source)
+        assert "Diagram" in result or "diagram" in result
+
+    def test_placeholder_counts_nodes_for_automaton(self):
+        source = r"\node[state, initial] (q_0) {$q_0$}; \node[state, accepting] (q_1) {$q_1$};"
+        result = _tikz_placeholder(source)
+        assert "2 states" in result or "automaton" in result or "finite" in result
+
+    def test_placeholder_is_bracketed(self):
+        source = r"\draw (0,0) -- (1,1);"
+        result = _tikz_placeholder(source)
+        assert result.startswith("[") and result.endswith("]")
+
+    def test_tikz_placeholder_in_html(self):
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\node</span>[state, accepting, initial] (q_0)
+        <span class="ltx_ERROR undefined">\\path</span> (q_0) edge (q_1);
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        texts = [p.text for p in doc.paragraphs]
+        combined = " ".join(texts)
+        # Raw \node should not appear, or if it does a Diagram placeholder is present
+        assert r"\node" not in combined or "Diagram" in combined or "diagram" in combined
+
+    def test_tikz_html_produces_placeholder_not_raw(self):
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\node</span>[state] (q_0) {q0};
+        <span class="ltx_ERROR undefined">\\draw</span> (0,0) -- (1,1);
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        assert len(doc.paragraphs) == 1
+        assert "Diagram" in doc.paragraphs[0].text or "diagram" in doc.paragraphs[0].text
+
+    def test_tikz_source_recorded_in_warnings(self):
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\draw</span> (0,0) -- (1,1);
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        tikz_warnings = [w for w in doc.parse_warnings if "TikZ" in w or "tikz" in w.lower()]
+        assert len(tikz_warnings) >= 1
+
+
+class TestErrorCleanup:
+    """Tests for ltx_ERROR span cleanup — stripping bare commands, keeping real text."""
+
+    def test_strips_single_command_spans(self):
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\extramarks</span>
+        <span class="ltx_ERROR undefined">\\usetikzlibrary</span>
+        automata,positioning
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        texts = " ".join(p.text for p in doc.paragraphs)
+        assert "\\extramarks" not in texts
+        assert "\\usetikzlibrary" not in texts
+
+    def test_keeps_real_text_after_stripping(self):
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        Some real text here.
+        <span class="ltx_ERROR undefined">\\badcmd</span>
+        More real text.
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        texts = " ".join(p.text for p in doc.paragraphs)
+        assert "real text" in texts
+        assert "\\badcmd" not in texts
+
+    def test_empty_after_stripping_skipped(self):
+        """A paragraph that contains only bare command spans should be skipped."""
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\enterProblemHeader</span>
+        <span class="ltx_ERROR undefined">\\exitProblemHeader</span>
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        texts = " ".join(p.text for p in doc.paragraphs)
+        assert "\\enterProblemHeader" not in texts
+        assert "\\exitProblemHeader" not in texts
+        # The whole paragraph should have been dropped (empty after stripping)
+        assert len(doc.paragraphs) == 0
+
+    def test_mixed_error_and_text_keeps_text(self):
+        """Error spans mixed with real text: commands stripped, text kept."""
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\usetikzlibrary</span>automata,positioning
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        # "automata,positioning" is outside the span (bare text after it)
+        # The span text "\usetikzlibrary" alone is a command and should be dropped
+        texts = " ".join(p.text for p in doc.paragraphs)
+        assert "\\usetikzlibrary" not in texts

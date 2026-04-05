@@ -160,22 +160,7 @@ def build_html(
       th { background-color: #f0f0f0; font-weight: bold; }
       img { max-width: 100%; height: auto; }
       .page {
-        column-count: 2;
-        column-gap: 2em;
-        padding: 1em 0;
-        border-bottom: 1px solid #e0e0e0;
-      }
-      .page h1, .page h2, .page h3, .page h4, .page h5, .page h6 {
-        column-span: all;
-      }
-      .page table {
-        column-span: all;
-      }
-      .page .math-block {
-        column-span: all;
-      }
-      @media (max-width: 600px) {
-        .page { column-count: 1; }
+        padding: 0.5em 0;
       }
       .sr-only {
         position: absolute;

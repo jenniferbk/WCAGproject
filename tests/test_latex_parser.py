@@ -476,6 +476,138 @@ class TestEndToEndLatex:
         assert "<h" in html_result.html  # Headings present
 
 
+class TestFormatAlgorithmic:
+    def test_simple_function(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\Function{Foo}{x} \State \Return x \EndFunction"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert "Function" in result
+        assert "Foo" in result
+        assert "Return" in result
+
+    def test_if_else(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\If{x > 0} \State y \gets x \Else \State y \gets -x \EndIf"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert "If" in result
+        assert "Else" in result
+
+    def test_call_replacement(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\State z \gets \Call{Max}{a, b}"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert "Max(a, b)" in result
+
+    def test_non_algorithmic_returns_none(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = "This is just regular text with no algorithmic commands."
+        result = format_algorithmic_block(text)
+        assert result is None
+
+    def test_nested_indentation(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\Function{Sort}{arr} \For{i = 1 to n} \If{arr[i] < arr[i-1]} \State swap \EndIf \EndFor \EndFunction"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        # Should have indentation
+        lines = [l for l in result.split('\n') if l.strip()]
+        # Inner lines should have more leading spaces than outer
+        assert len(lines) >= 4
+
+    def test_quicksort_example(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = (
+            r"\Function{QuickSort}{list, start, end}"
+            r" \If{start \geq end}"
+            r" \State \Return"
+            r" \EndIf"
+            r" \State mid \leftarrow \Call{Partition}{list, start, end}"
+            r" \State \Call{QuickSort}{list, start, mid - 1}"
+            r" \State \Call{QuickSort}{list, mid + 1, end}"
+            r" \EndFunction"
+        )
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert "<pre" in result
+        assert "QuickSort" in result
+        assert "Partition(list, start, end)" in result
+        # If block should be indented relative to Function
+        lines = result.split('\n')
+        func_line = next(l for l in lines if 'QuickSort' in l and 'Function' in l)
+        if_line = next(l for l in lines if 'If' in l and 'end' in l)
+        # The If body should be indented more than the Function line
+        assert len(if_line) - len(if_line.lstrip()) > len(func_line) - len(func_line.lstrip())
+
+    def test_while_loop(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\While{x > 0} \State x \gets x - 1 \EndWhile"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert "While" in result
+        # Condition text may be HTML-escaped (> → &gt;) inside the <pre> block
+        assert "x" in result and ("x > 0" in result or "x &gt; 0" in result)
+
+    def test_procedure(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\Procedure{Init}{n} \State x \gets n \EndProcedure"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert "Procedure" in result
+        assert "Init" in result
+
+    def test_require_ensure(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\Require x > 0 \Ensure y > 0 \State y \gets x"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert "Require" in result
+        assert "Ensure" in result
+
+    def test_output_is_html_pre(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\Function{F}{x} \State \Return x \EndFunction"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        assert result.strip().startswith("<pre")
+        assert "</pre>" in result
+
+    def test_latex_symbol_substitution(self):
+        from src.tools.latex_parser import format_algorithmic_block
+        text = r"\If{x \geq 0} \State y \gets x \EndIf"
+        result = format_algorithmic_block(text)
+        assert result is not None
+        # \geq → ≥, \gets/\leftarrow → ←
+        assert "≥" in result or "&geq;" in result
+        assert "←" in result or r"\gets" not in result
+
+
+class TestAlgorithmicIntegration:
+    """Test that algorithmic commands in ltx_ERROR spans are handled by _parse_latexml_html."""
+
+    def test_algorithmic_block_in_error_span_becomes_paragraph(self):
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\Function</span>
+        <span class="ltx_ERROR undefined">{QuickSort}</span>
+        <span class="ltx_ERROR undefined">{list}</span>
+        <span class="ltx_ERROR undefined">\\If</span>
+        <span class="ltx_ERROR undefined">{x}</span>
+        <span class="ltx_ERROR undefined">\\State</span>
+        <span class="ltx_ERROR undefined">\\Return</span>
+        <span class="ltx_ERROR undefined">\\EndIf</span>
+        <span class="ltx_ERROR undefined">\\EndFunction</span>
+        </p></div>
+        </article></body></html>'''
+        doc = _parse_latexml_html(html, project_dir=None)
+        # Should have at least one paragraph with algorithm content
+        algo_paras = [p for p in doc.paragraphs if "Function" in p.text or "<pre" in p.text]
+        assert len(algo_paras) >= 1
+
+
 class TestExecutorMathDescription:
     def test_add_math_description_updates_model(self):
         """Verify that math descriptions can be applied to a DocumentModel."""

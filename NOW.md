@@ -3,62 +3,60 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Post-launch — OCR quality fixes complete, LaTeX feature next
+- **Phase**: LaTeX support shipped, report redesign + formatting improvements next
 
-## OCR Quality Fixes — COMPLETE (this session)
-Three root causes identified and fixed for scanned PDF OCR:
+## LaTeX Accessibility Support — COMPLETE (this session)
+Full .tex/.zip LaTeX document support deployed:
 
-### Fix 1: Two-column reading order (`_sort_regions_by_column`)
-- Gemini's cross-column `reading_order` caused interleaving of left/right column text
-- New function groups by column (0=full-width, 1=left, 2=right), sorts each group, concatenates left→right
-- Full-width items positioned relative to column content boundaries
+### Pipeline
+- LaTeXML converts LaTeX → HTML with MathML (subprocess, 2-step: latexml → latexmlpost)
+- BeautifulSoup parses LaTeXML HTML into DocumentModel with MathInfo
+- ziamath renders MathML → SVG for PDF and LMS-safe HTML
+- Math complexity classifier: trivial (deterministic) vs complex (Claude API)
+- Algorithm pseudocode parser: \Function/\If/\State → formatted `<pre>` blocks
+- TikZ diagram detection → descriptive placeholders
+- ltx_ERROR cleanup strips leaked LaTeX commands
+- Zip upload with security (path traversal, size limits)
 
-### Fix 2: Garbled text detection + retry (`_is_garbled_text`, `_find_garbled_pages`)
-- Detects garbled OCR output (unusual consonant clusters, no-vowel words, non-ASCII artifacts)
-- Garbled pages retried at 300 DPI (up from 200), with Tesseract fallback
-- Threshold: 15% garbled words triggers retry
+### New files
+- `src/tools/latex_parser.py` (1122 lines) — LaTeXML subprocess + HTML→DocumentModel parser
+- `src/tools/math_renderer.py` — MathML/LaTeX → SVG via ziamath
+- `src/tools/math_descriptions.py` — classify trivial/complex, trivial descriptions
+- `src/prompts/math_description.md` — Claude prompt for equation descriptions
+- `tests/test_latex_parser.py` (65 tests), `tests/test_math_descriptions.py` (16 tests), `tests/test_math_renderer.py` (7 tests)
+- 5 test documents in `tests/test_docs/` (.tex files)
 
-### Fix 3: Page header/footer filtering (`_is_leaked_header_footer`)
-- Pattern-based post-filter for running headers/footers Gemini misclassified
-- Catches "ALL CAPS TEXT 157" and "158 AUTHOR" patterns
-- Applied to all region types (heading, paragraph, etc.), not just paragraphs
-- Also filters in Tesseract fallback path
+### Dependencies added
+- LaTeXML (system: `apt install latexml` / `brew install latexml`)
+- ziamath (Python: pure Python MathML→SVG, ~1.3MB)
+- BeautifulSoup4 (Python: HTML parsing)
 
-### Fix 4: Paragraph deduplication (`_deduplicate_ocr_paragraphs`)
-- Gemini assigns full-width content to both columns → exact duplicates after column sort
-- Exact match + normalized matching (collapse whitespace, fix hyphens, normalize dashes/quotes)
-- Fuzzy prefix matching (first 60 normalized chars) for near-duplicates across batches
+### Known issues (Batch 2)
+- Algorithm pseudocode: args/conditions not fully extracted from split error spans
+- Two-column CSS grid layout causes broken rendering for scanned PDFs (Mayer)
+- OCR table recognition: Gemini returns table cells as paragraphs for some tables
+- Problem ordering in homework.tex: correct (matches source), but looks odd
 
-### Fix 5: Two-column CSS layout in HTML builder
-- `column` field added to ParagraphInfo model
-- HTML builder groups consecutive column items into `<div class="two-column">` with CSS columns
-- Responsive: collapses to single column on narrow screens
+## OCR Quality Fixes — COMPLETE (this session, earlier)
+- Column-aware sorting with full-width fences
+- Garbled text detection + 300 DPI retry
+- Page header/footer pattern filtering
+- Paragraph deduplication (normalized + fuzzy prefix)
+- Improved OCR prompt for formatting and anti-duplication
+- 747 → 806+ tests
 
-### Fix 6: Improved OCR prompt
-- Stronger formatting detection instructions (italic abstract, block quotes, key terms)
-- Explicit anti-duplication: "Do NOT assign full-width content to both column 1 and column 2"
-- Landscape page handling note
+## Up Next (Priority Order)
+1. **Report redesign** — combined WCAG compliance + human-readable summary
+   - "What we did" / "What needs attention" / "Your outputs" at top
+   - WCAG technical details as expandable section at bottom
+   - Per-equation review for LaTeX, per-image review for all types
+   - Benefits ALL document types, not just LaTeX
+2. **Page-section layout (Approach B)** — wrap content by page with CSS column-count for scanned PDFs
+3. **Better OCR table recognition** — strengthen prompt, add post-processing detection
+4. **Visual diff QA** (Phase 2) — AI compares original page image vs rendered HTML to detect gaps
+5. **TikZ AI descriptions** — send TikZ source to Claude for diagram description (Phase 2)
+6. **LaTeX .tex remediation output** — return fixed .tex source (Phase 2, needs LaTeX3 maturity)
 
-### Mayer PDF Results (before → after)
-- Leaked headers/footers: 4 → 0
-- Garbled text: multiple lines → 0
-- Duplicate paragraphs: 22 → ~0 (with fuzzy matching)
-- Italic tags: 54 → 61 (better formatting detection)
-- Two-column layout: now rendered
-- Cost: $0.20 → $0.15
-- Time: 13.3 min → 8.9 min
-
-### Test count: 735 (up from 704)
-
-## Up Next: LaTeX / Math Accessibility
-- Research complete (see memory: `project_latex_feature.md`)
-- Pipeline: detect LaTeX → Pandoc to HTML+MathML → AI generates natural language alt text → output
-- Key tools: Pandoc (subprocess), MathJax 4 + SRE, MathCAT Python bindings
-- MathML satisfies WCAG 1.3.1; screen readers (NVDA, VoiceOver, JAWS) all support it now
-- PDF output: Formula tags with alt text (PDF/UA-1), eventually MathML associated files (PDF/UA-2)
-
-## Other Upcoming
-- End-to-end testing with real faculty documents
-- Production deployment of OCR fixes
-- Admin tooling improvements
-- Future: Mac Mini on-premises deployment for university
+## Test Counts
+- 806+ tests all passing (up from 704 at start of session)
+- ~95 new tests added this session

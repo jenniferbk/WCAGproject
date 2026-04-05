@@ -167,6 +167,58 @@ def _deduplicate_ocr_paragraphs(
     return result
 
 
+def _deduplicate_ocr_tables(
+    tables: list[TableInfo],
+) -> list[TableInfo]:
+    """Remove duplicate tables from OCR output.
+
+    Gemini sometimes extracts the same table twice (e.g., a table spanning
+    both columns gets read as two separate tables). Compares tables by their
+    normalized cell text content — if two tables share >80% of cell texts,
+    the second is dropped as a duplicate.
+    """
+    if len(tables) <= 1:
+        return tables
+
+    def _cell_texts(table: TableInfo) -> set[str]:
+        texts = set()
+        for row in table.rows:
+            for cell in row:
+                normalized = cell.text.strip().lower()
+                if normalized:
+                    texts.add(normalized)
+        return texts
+
+    result: list[TableInfo] = []
+    seen_cell_sets: list[set[str]] = []
+
+    for table in tables:
+        cells = _cell_texts(table)
+        if not cells:
+            result.append(table)
+            continue
+
+        is_dup = False
+        for seen in seen_cell_sets:
+            if not seen:
+                continue
+            overlap = len(cells & seen)
+            total = max(len(cells), len(seen))
+            if total > 0 and overlap / total >= 0.8:
+                logger.debug(
+                    "Table dedup: removed %s (%.0f%% overlap with existing table)",
+                    table.id, 100 * overlap / total,
+                )
+                is_dup = True
+                break
+
+        if not is_dup:
+            result.append(table)
+            seen_cell_sets.append(cells)
+
+    return result
+
+
 def _merge_ocr_into_model(
     doc_model: DocumentModel,
     ocr_result: ScannedPageResult,
@@ -215,8 +267,13 @@ def _merge_ocr_into_model(
         {pg: len(paras) for pg, paras in sorted(ocr_paras_by_page.items())},
     )
 
+    deduped_tables = _deduplicate_ocr_tables(list(ocr_result.tables))
+    if len(deduped_tables) < len(ocr_result.tables):
+        removed = len(ocr_result.tables) - len(deduped_tables)
+        logger.info("Table deduplication removed %d duplicate tables", removed)
+
     ocr_tables_by_page: dict[int, list[TableInfo]] = {}
-    for t in ocr_result.tables:
+    for t in deduped_tables:
         pg = t.page_number if t.page_number is not None else 0
         ocr_tables_by_page.setdefault(pg, []).append(t)
 
@@ -230,7 +287,7 @@ def _merge_ocr_into_model(
 
     # Add OCR-extracted items to the model lists
     new_paras = kept_paras + deduped_paras
-    new_tables = kept_tables + ocr_result.tables
+    new_tables = kept_tables + deduped_tables
     new_images = kept_images + ocr_result.figures
 
     # ── Rebuild content_order ────────────────────────────────────

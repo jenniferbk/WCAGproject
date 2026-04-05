@@ -35,11 +35,13 @@ DocumentModel                   # Parsed document content
 │   ├── RunInfo[]               # Text runs with formatting
 │   ├── LinkInfo[]
 │   ├── FakeHeadingSignals?
-│   └── image_ids[]
+│   ├── image_ids[]
+│   └── math_ids[]             # IDs of MathInfo objects (LaTeX only)
 ├── TableInfo[]
 │   └── CellInfo[][]
 ├── ImageInfo[]                 # image_data excluded from JSON
 ├── LinkInfo[]
+├── MathInfo[]                  # LaTeX math expressions (LaTeX documents only)
 ├── ContentOrderItem[]          # Document reading order
 ├── ContrastIssue[]
 └── DocumentStats
@@ -169,6 +171,21 @@ Heuristic signals populated by the parser. The **agent decides** whether these a
 | `bbox` | `tuple[float,float,float,float] \| None` | PDF only: bounding box (x0, y0, x1, y1) in points |
 | `page_number` | `int \| None` | PDF only: 0-based page number |
 | `column` | `int \| None` | OCR only: 0=full-width, 1=left, 2=right |
+| `math_ids` | `list[str]` | IDs of MathInfo objects in this paragraph (LaTeX only) |
+
+### MathInfo
+A mathematical expression extracted from a LaTeX document.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | `str` | `math_0`, `math_1`, ... |
+| `latex_source` | `str` | Original LaTeX source (e.g. `\frac{1}{2}`) |
+| `mathml` | `str` | MathML representation (from LaTeXML) |
+| `display` | `str` | `"block"` (displayed equation) or `"inline"` |
+| `description` | `str` | AI-generated natural language description for screen readers (empty until generated) |
+| `equation_number` | `str \| None` | Equation label/number if present (e.g. `"(1)"`) |
+| `confidence` | `float` | Parser confidence 0-1 (default 1.0) |
+| `unparsed` | `bool` | `True` if LaTeXML could not parse this expression; needs human review |
 
 ### MetadataInfo
 
@@ -207,6 +224,8 @@ Heuristic signals populated by the parser. The **agent decides** whether these a
 | `heading_count` | `int` | |
 | `images_missing_alt` | `int` | |
 | `fake_heading_candidates` | `int` | Score >= 0.5 |
+| `math_count` | `int` | Number of MathInfo objects in document |
+| `math_missing_description` | `int` | Math expressions without a natural language description |
 
 ### DocumentModel
 Top-level container. Format-agnostic.
@@ -220,6 +239,7 @@ Top-level container. Format-agnostic.
 | `tables` | `list[TableInfo]` | |
 | `images` | `list[ImageInfo]` | |
 | `links` | `list[LinkInfo]` | |
+| `math` | `list[MathInfo]` | Mathematical expressions (LaTeX documents only) |
 | `content_order` | `list[ContentOrderItem]` | Reading order |
 | `contrast_issues` | `list[ContrastIssue]` | |
 | `stats` | `DocumentStats` | |
@@ -229,7 +249,7 @@ Top-level container. Format-agnostic.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `content_type` | `ContentType` | `"paragraph"` or `"table"` |
+| `content_type` | `ContentType` | `"paragraph"`, `"table"`, or `"math"` |
 | `id` | `str` | References paragraph or table ID |
 
 ## Pipeline Flow Models (`src/models/pipeline.py`)
@@ -435,6 +455,7 @@ All IDs are sequential per-parse, stable within a single parse run:
 | `img_` | ImageInfo | `img_0`, `img_1` |
 | `tbl_` | TableInfo | `tbl_0`, `tbl_1` |
 | `link_` | LinkInfo | `link_0`, `link_1` |
+| `math_` | MathInfo | `math_0`, `math_1` |
 
 ## Web Application Models (`src/web/`)
 

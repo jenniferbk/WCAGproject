@@ -26,9 +26,11 @@ from src.models.document import (
     ContentType,
     DocumentModel,
     ImageInfo,
+    MathInfo,
     ParagraphInfo,
     TableInfo,
 )
+from src.tools.math_renderer import render_mathml_to_svg
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,7 @@ def build_html(
         image_map = {img.id: img for img in doc.images}
         table_map = {tbl.id: tbl for tbl in doc.tables}
         para_map = {p.id: p for p in doc.paragraphs}
+        math_map = {m.id: m for m in doc.math} if hasattr(doc, 'math') and doc.math else {}
 
         # Build body content in document order, grouping column content
         body_parts: list[str] = []
@@ -87,7 +90,7 @@ def build_html(
                 para = para_map.get(item.id)
                 if not para:
                     continue
-                para_html = _render_paragraph(para, image_map, embed_images, warnings)
+                para_html = _render_paragraph(para, image_map, embed_images, warnings, math_map=math_map)
                 if not para_html:
                     continue
 
@@ -126,6 +129,17 @@ def build_html(
                 if table:
                     body_parts.append(_render_table(table, warnings))
 
+            elif item.content_type == ContentType.MATH:
+                math = math_map.get(item.id)
+                if math:
+                    # Close any open column section first (math blocks are full-width)
+                    if in_column_section:
+                        body_parts.append('    </div>')
+                        body_parts.append('  </div>')
+                        in_column_section = False
+                        current_col = 0
+                    body_parts.append(_render_block_math(math))
+
         # Close any trailing column section
         if in_column_section:
             body_parts.append('    </div>')
@@ -156,6 +170,28 @@ def build_html(
       }
       @media (max-width: 600px) {
         .two-column { grid-template-columns: 1fr; }
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .math-block {
+        margin: 1em 0;
+        text-align: center;
+      }
+      .math-inline svg {
+        vertical-align: middle;
+      }
+      .eq-number {
+        float: right;
+        margin-right: 1em;
       }
 """
         style_block = default_css + ("\n" + css if css else "")
@@ -190,6 +226,7 @@ def _render_paragraph(
     image_map: dict[str, ImageInfo],
     embed_images: bool,
     warnings: list[str],
+    math_map: dict | None = None,
 ) -> str:
     """Render a paragraph as HTML."""
     # Render images in this paragraph first
@@ -213,12 +250,16 @@ def _render_paragraph(
     if not para.text.strip() and not img_html_parts:
         return ""
 
+    # Algorithm pseudocode block (already formatted as HTML by latex_parser)
+    if para.text.strip().startswith("<pre"):
+        return f"  {para.text}"
+
     # List item
     if para.is_list_item:
-        return f"  <li>{_render_inline(para)}</li>"
+        return f"  <li>{_render_inline(para, math_map=math_map)}</li>"
 
     # Regular paragraph
-    inline = _render_inline(para)
+    inline = _render_inline(para, math_map=math_map)
     parts: list[str] = []
     if img_html_parts:
         parts.extend(f"  {img}" for img in img_html_parts)
@@ -226,10 +267,22 @@ def _render_paragraph(
     return "\n".join(parts)
 
 
-def _render_inline(para: ParagraphInfo) -> str:
+def _render_inline(para: ParagraphInfo, math_map: dict | None = None) -> str:
     """Render paragraph inline content (runs with formatting)."""
     if not para.runs:
-        return _esc(para.text)
+        text = _esc(para.text)
+        # Resolve [math_N] placeholders even when there are no runs
+        if math_map and para.math_ids:
+            for mid in para.math_ids:
+                math = math_map.get(mid)
+                if math:
+                    placeholder = f"[{mid}]"
+                    escaped_placeholder = _esc(placeholder)
+                    if escaped_placeholder in text:
+                        text = text.replace(escaped_placeholder, _render_inline_math(math))
+                    elif placeholder in text:
+                        text = text.replace(placeholder, _render_inline_math(math))
+        return text
 
     parts: list[str] = []
     for run in para.runs:
@@ -268,7 +321,51 @@ def _render_inline(para: ParagraphInfo) -> str:
             joined = joined.replace(escaped_text, link_html, 1)
             return joined
 
-    return "".join(parts)
+    text = "".join(parts)
+
+    # Resolve [math_N] placeholders
+    if math_map and para.math_ids:
+        for mid in para.math_ids:
+            math = math_map.get(mid)
+            if math:
+                placeholder = f"[{mid}]"
+                escaped_placeholder = _esc(placeholder)
+                if escaped_placeholder in text:
+                    text = text.replace(escaped_placeholder, _render_inline_math(math))
+                elif placeholder in text:
+                    text = text.replace(placeholder, _render_inline_math(math))
+
+    return text
+
+
+def _render_block_math(math: MathInfo) -> str:
+    """Render a block math expression as SVG + hidden MathML."""
+    svg = render_mathml_to_svg(math.mathml)
+    desc = _esc(math.description) if math.description else _esc(math.latex_source)
+    eq_num = f'<span class="eq-number">{_esc(math.equation_number)}</span>' if math.equation_number else ""
+
+    return (
+        f'  <div class="math-block">\n'
+        f'    {eq_num}\n'
+        f'    <span role="math" aria-label="{desc}">\n'
+        f'      {svg}\n'
+        f'      <span class="sr-only">{math.mathml}</span>\n'
+        f'    </span>\n'
+        f'  </div>'
+    )
+
+
+def _render_inline_math(math: MathInfo) -> str:
+    """Render an inline math expression as SVG + hidden MathML."""
+    svg = render_mathml_to_svg(math.mathml)
+    desc = _esc(math.description) if math.description else _esc(math.latex_source)
+
+    return (
+        f'<span class="math-inline" role="math" aria-label="{desc}">'
+        f'{svg}'
+        f'<span class="sr-only">{math.mathml}</span>'
+        f'</span>'
+    )
 
 
 def _render_image(

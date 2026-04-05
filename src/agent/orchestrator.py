@@ -29,6 +29,7 @@ from src.models.pipeline import (
     RemediationStrategy,
 )
 from src.tools.docx_parser import parse_docx
+from src.tools.latex_parser import parse_latex
 from src.tools.pdf_parser import parse_pdf
 from src.tools.pptx_parser import parse_pptx
 from src.tools.report_generator import generate_report_html
@@ -332,11 +333,11 @@ def process(
         )
 
     suffix = path.suffix.lower()
-    if suffix not in (".docx", ".pptx", ".pdf"):
+    if suffix not in (".docx", ".pptx", ".pdf", ".tex", ".ltx", ".zip"):
         return RemediationResult(
             success=False,
             input_path=doc_path,
-            error=f"Unsupported format: {suffix}. Currently .docx, .pptx, and .pdf are supported.",
+            error=f"Unsupported format: {suffix}. Currently .docx, .pptx, .pdf, .tex, and .zip are supported.",
             processing_time_seconds=time.time() - start_time,
         )
 
@@ -348,6 +349,8 @@ def process(
         parse_result = parse_pptx(doc_path)
     elif suffix == ".pdf":
         parse_result = parse_pdf(doc_path)
+    elif suffix in (".tex", ".ltx", ".zip"):
+        parse_result = parse_latex(doc_path)
     else:
         parse_result = parse_docx(doc_path)
     if not parse_result.success:

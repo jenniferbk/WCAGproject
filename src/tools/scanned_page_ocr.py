@@ -42,6 +42,7 @@ MAX_RETRIES = 3
 INITIAL_BACKOFF = 30  # seconds, doubles each retry
 PAGE_DPI = 200  # render resolution for Gemini vision
 PAGE_DPI_RETRY = 300  # higher resolution for retry on garbled output
+DELAY_BETWEEN_PAGES = 5  # seconds between pages for rate limiting
 
 
 @dataclass
@@ -55,6 +56,18 @@ class ScannedPageResult:
     api_usage: list[ApiUsage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     error: str = ""
+
+
+@dataclass
+class PageOCRResult:
+    """Result of OCR processing for a single page."""
+    page_number: int
+    paragraphs: list[ParagraphInfo] = field(default_factory=list)
+    tables: list[TableInfo] = field(default_factory=list)
+    figures: list[ImageInfo] = field(default_factory=list)
+    api_usage: list[ApiUsage] = field(default_factory=list)
+    source: str = "failed"  # "gemini", "gemini_hd", "tesseract", "failed"
+    warnings: list[str] = field(default_factory=list)
 
 
 # ── Gemini structured output schema ──────────────────────────────
@@ -530,6 +543,107 @@ def _integrate_page_data(
                 len(batch_paras) - len(rescued_paras),
                 len(rescued_tables) - len(batch_tables),
             )
+
+
+def _process_single_page(
+    client,
+    model: str,
+    doc: fitz.Document,
+    page_number: int,
+    prompt: str,
+) -> PageOCRResult:
+    """Process a single scanned page through Gemini OCR with retry chain.
+
+    Tries: Gemini at 200 DPI → Gemini at 300 DPI (if garbled) → Tesseract.
+    Returns exactly one result — never duplicates content.
+    """
+    result = PageOCRResult(page_number=page_number)
+
+    # ── Try 1: Gemini at standard DPI ───────────────────────────
+    try:
+        batch_result = _process_ocr_batch(client, model, doc, [page_number], prompt, dpi=PAGE_DPI)
+
+        if batch_result is not None:
+            page_data_list, usage = batch_result
+            if usage:
+                result.api_usage.append(usage)
+
+            if page_data_list:
+                paras, tables, figures = _regions_to_model_objects(
+                    page_data_list[0],
+                    page_number=page_number,
+                    para_offset=0,
+                    table_offset=0,
+                    img_offset=0,
+                    pdf_doc=doc,
+                )
+
+                # Check for garbled output
+                if paras and not _find_garbled_pages(paras):
+                    result.paragraphs = paras
+                    result.tables = tables
+                    result.figures = figures
+                    result.source = "gemini"
+                    logger.debug("Page %d: Gemini success (%d paras, %d tables)",
+                                 page_number + 1, len(paras), len(tables))
+                    return result
+                elif paras:
+                    logger.warning("Page %d: garbled at %d DPI, retrying at %d DPI",
+                                   page_number + 1, PAGE_DPI, PAGE_DPI_RETRY)
+        else:
+            logger.warning("Page %d: Gemini returned empty (likely RECITATION)",
+                           page_number + 1)
+    except Exception as e:
+        logger.warning("Page %d: Gemini failed (%s)", page_number + 1, e)
+
+    # ── Try 2: Gemini at high DPI ───────────────────────────────
+    try:
+        time.sleep(3)
+        batch_result = _process_ocr_batch(client, model, doc, [page_number], prompt, dpi=PAGE_DPI_RETRY)
+
+        if batch_result is not None:
+            page_data_list, usage = batch_result
+            if usage:
+                result.api_usage.append(usage)
+
+            if page_data_list:
+                paras, tables, figures = _regions_to_model_objects(
+                    page_data_list[0],
+                    page_number=page_number,
+                    para_offset=0,
+                    table_offset=0,
+                    img_offset=0,
+                    pdf_doc=doc,
+                )
+
+                if paras and not _find_garbled_pages(paras):
+                    result.paragraphs = paras
+                    result.tables = tables
+                    result.figures = figures
+                    result.source = "gemini_hd"
+                    logger.debug("Page %d: Gemini HD success (%d paras, %d tables)",
+                                 page_number + 1, len(paras), len(tables))
+                    return result
+                elif paras:
+                    logger.warning("Page %d: still garbled at %d DPI", page_number + 1, PAGE_DPI_RETRY)
+        else:
+            logger.warning("Page %d: Gemini HD returned empty", page_number + 1)
+    except Exception as e:
+        logger.warning("Page %d: Gemini HD failed (%s)", page_number + 1, e)
+
+    # ── Try 3: Tesseract fallback ───────────────────────────────
+    logger.info("Page %d: falling back to Tesseract", page_number + 1)
+    tess_paras = _tesseract_fallback(doc, page_number, 0)
+    if tess_paras:
+        result.paragraphs = tess_paras
+        result.source = "tesseract"
+        logger.info("Page %d: Tesseract extracted %d paragraphs", page_number + 1, len(tess_paras))
+        return result
+
+    # ── All failed ──────────────────────────────────────────────
+    result.warnings.append(f"Page {page_number + 1}: all OCR methods failed")
+    logger.warning("Page %d: all OCR methods failed", page_number + 1)
+    return result
 
 
 def _process_ocr_batch(

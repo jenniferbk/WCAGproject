@@ -1,5 +1,6 @@
 """Tests for scanned page OCR and layout analysis."""
 
+import json
 import pytest
 
 from src.models.document import (
@@ -15,9 +16,10 @@ from src.models.document import (
     TableInfo,
 )
 from src.models.pipeline import ApiUsage
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.tools.scanned_page_ocr import (
+    PageOCRResult,
     ScannedPageResult,
     _collect_table_paragraphs,
     _find_garbled_pages,
@@ -25,6 +27,7 @@ from src.tools.scanned_page_ocr import (
     _integrate_page_data,
     _is_garbled_text,
     _is_leaked_header_footer,
+    _process_single_page,
     _regions_to_model_objects,
     _relative_to_pt,
     _rescue_missed_tables,
@@ -1626,3 +1629,93 @@ class TestRescueMultipleTablesOnSamePage:
         # The existing table PLUS the rescued table
         assert len(new_tables) == 2
         assert len(new_paras) == 0
+
+
+# ── TestProcessSinglePage ─────────────────────────────────────────
+
+
+class TestProcessSinglePage:
+    def test_gemini_success_returns_result(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = json.dumps({
+            "pages": [{
+                "page_number": 1,
+                "page_type": "text_dominant",
+                "regions": [
+                    {"type": "paragraph", "text": "Hello world.", "reading_order": 1},
+                ],
+            }]
+        })
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=5)
+
+        result = _process_single_page(
+            mock_client, "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
+        )
+
+        assert result.page_number == 0
+        assert result.source == "gemini"
+        assert len(result.paragraphs) >= 1
+        assert result.paragraphs[0].text == "Hello world."
+
+    def test_gemini_none_falls_to_tesseract(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=5)
+
+        with patch("src.tools.scanned_page_ocr._tesseract_fallback") as mock_tess:
+            mock_tess.return_value = [
+                ParagraphInfo(id="ocr_p_0", text="Tesseract text", style_name="Normal", page_number=0),
+            ]
+            result = _process_single_page(
+                mock_client, "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
+            )
+
+        assert result.source == "tesseract"
+        assert len(result.paragraphs) == 1
+
+    def test_all_fail_returns_empty(self):
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = Exception("API error")
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=5)
+
+        with patch("src.tools.scanned_page_ocr._tesseract_fallback") as mock_tess:
+            mock_tess.return_value = []
+            result = _process_single_page(
+                mock_client, "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
+            )
+
+        assert result.source == "failed"
+        assert len(result.paragraphs) == 0
+
+    def test_result_dataclass_fields(self):
+        result = PageOCRResult(page_number=3)
+        assert result.page_number == 3
+        assert result.paragraphs == []
+        assert result.tables == []
+        assert result.source == "failed"

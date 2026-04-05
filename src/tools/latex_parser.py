@@ -208,6 +208,43 @@ def _strip_error_commands(p_tag: "Tag") -> str:
     return "".join(parts).strip()
 
 
+# Patterns from \extramarks and similar page-header/footer packages
+# that leak into body text when LaTeXML can't process them.
+_EXTRAMARKS_NOISE = re.compile(
+    r"Problem \d+ continued on next page[.…]*\s*"
+    r"|Problem \d+ \(continued\)\s*"
+    r"|\\extramarks\w*\s*"
+    r"|\\enterProblemHeader\{[^}]*\}\s*"
+    r"|\\exitProblemHeader\{[^}]*\}\s*",
+)
+
+# Leaked package arguments (e.g., "automata,positioning" from \usetikzlibrary)
+_PACKAGE_ARGS_NOISE = re.compile(
+    r"^(?:automata|positioning|plain|auto|grid)[,\s]*"
+    r"(?:automata|positioning|plain|auto|grid|[,\s])*$"
+)
+
+
+def _clean_paragraph_noise(text: str) -> str:
+    """Remove leaked LaTeX noise patterns from paragraph text.
+
+    Strips \\extramarks page-continuation text, leaked package arguments,
+    and other non-content artifacts from LaTeXML error spans.
+    """
+    # Strip \extramarks noise
+    cleaned = _EXTRAMARKS_NOISE.sub("", text)
+    # Strip lines that are just package arguments
+    lines = []
+    for line in cleaned.split("\n"):
+        stripped = line.strip()
+        if stripped and not _PACKAGE_ARGS_NOISE.match(stripped):
+            lines.append(line)
+    cleaned = "\n".join(lines).strip()
+    # Collapse multiple spaces
+    cleaned = re.sub(r"  +", " ", cleaned)
+    return cleaned
+
+
 def _substitute_latex_symbols(text: str) -> str:
     """Replace known LaTeX math symbols with Unicode equivalents."""
     for latex, unicode_char in _LATEX_SYMBOLS:
@@ -729,8 +766,9 @@ def _parse_latexml_html(
                     runs=[RunInfo(text=placeholder, font_size_pt=12.0)],
                 )
 
-            # 3. Otherwise — strip bare command names, keep real text
+            # 3. Otherwise — strip bare command names and noise, keep real text
             text = _strip_error_commands(p_tag)
+            text = _clean_paragraph_noise(text)
             if not text:
                 return None
             pid = f"p_{p_idx}"
@@ -753,6 +791,7 @@ def _parse_latexml_html(
             else:
                 text_parts.append(str(child))
         text = "".join(text_parts).strip()
+        text = _clean_paragraph_noise(text)
         if not text:
             return None
         pid = f"p_{p_idx}"
@@ -767,6 +806,7 @@ def _parse_latexml_html(
         nonlocal p_idx
         level = int(h_tag.name[1]) if h_tag.name[1:].isdigit() else 2
         text = h_tag.get_text(strip=True)
+        text = _clean_paragraph_noise(text)
         if not text:
             return None
         pid = f"p_{p_idx}"

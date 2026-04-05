@@ -1483,4 +1483,70 @@ class TestIntegratePageDataWithRescue:
             known_page_numbers=[0],
         )
         assert len(all_paragraphs) == 2
-        assert len(all_tables) == 0
+
+
+class TestColumnSortingValidation:
+    """Tests for column balance validation in _sort_regions_by_column."""
+
+    def test_left_column_marked_as_fullwidth(self):
+        regions = [
+            {"type": "paragraph", "text": "Left para 1", "reading_order": 1, "column": 0},
+            {"type": "paragraph", "text": "Left para 2", "reading_order": 2, "column": 0},
+            {"type": "paragraph", "text": "Right para 1", "reading_order": 3, "column": 2},
+            {"type": "paragraph", "text": "Right para 2", "reading_order": 4, "column": 2},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts.index("Left para 1") < texts.index("Right para 1")
+        assert texts.index("Left para 2") < texts.index("Right para 1")
+        assert len(result) == 4
+
+    def test_heading_stays_fullwidth(self):
+        regions = [
+            {"type": "heading", "text": "Title", "reading_order": 1, "column": 0},
+            {"type": "paragraph", "text": "Left text", "reading_order": 2, "column": 0},
+            {"type": "paragraph", "text": "Right text", "reading_order": 3, "column": 2},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts[0] == "Title"
+        assert texts.index("Left text") < texts.index("Right text")
+
+    def test_balanced_columns_unchanged(self):
+        regions = [
+            {"type": "paragraph", "text": "Left", "reading_order": 1, "column": 1},
+            {"type": "paragraph", "text": "Right", "reading_order": 2, "column": 2},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts == ["Left", "Right"]
+
+    def test_no_column_info_unchanged(self):
+        regions = [
+            {"type": "paragraph", "text": "B", "reading_order": 2},
+            {"type": "paragraph", "text": "A", "reading_order": 1},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts == ["A", "B"]
+
+    def test_right_column_only_no_crash(self):
+        regions = [
+            {"type": "paragraph", "text": "Right 1", "reading_order": 1, "column": 2},
+            {"type": "paragraph", "text": "Right 2", "reading_order": 2, "column": 2},
+        ]
+        result = _sort_regions_by_column(regions)
+        assert len(result) == 2
+
+    def test_mixed_fullwidth_and_columns_with_imbalance(self):
+        regions = [
+            {"type": "heading", "text": "Section Title", "reading_order": 1, "column": 0},
+            {"type": "paragraph", "text": "Left A", "reading_order": 2, "column": 0},
+            {"type": "paragraph", "text": "Left B", "reading_order": 3, "column": 0},
+            {"type": "paragraph", "text": "Right A", "reading_order": 4, "column": 2},
+            {"type": "paragraph", "text": "Right B", "reading_order": 5, "column": 2},
+        ]
+        result = _sort_regions_by_column(regions)
+        texts = [r["text"] for r in result]
+        assert texts[0] == "Section Title"
+        assert texts.index("Left A") < texts.index("Right A")

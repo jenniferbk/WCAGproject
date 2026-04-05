@@ -745,8 +745,11 @@ def _sort_regions_by_column(regions: list[dict]) -> list[dict]:
     left and right columns gets interleaved.  Instead we:
 
     1. Sort all regions by ``reading_order``.
-    2. Split into segments separated by full-width "fences" (column 0).
-    3. Within each segment, group left (1) and right (2) and output
+    2. Validate column balance — if column=2 exists but no column=1,
+       reassign column=0 non-heading regions before the first column=2
+       region as column=1 (Gemini likely mislabeled the left column).
+    3. Split into segments separated by full-width "fences" (column 0).
+    4. Within each segment, group left (1) and right (2) and output
        left-then-right.
 
     Full-width items act as fences so that a page with structure
@@ -755,9 +758,56 @@ def _sort_regions_by_column(regions: list[dict]) -> list[dict]:
     """
     key = lambda r: r.get("reading_order", 0)
 
-    # Check if any column info exists
-    has_columns = any(r.get("column", 0) in (1, 2) for r in regions)
-    if not has_columns:
+    has_col1 = any(r.get("column", 0) == 1 for r in regions)
+    has_col2 = any(r.get("column", 0) == 2 for r in regions)
+
+    if not has_col1 and not has_col2:
+        return sorted(regions, key=key)
+
+    # ── Column balance validation ───────────────────────────────
+    _SKIP_TYPES = ("heading", "page_header", "page_footer")
+
+    if has_col2 and not has_col1:
+        first_col2_order = min(
+            r.get("reading_order", 0)
+            for r in regions if r.get("column", 0) == 2
+        )
+        reassigned = 0
+        for r in regions:
+            col = r.get("column", 0) or 0
+            if col == 0 and r.get("reading_order", 0) < first_col2_order:
+                if r.get("type") not in _SKIP_TYPES:
+                    r["column"] = 1
+                    reassigned += 1
+        if reassigned:
+            logger.info(
+                "Column balance: reassigned %d column=0 regions to column=1 "
+                "(had column=2 but no column=1)",
+                reassigned,
+            )
+            has_col1 = True
+
+    if has_col1 and not has_col2:
+        last_col1_order = max(
+            r.get("reading_order", 0)
+            for r in regions if r.get("column", 0) == 1
+        )
+        reassigned = 0
+        for r in regions:
+            col = r.get("column", 0) or 0
+            if col == 0 and r.get("reading_order", 0) > last_col1_order:
+                if r.get("type") not in _SKIP_TYPES:
+                    r["column"] = 2
+                    reassigned += 1
+        if reassigned:
+            logger.info(
+                "Column balance: reassigned %d column=0 regions to column=2 "
+                "(had column=1 but no column=2)",
+                reassigned,
+            )
+            has_col2 = True
+
+    if not has_col1 and not has_col2:
         return sorted(regions, key=key)
 
     # Sort by reading_order first to establish baseline order

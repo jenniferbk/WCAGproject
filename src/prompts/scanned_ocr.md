@@ -48,7 +48,13 @@ Analyze each page image and identify content regions. For each region, provide t
    - `font_size_relative`: "large" for headings/titles, "normal" for body text, "small" for footnotes/captions
    - Be precise: if only part of a region is italic, set italic=true for the whole region (a screen reader user benefits from knowing the formatting intent)
 
-6. **TABLES**: Extract all cell values. Identify header rows. Use `table_data` with `headers` (array of strings) and `rows` (array of arrays of strings).
+6. **TABLES**: Academic documents contain data tables, often with captions like "TABLE 1", "Table 2:", or "TABLE III".
+   - **Visual indicators of a table**: gridlines or borders between cells, text aligned in columns with consistent spacing, a header row (often bold or shaded), a caption above or below.
+   - **If you see a caption matching "TABLE" / "Table" followed by a number or Roman numeral**, the content immediately below it is a table. Extract it as `type: table` with `table_data`, NOT as separate paragraphs.
+   - Use `table_data` with `headers` (array of column header strings) and `rows` (array of arrays of cell strings).
+   - For multi-line cell content, join the text with spaces into a single cell string.
+   - The caption itself should be a separate `caption` region BEFORE the table region.
+   - Common mistake: extracting each table cell as a separate `paragraph` region. If you see short, aligned text blocks that form a grid pattern, they are table cells, not paragraphs.
 
 7. **FIGURES**: Provide thorough description in `figure_description` capturing content, data, labels, and meaning for alt text.
 

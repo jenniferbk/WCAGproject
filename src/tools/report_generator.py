@@ -1,21 +1,57 @@
 """Generate compliance reports from RemediationResult.
 
-Produces an HTML report designed for faculty readability:
-1. Overall status with clear pass/partial/fail grade
-2. What was fixed (grouped by category)
-3. Remaining concerns and items needing human review
-4. API cost summary
+Produces an HTML report with two layers:
+1. Human-centered summary (plain language for faculty)
+2. Technical WCAG details (collapsible, for accessibility offices)
 """
 
 from __future__ import annotations
 
 import html
 import logging
+import re
 from datetime import datetime
+from pathlib import Path
 
 from src.models.pipeline import RemediationResult, estimate_usage_cost
 
 logger = logging.getLogger(__name__)
+
+
+# ── Plain-language descriptions for action types ──────────────────
+_PLAIN_DESCRIPTIONS: dict[str, str] = {
+    "set_language": "Set the document language so screen readers pronounce words correctly.",
+    "set_title": "Added a document title so assistive technology can identify it.",
+    "set_heading_level": "Organized the document with proper headings so screen reader users can navigate between sections.",
+    "mark_header_rows": "Marked table headers so screen readers can announce column names while reading data.",
+    "set_alt_text": "Added descriptions to images so blind users understand their content.",
+    "set_decorative": "Marked decorative images so screen readers skip them instead of reading meaningless filenames.",
+    "fix_contrast": "Adjusted text colors to ensure sufficient contrast for low-vision readers.",
+    "fix_all_contrast": "Adjusted text colors to ensure sufficient contrast for low-vision readers.",
+    "set_link_text": "Improved link text so users know where links go without seeing the surrounding context.",
+    "convert_to_list": "Converted text that looks like a list into a proper list so screen readers announce it correctly.",
+    "add_math_description": "Generated natural language descriptions for mathematical equations.",
+}
+
+# ── Impact categories for grouping "What We Did" ─────────────────
+_IMPACT_CATEGORIES: dict[str, dict] = {
+    "navigation": {
+        "label": "Navigation & Structure",
+        "types": {"set_heading_level", "convert_to_list", "set_title", "set_language", "mark_header_rows"},
+    },
+    "images": {
+        "label": "Images & Media",
+        "types": {"set_alt_text", "set_decorative"},
+    },
+    "text": {
+        "label": "Text & Readability",
+        "types": {"fix_contrast", "fix_all_contrast", "set_link_text"},
+    },
+    "math": {
+        "label": "Mathematical Content",
+        "types": {"add_math_description"},
+    },
+}
 
 
 def _esc(text: str) -> str:
@@ -193,6 +229,186 @@ def _get_action_description(action) -> str:
         return f"Changed link text to \"{_esc(new_text[:80])}\""
 
     return _esc(detail) if detail else _esc(action.action_type)
+
+
+def _strip_element_ids(text: str) -> str:
+    """Remove internal element IDs like 'ocr_p_72', 'img_3', 'tbl_1' from text."""
+    # Remove patterns like "ocr_p_72", "p_12", "img_3", "tbl_0", "link_5"
+    cleaned = re.sub(r'\b(ocr_)?[a-z]+_\d+\b', '', text)
+    # Clean up leftover punctuation artifacts
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+    cleaned = re.sub(r'^\s*[,;:]\s*', '', cleaned)
+    cleaned = re.sub(r'\s*[,;:]\s*$', '', cleaned)
+    return cleaned.strip()
+
+
+def _build_what_we_did(result: RemediationResult) -> str:
+    """Build the plain-language 'What We Did' section."""
+    executed = [a for a in result.strategy.actions if a.status == "executed"]
+    if not executed:
+        return ""
+
+    # Group executed actions by impact category
+    categorized: dict[str, list] = {k: [] for k in _IMPACT_CATEGORIES}
+    uncategorized: list = []
+
+    for a in executed:
+        placed = False
+        for cat_key, cat_info in _IMPACT_CATEGORIES.items():
+            if a.action_type in cat_info["types"]:
+                categorized[cat_key].append(a)
+                placed = True
+                break
+        if not placed:
+            uncategorized.append(a)
+
+    parts = []
+    for cat_key, cat_info in _IMPACT_CATEGORIES.items():
+        actions = categorized[cat_key]
+        if not actions:
+            continue
+
+        # Deduplicate by action_type and build plain descriptions
+        type_counts: dict[str, int] = {}
+        for a in actions:
+            type_counts[a.action_type] = type_counts.get(a.action_type, 0) + 1
+
+        items_html = ""
+        for action_type, count in type_counts.items():
+            desc = _PLAIN_DESCRIPTIONS.get(action_type, action_type.replace("_", " ").title())
+            count_note = f" ({count} items)" if count > 1 else ""
+            items_html += f'<li>{_esc(desc)}{count_note}</li>\n'
+
+        parts.append(
+            f'<div class="impact-group">'
+            f'<h3>{_esc(cat_info["label"])}</h3>'
+            f'<ul>{items_html}</ul>'
+            f'</div>'
+        )
+
+    if uncategorized:
+        type_counts_unc: dict[str, int] = {}
+        for a in uncategorized:
+            type_counts_unc[a.action_type] = type_counts_unc.get(a.action_type, 0) + 1
+        items_html = ""
+        for action_type, count in type_counts_unc.items():
+            desc = _PLAIN_DESCRIPTIONS.get(action_type, action_type.replace("_", " ").title())
+            count_note = f" ({count} items)" if count > 1 else ""
+            items_html += f'<li>{_esc(desc)}{count_note}</li>\n'
+        parts.append(
+            f'<div class="impact-group">'
+            f'<h3>Other Improvements</h3>'
+            f'<ul>{items_html}</ul>'
+            f'</div>'
+        )
+
+    return "\n".join(parts)
+
+
+def _build_needs_attention(result: RemediationResult) -> str:
+    """Build the plain-language 'What Needs Your Attention' section."""
+    attention_items: list[str] = []
+    seen: set[str] = set()
+
+    # Count images without alt text from review findings
+    no_alt_count = 0
+    failed_actions = [a for a in result.strategy.actions if a.status == "failed"]
+
+    for f in result.review_findings:
+        if f.finding_type in ("failure", "needs_human_review"):
+            cleaned = _strip_element_ids(f.detail)
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+
+            # Categorize into plain language
+            detail_lower = f.detail.lower()
+            if "alt text" in detail_lower or "image description" in detail_lower or "without description" in detail_lower:
+                no_alt_count += 1
+            else:
+                attention_items.append(cleaned)
+
+    # Aggregate image issues into one item
+    if no_alt_count > 0:
+        attention_items.insert(
+            0,
+            f"We found {no_alt_count} image{'s' if no_alt_count != 1 else ''} that may need "
+            f"better descriptions. Please review them and add descriptions, or confirm "
+            f"they are decorative."
+        )
+
+    # Failed actions
+    if failed_actions:
+        fail_count = len(failed_actions)
+        attention_items.append(
+            f"{fail_count} fix{'es' if fail_count != 1 else ''} could not be applied "
+            f"automatically. See the technical details below for specifics."
+        )
+
+    # Human review items (strip IDs)
+    for item in result.items_for_human_review:
+        cleaned = _strip_element_ids(item)
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            attention_items.append(cleaned)
+
+    if not attention_items:
+        return ""
+
+    items_html = "\n".join(f'<li>{_esc(item)}</li>' for item in attention_items)
+    return f'<ul class="attention-list">{items_html}</ul>'
+
+
+def _build_output_files(result: RemediationResult) -> str:
+    """Build the 'Your Output Files' section based on what was produced."""
+    # Infer source format from input path extension
+    ext = Path(result.input_path).suffix.lower() if result.input_path else ""
+
+    items = []
+
+    if result.output_path:
+        out_name = Path(result.output_path).name
+        out_ext = Path(result.output_path).suffix.lower()
+        if out_ext == ".pdf":
+            items.append(
+                f'<li><strong>{_esc(out_name)}</strong> — '
+                f'The accessible PDF. Upload this to your LMS (Canvas, Blackboard, D2L).</li>'
+            )
+        elif out_ext == ".docx":
+            items.append(
+                f'<li><strong>{_esc(out_name)}</strong> — '
+                f'The remediated Word document with accessibility fixes applied.</li>'
+            )
+        elif out_ext == ".pptx":
+            items.append(
+                f'<li><strong>{_esc(out_name)}</strong> — '
+                f'The remediated PowerPoint with accessibility fixes applied.</li>'
+            )
+        else:
+            items.append(
+                f'<li><strong>{_esc(out_name)}</strong> — '
+                f'The remediated file with accessibility fixes applied.</li>'
+            )
+
+    if result.companion_output_path:
+        companion_name = Path(result.companion_output_path).name
+        items.append(
+            f'<li><strong>{_esc(companion_name)}</strong> — '
+            f'An accessible HTML version. Give this to students who use screen readers '
+            f'for the best experience.</li>'
+        )
+
+    if result.input_path:
+        in_name = Path(result.input_path).name
+        items.append(
+            f'<li><strong>{_esc(in_name)}</strong> (original) — '
+            f'Your original file is unchanged.</li>'
+        )
+
+    if not items:
+        return ""
+
+    return '<ul class="file-list">' + "\n".join(items) + '</ul>'
 
 
 def generate_report_html(result: RemediationResult) -> str:
@@ -393,6 +609,11 @@ def generate_report_html(result: RemediationResult) -> str:
     # ── Strategy summary ──
     strategy_summary = result.strategy.strategy_summary.strip()
 
+    # ── Human-readable sections ──
+    what_we_did_html = _build_what_we_did(result)
+    needs_attention_html = _build_needs_attention(result)
+    output_files_html = _build_output_files(result)
+
     # ── Build full HTML ──
     report_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -441,6 +662,35 @@ def generate_report_html(result: RemediationResult) -> str:
 
     .section {{ background: white; padding: 1.5rem; border-radius: 8px;
                 margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+
+    /* Human summary sections */
+    .impact-group {{ margin-bottom: 0.75rem; }}
+    .impact-group h3 {{ font-size: 0.95rem; color: #333; margin-bottom: 0.25rem; }}
+    .impact-group ul {{ padding-left: 1.5rem; margin: 0; }}
+    .impact-group li {{ padding: 0.2rem 0; font-size: 0.9rem; color: #444; }}
+
+    .attention-list {{ padding-left: 1.5rem; margin: 0; }}
+    .attention-list li {{ padding: 0.35rem 0; font-size: 0.9rem; color: #555;
+                          line-height: 1.5; }}
+
+    .file-list {{ padding-left: 0; margin: 0; list-style: none; }}
+    .file-list li {{ padding: 0.4rem 0; font-size: 0.9rem; color: #444;
+                     border-bottom: 1px solid #f0f0f0; }}
+    .file-list li:last-child {{ border-bottom: none; }}
+
+    /* Collapsible technical details */
+    .technical-details {{ background: white; border-radius: 8px; margin-bottom: 1rem;
+                          box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+    .technical-details summary {{
+      padding: 1rem 1.5rem; cursor: pointer; font-size: 1rem; font-weight: 600;
+      color: #555; list-style: none; display: flex; align-items: center; gap: 0.5rem;
+    }}
+    .technical-details summary::-webkit-details-marker {{ display: none; }}
+    .technical-details summary::before {{
+      content: "\\25B6"; font-size: 0.7rem; transition: transform 0.2s;
+    }}
+    .technical-details[open] summary::before {{ transform: rotate(90deg); }}
+    .technical-details .details-content {{ padding: 0 1.5rem 1.5rem; }}
 
     /* Issue groups */
     .issue-group {{ margin-bottom: 0.75rem; }}
@@ -501,6 +751,7 @@ def generate_report_html(result: RemediationResult) -> str:
 </head>
 <body>
 
+<!-- ═══ STATUS BANNER ═══ -->
 <div class="banner {banner_class}">
   <h1>{banner_text}</h1>
   <div class="banner-sub">{_esc(banner_sub)}</div>
@@ -512,6 +763,7 @@ def generate_report_html(result: RemediationResult) -> str:
   </div>
 </div>
 
+<!-- ═══ SUMMARY CARDS ═══ -->
 <div class="summary-grid">
   <div class="summary-card {'status-pass' if result.issues_before == 0 else 'status-partial'}">
     <div class="number">{result.issues_before}</div>
@@ -531,28 +783,38 @@ def generate_report_html(result: RemediationResult) -> str:
   </div>
 </div>
 
-{'<div class="section"><h2>Remaining Issues &amp; Review</h2>' + review_html + human_review_html + '</div>' if has_review_content else ''}
+<!-- ═══ HUMAN-CENTERED SUMMARY ═══ -->
 
-<div class="section">
-  <h2>What Was Fixed</h2>
-  {'<p class="strategy-summary">' + _esc(strategy_summary) + '</p>' if strategy_summary else ''}
-  {actions_html}
-  <p style="margin-top: 0.75rem; font-size: 0.82rem; color: #888;">
-    {len(executed)} applied{f", {len(failed)} failed" if failed else ""}{f", {len(skipped)} skipped" if skipped else ""}
-  </p>
-</div>
+{'<div class="section"><h2>What We Did</h2>' + ('<p class="strategy-summary">' + _esc(strategy_summary) + '</p>' if strategy_summary else '') + what_we_did_html + '</div>' if what_we_did_html else ''}
 
-<div class="section">
-  <h2>Original Issues</h2>
-  {pre_issues_html if pre_issues_html else '<p style="color: #16a34a; font-size: 0.9rem;">No accessibility issues found in the original document.</p>'}
-</div>
+{'<div class="section"><h2>What Needs Your Attention</h2>' + needs_attention_html + '</div>' if needs_attention_html else ''}
+
+{'<div class="section"><h2>Your Output Files</h2>' + output_files_html + '</div>' if output_files_html else ''}
 
 <div class="section" style="font-size: 0.85rem; color: #666;">
   <p>Evaluated against <strong>WCAG 2.1 Level AA</strong> as required by the DOJ Title II ADA rule for public universities (compliance deadline: April 2026).</p>
-  <p style="margin-top: 0.25rem;">Output file: <strong>{_esc(output_name)}</strong></p>
 </div>
 
-{_build_cost_section(result)}
+<!-- ═══ TECHNICAL DETAILS (collapsible) ═══ -->
+<details class="technical-details">
+  <summary>WCAG 2.1 AA Compliance Details</summary>
+  <div class="details-content">
+
+    {'<h2>Remaining Issues &amp; Review</h2>' + review_html + human_review_html if has_review_content else ''}
+
+    <h2>Actions by Category</h2>
+    {actions_html}
+    <p style="margin-top: 0.75rem; font-size: 0.82rem; color: #888;">
+      {len(executed)} applied{f", {len(failed)} failed" if failed else ""}{f", {len(skipped)} skipped" if skipped else ""}
+    </p>
+
+    <h2>Original Issues</h2>
+    {pre_issues_html if pre_issues_html else '<p style="color: #16a34a; font-size: 0.9rem;">No accessibility issues found in the original document.</p>'}
+
+    {_build_cost_section(result)}
+
+  </div>
+</details>
 
 <div class="footer">
   Generated by a11y-remediate

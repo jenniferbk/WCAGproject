@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 # ── Configuration ─────────────────────────────────────────────────
 MAX_RETRIES = 3
 INITIAL_BACKOFF = 30  # seconds, doubles each retry
-PAGE_DPI = 200  # render resolution for Gemini vision
-PAGE_DPI_RETRY = 300  # higher resolution for retry on garbled output
+PAGE_DPI = 300  # render resolution for Gemini vision (300 DPI recommended for OCR)
+PAGE_DPI_RETRY = 400  # higher resolution for retry on garbled output
 DELAY_BETWEEN_PAGES = 5  # seconds between pages for rate limiting
 
 

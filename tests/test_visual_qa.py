@@ -9,6 +9,69 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.models.pipeline import VisualQAFinding, VisualQAResult, ApiUsage
+from src.tools.report_generator import _build_visual_qa_section
+
+
+class TestBuildVisualQASection:
+    def test_returns_empty_for_no_findings(self):
+        result = _build_visual_qa_section([], "")
+        assert result == ""
+
+    def test_returns_empty_for_low_only(self):
+        findings = [
+            VisualQAFinding(
+                original_page=0, rendered_page=0,
+                finding_type="other", description="Minor", severity="low",
+            ),
+        ]
+        result = _build_visual_qa_section(findings, "")
+        assert result == ""
+
+    def test_renders_high_findings(self):
+        findings = [
+            VisualQAFinding(
+                original_page=4, rendered_page=3,
+                finding_type="missing_table",
+                description="Table 2 is missing from rendered output",
+                severity="high",
+            ),
+        ]
+        result = _build_visual_qa_section(findings, "/tmp/output")
+        assert "Visual Quality Check" in result
+        assert "Table 2 is missing" in result
+        assert "Page 5" in result  # 0-based -> 1-based display
+
+    def test_renders_medium_findings(self):
+        findings = [
+            VisualQAFinding(
+                original_page=1, rendered_page=1,
+                finding_type="truncated_text",
+                description="Paragraph appears cut off",
+                severity="medium",
+            ),
+        ]
+        result = _build_visual_qa_section(findings, "/tmp/output")
+        assert "Visual Quality Check" in result
+        assert "Paragraph appears cut off" in result
+
+    def test_summary_line(self):
+        findings = [
+            VisualQAFinding(
+                original_page=0, rendered_page=0,
+                finding_type="missing_table", description="A", severity="high",
+            ),
+            VisualQAFinding(
+                original_page=2, rendered_page=1,
+                finding_type="truncated_text", description="B", severity="medium",
+            ),
+            VisualQAFinding(
+                original_page=3, rendered_page=2,
+                finding_type="other", description="C", severity="low",
+            ),
+        ]
+        result = _build_visual_qa_section(findings, "/tmp/output")
+        # Should show 2 high/medium findings (low filtered out from display)
+        assert "2 content issue" in result
 
 
 class TestVisualQAModels:

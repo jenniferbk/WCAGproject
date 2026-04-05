@@ -13,7 +13,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from src.models.pipeline import RemediationResult, estimate_usage_cost
+from src.models.pipeline import RemediationResult, VisualQAFinding, estimate_usage_cost
 
 logger = logging.getLogger(__name__)
 
@@ -411,7 +411,85 @@ def _build_output_files(result: RemediationResult) -> str:
     return '<ul class="file-list">' + "\n".join(items) + '</ul>'
 
 
-def generate_report_html(result: RemediationResult) -> str:
+def _build_visual_qa_section(
+    findings: list[VisualQAFinding],
+    output_dir: str,
+) -> str:
+    """Build the 'Visual Quality Check' HTML section for the report.
+
+    Only shows high and medium severity findings. Returns empty string
+    if there are no high/medium findings (section is omitted from report).
+    """
+    import base64
+
+    visible = [f for f in findings if f.severity in ("high", "medium")]
+    if not visible:
+        return ""
+
+    qa_dir = Path(output_dir) / "visual_qa" if output_dir else None
+
+    by_page: dict[int, list[VisualQAFinding]] = {}
+    for f in visible:
+        by_page.setdefault(f.original_page, []).append(f)
+
+    pages_affected = len(by_page)
+    total_findings = len(visible)
+
+    html_parts = [
+        '<div class="section">',
+        '<h2>Visual Quality Check</h2>',
+        f'<p>Visual comparison found <strong>{total_findings} content {"issue" if total_findings == 1 else "issues"}</strong> '
+        f'across {pages_affected} {"page" if pages_affected == 1 else "pages"} that may need attention.</p>',
+    ]
+
+    for page_num in sorted(by_page.keys()):
+        page_findings = by_page[page_num]
+        html_parts.append('<div class="visual-qa-page" style="margin: 1.5em 0; padding: 1em; border: 1px solid #ddd; border-radius: 8px;">')
+        html_parts.append(f'<h3>Page {page_num + 1}</h3>')
+
+        html_parts.append('<div style="display: flex; gap: 1em; margin: 1em 0;">')
+
+        orig_path = qa_dir / f"original_page_{page_num}.png" if qa_dir else None
+        if orig_path and orig_path.exists():
+            orig_b64 = base64.b64encode(orig_path.read_bytes()).decode("ascii")
+            html_parts.append(
+                f'<div style="flex: 1;"><p style="font-weight: bold; margin-bottom: 0.5em;">Original</p>'
+                f'<img src="data:image/png;base64,{orig_b64}" style="max-width: 400px; border: 1px solid #ccc;" '
+                f'alt="Original page {page_num + 1}"></div>'
+            )
+
+        rendered_page = page_findings[0].rendered_page
+        if rendered_page is not None and qa_dir:
+            rend_path = qa_dir / f"rendered_page_{rendered_page}.png"
+            if rend_path.exists():
+                rend_b64 = base64.b64encode(rend_path.read_bytes()).decode("ascii")
+                html_parts.append(
+                    f'<div style="flex: 1;"><p style="font-weight: bold; margin-bottom: 0.5em;">Rendered</p>'
+                    f'<img src="data:image/png;base64,{rend_b64}" style="max-width: 400px; border: 1px solid #ccc;" '
+                    f'alt="Rendered page {rendered_page + 1}"></div>'
+                )
+
+        html_parts.append('</div>')
+
+        for f in page_findings:
+            severity_color = "#d32f2f" if f.severity == "high" else "#f57c00"
+            severity_label = f.severity.upper()
+            html_parts.append(
+                f'<p style="margin: 0.5em 0;"><span style="color: {severity_color}; font-weight: bold;">'
+                f'[{severity_label}]</span> {f.description}</p>'
+            )
+
+        html_parts.append('</div>')
+
+    html_parts.append('</div>')
+    return "\n".join(html_parts)
+
+
+def generate_report_html(
+    result: RemediationResult,
+    visual_qa_findings: list[VisualQAFinding] | None = None,
+    output_dir: str = "",
+) -> str:
     """Generate an HTML compliance report from a RemediationResult."""
     now = datetime.now().strftime("%B %d, %Y at %I:%M %p")
     input_name = result.input_path.split("/")[-1] if result.input_path else "Unknown"
@@ -614,6 +692,10 @@ def generate_report_html(result: RemediationResult) -> str:
     needs_attention_html = _build_needs_attention(result)
     output_files_html = _build_output_files(result)
 
+    visual_qa_html = ""
+    if visual_qa_findings:
+        visual_qa_html = _build_visual_qa_section(visual_qa_findings, output_dir)
+
     # ── Build full HTML ──
     report_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -786,6 +868,8 @@ def generate_report_html(result: RemediationResult) -> str:
 <!-- ═══ HUMAN-CENTERED SUMMARY ═══ -->
 
 {'<div class="section"><h2>What We Did</h2>' + ('<p class="strategy-summary">' + _esc(strategy_summary) + '</p>' if strategy_summary else '') + what_we_did_html + '</div>' if what_we_did_html else ''}
+
+{visual_qa_html}
 
 {'<div class="section"><h2>What Needs Your Attention</h2>' + needs_attention_html + '</div>' if needs_attention_html else ''}
 

@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ from src.models.document import (
     TableInfo,
     ContentOrderItem,
 )
-from src.tools.latex_parser import _parse_latexml_html
+from src.tools.latex_parser import _parse_latexml_html, parse_latex, _safe_extract_zip
 
 
 class TestMathInfo:
@@ -251,3 +252,79 @@ class TestParseLatexmlHtml:
         html = '<html lang="en"><head><title>T</title></head><body><article class="ltx_document"></article></body></html>'
         doc = _parse_latexml_html(html, project_dir=None)
         assert doc.source_format == "tex"
+
+
+class TestSafeExtractZip:
+    def test_extracts_valid_zip(self, tmp_path):
+        zip_path = tmp_path / "project.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("main.tex", r"\documentclass{article}\begin{document}Hi\end{document}")
+            zf.writestr("fig.png", b"fake png data")
+        dest = tmp_path / "extracted"
+        result = _safe_extract_zip(zip_path, dest)
+        assert result.success
+        assert (dest / "main.tex").exists()
+
+    def test_rejects_path_traversal(self, tmp_path):
+        zip_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("../escape.txt", "gotcha")
+        dest = tmp_path / "extracted"
+        result = _safe_extract_zip(zip_path, dest)
+        assert not result.success
+
+    def test_rejects_oversized(self, tmp_path):
+        zip_path = tmp_path / "big.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("big.txt", "x" * 1000)
+        dest = tmp_path / "extracted"
+        result = _safe_extract_zip(zip_path, dest, max_bytes=100)
+        assert not result.success
+
+    def test_rejects_too_many_files(self, tmp_path):
+        zip_path = tmp_path / "many.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for i in range(10):
+                zf.writestr(f"file_{i}.txt", "data")
+        dest = tmp_path / "extracted"
+        result = _safe_extract_zip(zip_path, dest, max_files=5)
+        assert not result.success
+
+
+class TestParseLatex:
+    @pytest.fixture(autouse=True)
+    def skip_if_no_latexml(self):
+        if not shutil.which("latexml"):
+            pytest.skip("LaTeXML not installed")
+
+    def test_parse_single_tex(self, tmp_path):
+        tex = tmp_path / "test.tex"
+        tex.write_text(
+            "\\documentclass{article}\n"
+            "\\begin{document}\n"
+            "\\section{Hello}\n"
+            "Let $x$ be real.\n"
+            "\\end{document}\n"
+        )
+        result = parse_latex(str(tex))
+        assert result.success
+        assert result.document is not None
+        assert result.document.source_format == "tex"
+        assert len(result.document.math) >= 1
+
+    def test_parse_zip(self, tmp_path):
+        zip_path = tmp_path / "project.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr(
+                "main.tex",
+                "\\documentclass{article}\n\\begin{document}\n$y=mx+b$\n\\end{document}\n",
+            )
+        result = parse_latex(str(zip_path))
+        assert result.success
+        assert result.document is not None
+
+    def test_parse_nonsense_file(self, tmp_path):
+        bad = tmp_path / "bad.tex"
+        bad.write_text("this is not latex at all")
+        result = parse_latex(str(bad))
+        assert isinstance(result.success, bool)

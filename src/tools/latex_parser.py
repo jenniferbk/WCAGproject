@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import subprocess
 import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from src.models.document import (
     CellInfo, ContentOrderItem, ContentType, DocumentModel, DocumentStats,
     ImageInfo, LinkInfo, MathInfo, MetadataInfo, ParagraphInfo, RunInfo, TableInfo,
 )
+from src.tools.docx_parser import ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -465,3 +468,124 @@ def _guess_mime(filename: str) -> str:
     if lower.endswith(".pdf"):
         return "application/pdf"
     return "image/png"
+
+
+MAX_ZIP_BYTES = 100 * 1024 * 1024  # 100 MB
+MAX_ZIP_FILES = 500
+
+
+@dataclass
+class ZipExtractResult:
+    """Result of a zip extraction attempt."""
+    success: bool
+    extract_dir: Path | None = None
+    error: str = ""
+
+
+def _safe_extract_zip(
+    zip_path: Path,
+    dest_dir: Path,
+    max_bytes: int = MAX_ZIP_BYTES,
+    max_files: int = MAX_ZIP_FILES,
+) -> ZipExtractResult:
+    """Extract a zip file safely, rejecting path traversal, symlinks, and oversized archives."""
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            if len(zf.namelist()) > max_files:
+                return ZipExtractResult(
+                    success=False,
+                    error=f"Zip contains too many files ({len(zf.namelist())} > {max_files})",
+                )
+            total_size = 0
+            for info in zf.infolist():
+                if ".." in info.filename or info.filename.startswith("/"):
+                    return ZipExtractResult(success=False, error=f"Invalid path in zip: {info.filename}")
+                if info.external_attr >> 28 == 0xA:
+                    return ZipExtractResult(success=False, error=f"Zip contains symlink: {info.filename}")
+                total_size += info.file_size
+            if total_size > max_bytes:
+                return ZipExtractResult(
+                    success=False,
+                    error=f"Zip too large when extracted ({total_size} bytes > {max_bytes})",
+                )
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            zf.extractall(dest_dir)
+            return ZipExtractResult(success=True, extract_dir=dest_dir)
+    except zipfile.BadZipFile:
+        return ZipExtractResult(success=False, error="Invalid zip file")
+    except Exception as e:
+        return ZipExtractResult(success=False, error=f"Zip extraction failed: {e}")
+
+
+def parse_latex(filepath: str | Path) -> ParseResult:
+    """Parse a .tex or .zip LaTeX project into a DocumentModel."""
+    filepath = Path(filepath)
+    if not filepath.exists():
+        return ParseResult(success=False, error=f"File not found: {filepath}")
+
+    suffix = filepath.suffix.lower()
+    cleanup_dir: Path | None = None
+
+    try:
+        if suffix == ".zip":
+            tmp = Path(tempfile.mkdtemp(prefix="latex_"))
+            cleanup_dir = tmp
+            extract_result = _safe_extract_zip(filepath, tmp)
+            if not extract_result.success:
+                return ParseResult(success=False, error=extract_result.error)
+            project_dir = tmp
+            main_tex = _find_main_tex(project_dir)
+            if not main_tex:
+                return ParseResult(
+                    success=False,
+                    error="Couldn't find main LaTeX file in the upload. No file contains \\documentclass.",
+                )
+        elif suffix in (".tex", ".ltx"):
+            main_tex = filepath
+            project_dir = filepath.parent
+        else:
+            return ParseResult(
+                success=False,
+                error=f"Unsupported file type: {suffix}. Accepts .tex, .ltx, or .zip",
+            )
+
+        latexml_result = _run_latexml(main_tex, project_dir)
+        if not latexml_result.success:
+            return ParseResult(
+                success=False,
+                error=latexml_result.error,
+                warnings=latexml_result.warnings,
+            )
+
+        doc_model = _parse_latexml_html(
+            latexml_result.html,
+            project_dir=project_dir,
+            source_path=str(filepath),
+        )
+
+        all_warnings = list(doc_model.parse_warnings) + latexml_result.warnings
+        if latexml_result.error_count > 0:
+            all_warnings.append(
+                f"LaTeXML: {latexml_result.error_count} error(s), "
+                f"{latexml_result.unparsed_math_count} unparsed math expression(s)"
+            )
+
+        doc_model = DocumentModel(
+            source_format=doc_model.source_format,
+            source_path=doc_model.source_path,
+            metadata=doc_model.metadata,
+            paragraphs=doc_model.paragraphs,
+            tables=doc_model.tables,
+            images=doc_model.images,
+            math=doc_model.math,
+            links=doc_model.links,
+            content_order=doc_model.content_order,
+            stats=doc_model.stats,
+            parse_warnings=all_warnings,
+        )
+
+        return ParseResult(success=True, document=doc_model, warnings=all_warnings)
+
+    finally:
+        if cleanup_dir and cleanup_dir.exists():
+            shutil.rmtree(cleanup_dir, ignore_errors=True)

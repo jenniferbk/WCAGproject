@@ -15,6 +15,8 @@ from src.models.document import (
     TableInfo,
 )
 from src.models.pipeline import ApiUsage
+from unittest.mock import MagicMock
+
 from src.tools.scanned_page_ocr import (
     ScannedPageResult,
     _collect_table_paragraphs,
@@ -24,6 +26,7 @@ from src.tools.scanned_page_ocr import (
     _is_leaked_header_footer,
     _regions_to_model_objects,
     _relative_to_pt,
+    _rescue_missed_tables,
     _sort_regions_by_column,
 )
 
@@ -1275,3 +1278,179 @@ class TestCollectTableParagraphs:
         ]
         indices = _collect_table_paragraphs(paras, caption_index=1)
         assert indices == []
+
+
+class TestRescueMissedTables:
+    """Tests for the full table rescue pipeline."""
+
+    def _make_paras(self, texts: list[str]) -> list[ParagraphInfo]:
+        """Helper to build paragraph lists."""
+        paras = []
+        for i, text in enumerate(texts):
+            paras.append(ParagraphInfo(
+                id=f"ocr_p_{i}",
+                text=text,
+                style_name="Normal",
+                page_number=0,
+            ))
+        return paras
+
+    def test_rescues_table_and_replaces_paragraphs(self):
+        paras = self._make_paras([
+            "Introduction text.",
+            "TABLE 1 Three Metaphors of Learning",
+            "Response Strengthening",
+            "Knowledge Acquisition",
+            "Knowledge Construction",
+            "Following paragraph.",
+        ])
+        tables: list[TableInfo] = []
+
+        # Mock Gemini to return structured table data
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"headers": ["Metaphor", "Description"], "rows": [["Response Strengthening", "Learning as..."], ["Knowledge Acquisition", "Learning as..."], ["Knowledge Construction", "Learning as..."]]}'
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        # Mock PDF doc with one page
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=1)
+
+        new_paras, new_tables, usage = _rescue_missed_tables(
+            paras, tables, mock_doc, mock_client, "gemini-2.5-flash",
+        )
+
+        # Caption + 3 cell paragraphs should be removed
+        assert len(new_paras) == 2  # "Introduction text." and "Following paragraph."
+        assert new_paras[0].text == "Introduction text."
+        assert new_paras[1].text == "Following paragraph."
+
+        # One table should be created
+        assert len(new_tables) == 1
+        tbl = new_tables[0]
+        assert tbl.header_row_count == 1
+        assert tbl.row_count == 4  # 1 header + 3 data
+        assert tbl.col_count == 2
+
+    def test_skips_when_table_already_exists(self):
+        """If a table already exists on the same page, don't re-send."""
+        paras = self._make_paras([
+            "TABLE 1 Already Extracted",
+            "Cell A",
+        ])
+        existing_table = TableInfo(
+            id="ocr_tbl_0",
+            rows=[[CellInfo(text="A", paragraphs=["A"])]],
+            header_row_count=1,
+            row_count=1,
+            col_count=1,
+            page_number=0,
+        )
+        tables = [existing_table]
+
+        mock_client = MagicMock()
+        mock_doc = MagicMock()
+        mock_doc.__len__ = MagicMock(return_value=1)
+
+        new_paras, new_tables, usage = _rescue_missed_tables(
+            paras, tables, mock_doc, mock_client, "gemini-2.5-flash",
+        )
+
+        # Nothing should change — the table already exists on this page
+        mock_client.models.generate_content.assert_not_called()
+        assert len(new_tables) == 1
+
+    def test_handles_gemini_failure(self):
+        """If Gemini returns empty table, leave paragraphs as-is."""
+        paras = self._make_paras([
+            "TABLE 1 Broken Table",
+            "Cell A",
+            "Cell B",
+        ])
+        tables: list[TableInfo] = []
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"headers": [], "rows": []}'
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=1)
+
+        new_paras, new_tables, usage = _rescue_missed_tables(
+            paras, tables, mock_doc, mock_client, "gemini-2.5-flash",
+        )
+
+        # Paragraphs should be unchanged
+        assert len(new_paras) == 3
+        assert len(new_tables) == 0
+
+    def test_handles_gemini_exception(self):
+        """If Gemini throws an exception, leave paragraphs as-is."""
+        paras = self._make_paras([
+            "TABLE 1 Error Table",
+            "Cell A",
+        ])
+        tables: list[TableInfo] = []
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = Exception("API error")
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=1)
+
+        new_paras, new_tables, usage = _rescue_missed_tables(
+            paras, tables, mock_doc, mock_client, "gemini-2.5-flash",
+        )
+
+        assert len(new_paras) == 2
+        assert len(new_tables) == 0
+
+    def test_multiple_tables_rescued(self):
+        paras = self._make_paras([
+            "TABLE 1 First",
+            "A1",
+            "B1",
+            "TABLE 2 Second",
+            "A2",
+            "B2",
+        ])
+        tables: list[TableInfo] = []
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"headers": ["Col"], "rows": [["Val"]]}'
+        mock_response.usage_metadata = None
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_doc = MagicMock()
+        mock_page = MagicMock()
+        mock_pix = MagicMock()
+        mock_pix.tobytes.return_value = b"fake_png"
+        mock_page.get_pixmap.return_value = mock_pix
+        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+        mock_doc.__len__ = MagicMock(return_value=1)
+
+        new_paras, new_tables, usage = _rescue_missed_tables(
+            paras, tables, mock_doc, mock_client, "gemini-2.5-flash",
+        )
+
+        assert len(new_paras) == 0  # all paragraphs were table cells or captions
+        assert len(new_tables) == 2

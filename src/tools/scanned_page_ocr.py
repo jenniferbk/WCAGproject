@@ -144,6 +144,17 @@ def _load_prompt() -> str:
     )
 
 
+def _load_table_rescue_prompt() -> str:
+    """Load the table rescue prompt from the prompts directory."""
+    prompt_path = Path(__file__).parent.parent / "prompts" / "table_rescue.md"
+    if prompt_path.exists():
+        return prompt_path.read_text(encoding="utf-8")
+    return (
+        "Extract the table with caption '{caption}' from this page image. "
+        "Return JSON with 'headers' (array of strings) and 'rows' (array of arrays of strings)."
+    )
+
+
 def process_scanned_pages(
     pdf_path: str,
     scanned_page_numbers: list[int],
@@ -1025,6 +1036,9 @@ def _find_table_captions(
 _MAX_TABLE_CELL_CHARS = 200
 
 
+_SENTENCE_ENDING_RE = re.compile(r'^.{10,}\.\s*$')
+
+
 def _collect_table_paragraphs(
     paragraphs: list[ParagraphInfo],
     caption_index: int,
@@ -1035,7 +1049,8 @@ def _collect_table_paragraphs(
     hitting a stop signal:
       - Another table caption
       - A heading (heading_level > 0)
-      - A long prose paragraph (> 300 chars)
+      - A long prose paragraph (> 200 chars)
+      - A sentence-like paragraph (ends with a period, >= 10 chars, >= 2 words)
       - End of list
 
     Returns list of paragraph indices (not including the caption itself).
@@ -1052,13 +1067,208 @@ def _collect_table_paragraphs(
         if _TABLE_CAPTION_RE.match(para.text.strip()):
             break
 
+        text = para.text.strip()
+
         # Stop at long prose (unlikely to be a table cell)
-        if len(para.text.strip()) > _MAX_TABLE_CELL_CHARS:
+        if len(text) > _MAX_TABLE_CELL_CHARS:
+            break
+
+        # Stop at sentence-like paragraphs (ends with period, multiple words):
+        # these are body prose accidentally collected after a table, not cells.
+        if _SENTENCE_ENDING_RE.match(text) and len(text.split()) >= 2:
             break
 
         indices.append(i)
 
     return indices
+
+
+def _rescue_table_from_page(
+    page_image_png: bytes,
+    caption: str,
+    client,
+    model: str,
+) -> tuple[TableInfo | None, ApiUsage | None]:
+    """Re-send a page image to Gemini with a focused table extraction prompt.
+
+    Args:
+        page_image_png: PNG bytes of the page image.
+        caption: The table caption text (e.g., "TABLE 1 Three Metaphors").
+        client: google.genai.Client instance.
+        model: Gemini model ID.
+
+    Returns:
+        (TableInfo or None, ApiUsage or None). None TableInfo if extraction fails.
+    """
+    from google.genai import types
+
+    prompt_template = _load_table_rescue_prompt()
+    prompt = prompt_template.replace("{caption}", caption)
+
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=page_image_png, mime_type="image/png"),
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1,
+            ),
+        )
+
+        resp_text = response.text
+        if resp_text is None:
+            logger.warning("Table rescue: Gemini returned empty for caption %r", caption)
+            return None, None
+
+        try:
+            data = json.loads(resp_text)
+        except json.JSONDecodeError:
+            data = parse_json_lenient(resp_text)
+
+        usage = _extract_usage(response, model)
+
+        headers = data.get("headers", [])
+        rows = data.get("rows", [])
+
+        if not headers and not rows:
+            logger.info("Table rescue: no data extracted for caption %r", caption)
+            return None, usage
+
+        # Build TableInfo
+        table_rows: list[list[CellInfo]] = []
+        if headers:
+            table_rows.append([CellInfo(text=h, paragraphs=[h]) for h in headers])
+        for row_cells in rows:
+            table_rows.append([CellInfo(text=c, paragraphs=[c]) for c in row_cells])
+
+        col_count = max((len(r) for r in table_rows), default=0)
+
+        table = TableInfo(
+            id="",  # ID assigned by caller
+            rows=table_rows,
+            header_row_count=1 if headers else 0,
+            has_header_style=bool(headers),
+            row_count=len(table_rows),
+            col_count=col_count,
+        )
+        return table, usage
+
+    except Exception as e:
+        logger.warning("Table rescue failed for caption %r: %s", caption, e)
+        return None, None
+
+
+def _rescue_missed_tables(
+    paragraphs: list[ParagraphInfo],
+    tables: list[TableInfo],
+    pdf_doc: fitz.Document,
+    client,
+    model: str,
+) -> tuple[list[ParagraphInfo], list[TableInfo], list[ApiUsage]]:
+    """Detect table captions in OCR paragraphs and re-extract missed tables.
+
+    Scans paragraphs for table caption patterns (e.g., "TABLE 1"). For each
+    caption found, checks whether a corresponding table already exists on
+    that page. If not, re-sends the page image to Gemini with a focused
+    extraction prompt.
+
+    Args:
+        paragraphs: OCR-extracted paragraphs.
+        tables: OCR-extracted tables.
+        pdf_doc: PyMuPDF document for rendering page images.
+        client: google.genai.Client instance.
+        model: Gemini model ID.
+
+    Returns:
+        (updated_paragraphs, updated_tables, api_usage_list)
+    """
+    captions = _find_table_captions(paragraphs)
+    if not captions:
+        return paragraphs, tables, []
+
+    # Build set of pages that already have tables (from initial extraction only)
+    pages_with_tables: set[int | None] = {t.page_number for t in tables}
+
+    # Track which paragraph indices to remove
+    indices_to_remove: set[int] = set()
+    new_tables: list[TableInfo] = list(tables)
+    all_usage: list[ApiUsage] = []
+    table_id_offset = len(tables)
+
+    for cap in captions:
+        caption_idx = cap["caption_index"]
+        caption_text = cap["caption_text"]
+        caption_para = paragraphs[caption_idx]
+        page_num = caption_para.page_number
+
+        # Collect the paragraphs that likely belong to this table
+        cell_indices = _collect_table_paragraphs(paragraphs, caption_idx)
+
+        if not cell_indices:
+            # No cell paragraphs found — might already be extracted as a table
+            continue
+
+        # Check if this page already has a table (likely already extracted)
+        if page_num in pages_with_tables:
+            logger.debug(
+                "Table rescue: page %s already has a table, skipping caption %r",
+                page_num, caption_text,
+            )
+            continue
+
+        # Render page image for Gemini
+        if page_num is None or page_num < 0 or page_num >= len(pdf_doc):
+            logger.warning("Table rescue: invalid page number %s for caption %r", page_num, caption_text)
+            continue
+
+        page = pdf_doc[page_num]
+        pix = page.get_pixmap(dpi=PAGE_DPI)
+        page_png = pix.tobytes("png")
+
+        logger.info(
+            "Table rescue: re-sending page %d for caption %r (%d candidate cell paragraphs)",
+            page_num + 1, caption_text, len(cell_indices),
+        )
+
+        table, usage = _rescue_table_from_page(page_png, caption_text, client, model)
+        if usage:
+            all_usage.append(usage)
+
+        if table is None:
+            # Extraction failed — leave paragraphs as-is
+            logger.info("Table rescue: extraction failed for %r, keeping paragraphs", caption_text)
+            continue
+
+        # Assign ID and page number
+        table = table.model_copy(update={
+            "id": f"ocr_tbl_{table_id_offset}",
+            "page_number": page_num,
+        })
+        table_id_offset += 1
+
+        # Mark caption + cell paragraphs for removal
+        indices_to_remove.add(caption_idx)
+        indices_to_remove.update(cell_indices)
+
+        new_tables.append(table)
+
+        logger.info(
+            "Table rescue: extracted %r → %d rows x %d cols (id=%s)",
+            caption_text, table.row_count, table.col_count, table.id,
+        )
+
+    # Build filtered paragraph list
+    if indices_to_remove:
+        new_paragraphs = [
+            p for i, p in enumerate(paragraphs) if i not in indices_to_remove
+        ]
+    else:
+        new_paragraphs = paragraphs
+
+    return new_paragraphs, new_tables, all_usage
 
 
 def _tesseract_fallback(

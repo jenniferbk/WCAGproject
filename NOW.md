@@ -4,7 +4,19 @@
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
 - **Phase**: LaTeX + OCR fixes shipped, polish and table recognition next
-- **Tests**: 891 passing
+- **Tests**: 899 passing
+
+## What Was Shipped (2026-04-05 session — Page-by-Page OCR Rewrite)
+
+### Page-by-Page OCR Pipeline
+- Rewrote `process_scanned_pages()` from 260-line batch spaghetti to clean per-page pipeline
+- New `_process_single_page()`: Gemini 200 DPI → Gemini 300 DPI (if garbled) → Tesseract fallback
+- New `_stitch_page_results()`: merges per-page results with sequential IDs
+- Each page gets exactly ONE result — no duplication from retries
+- Table rescue runs once on the stitched result
+- Mayer validation: abstract duplication FIXED (1 occurrence, was 2), 4 tables rendered (was 2)
+- 899 tests passing
+- Remaining 3 findings are Gemini RECITATION refusals on copyrighted pages 10-11
 
 ## What Was Shipped (2026-04-05 session — OCR Quality Fixes)
 
@@ -73,7 +85,7 @@
 - Page sections kept for semantic grouping
 
 ## Up Next (Priority Order)
-1. **Gemini RECITATION workarounds** — pages 10-11 (references/acknowledgments) refused by Gemini; improve Tesseract fallback quality or use alternate prompt strategies
+1. **Gemini RECITATION workarounds** — pages 10-11 (references/acknowledgments) refused by Gemini. Options: crop splitting (send quarter-page crops), better Tesseract post-processing (detect headings/structure), or alternate model for refused pages
 2. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
 3. **Per-equation review in report** — for LaTeX docs, show rendered equation + LaTeX + description for professor verification
 4. **LaTeX .tex remediation output** — return fixed .tex source (Phase 2+)

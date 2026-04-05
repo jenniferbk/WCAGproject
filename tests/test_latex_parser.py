@@ -17,6 +17,7 @@ from src.models.document import (
     ContentOrderItem,
 )
 from src.tools.latex_parser import _parse_latexml_html, parse_latex, _safe_extract_zip
+from src.tools.html_builder import build_html
 
 
 class TestMathInfo:
@@ -328,3 +329,77 @@ class TestParseLatex:
         bad.write_text("this is not latex at all")
         result = parse_latex(str(bad))
         assert isinstance(result.success, bool)
+
+
+class TestHtmlBuilderMath:
+    def _make_doc_with_math(self):
+        from src.models.document import MetadataInfo, ContentOrderItem
+        return DocumentModel(
+            source_format="tex",
+            metadata=MetadataInfo(title="Test", language="en"),
+            paragraphs=[
+                ParagraphInfo(
+                    id="p_0",
+                    text="Consider [math_0] where [math_1] is real.",
+                    style_name="Normal",
+                    math_ids=["math_0", "math_1"],
+                ),
+            ],
+            math=[
+                MathInfo(
+                    id="math_0",
+                    latex_source=r"\frac{1}{2}",
+                    mathml='<math><mfrac><mn>1</mn><mn>2</mn></mfrac></math>',
+                    display="inline",
+                    description="one half",
+                ),
+                MathInfo(
+                    id="math_1",
+                    latex_source="x",
+                    mathml="<math><mi>x</mi></math>",
+                    display="inline",
+                    description="x",
+                ),
+            ],
+            content_order=[
+                ContentOrderItem(content_type=ContentType.PARAGRAPH, id="p_0"),
+            ],
+        )
+
+    def test_inline_math_renders_svg_with_aria(self):
+        doc = self._make_doc_with_math()
+        result = build_html(doc)
+        assert result.success
+        assert "aria-label" in result.html
+        assert "one half" in result.html
+        assert "<svg" in result.html
+
+    def test_inline_math_has_hidden_mathml(self):
+        doc = self._make_doc_with_math()
+        result = build_html(doc)
+        assert "sr-only" in result.html
+        assert "<math" in result.html
+
+    def test_block_math_renders(self):
+        from src.models.document import MetadataInfo, ContentOrderItem
+        doc = DocumentModel(
+            source_format="tex",
+            metadata=MetadataInfo(title="Test", language="en"),
+            math=[
+                MathInfo(
+                    id="math_0",
+                    latex_source="E=mc^2",
+                    mathml='<math><mrow><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></mrow></math>',
+                    display="block",
+                    description="E equals m c squared",
+                    equation_number="(1)",
+                ),
+            ],
+            content_order=[
+                ContentOrderItem(content_type=ContentType.MATH, id="math_0"),
+            ],
+        )
+        result = build_html(doc)
+        assert result.success
+        assert "E equals m c squared" in result.html
+        assert "(1)" in result.html

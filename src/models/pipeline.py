@@ -189,3 +189,19 @@ class RemediationResult(BaseModel, frozen=True):
     error: str = ""
     processing_time_seconds: float = 0.0
     cost_summary: CostSummary = Field(default_factory=CostSummary)
+
+
+class VisualQAFinding(BaseModel, frozen=True):
+    """A content gap detected by visual diff QA."""
+    original_page: int              # 0-based original page number
+    rendered_page: int | None       # 0-based rendered page (closest match), None if no match
+    finding_type: str               # missing_table, truncated_text, dropped_image, garbled_equation, other
+    description: str                # Human-readable description
+    severity: str                   # high, medium, low
+
+
+class VisualQAResult(BaseModel):
+    """Result of visual diff QA phase."""
+    findings: list[VisualQAFinding] = Field(default_factory=list)
+    pages_checked: int = 0
+    api_usage: list[ApiUsage] = Field(default_factory=list)

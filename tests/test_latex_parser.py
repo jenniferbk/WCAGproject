@@ -403,3 +403,74 @@ class TestHtmlBuilderMath:
         assert result.success
         assert "E equals m c squared" in result.html
         assert "(1)" in result.html
+
+
+class TestEndToEndLatex:
+    """Integration test using real test documents."""
+
+    @pytest.fixture(autouse=True)
+    def skip_if_no_latexml(self):
+        if not shutil.which("latexml"):
+            pytest.skip("LaTeXML not installed")
+
+    def test_diffeq_laplace_full_pipeline(self):
+        """Parse diffeq_laplace.tex through the full pipeline."""
+        tex_path = Path(__file__).parent / "test_docs" / "diffeq_laplace.tex"
+        if not tex_path.exists():
+            pytest.skip("Test document not available")
+
+        result = parse_latex(str(tex_path))
+        assert result.success
+        doc = result.document
+        assert doc is not None
+
+        # Should have math
+        assert doc.stats.math_count > 0
+        assert len(doc.math) >= 20  # spike showed 74 math elements
+
+        # Should have headings
+        headings = [p for p in doc.paragraphs if p.heading_level]
+        assert len(headings) >= 2
+
+        # Should have tables (Laplace transform table)
+        assert len(doc.tables) >= 1
+
+        # Block equations should have display="block"
+        block = [m for m in doc.math if m.display == "block"]
+        assert len(block) >= 2
+
+        # Should have equation numbers
+        numbered = [m for m in doc.math if m.equation_number]
+        assert len(numbered) >= 1
+
+        # Content order should have MATH entries
+        math_items = [i for i in doc.content_order if i.content_type == ContentType.MATH]
+        assert len(math_items) >= 2
+
+    def test_syllabus_no_math(self):
+        """Parse syllabus.tex — basic LaTeX with no math."""
+        tex_path = Path(__file__).parent / "test_docs" / "syllabus.tex"
+        if not tex_path.exists():
+            pytest.skip("Test document not available")
+
+        result = parse_latex(str(tex_path))
+        assert result.success
+        doc = result.document
+        assert doc is not None
+        assert doc.stats.math_count == 0
+        assert len(doc.paragraphs) > 0
+
+    def test_html_output_from_latex(self):
+        """Full pipeline: .tex → DocumentModel → HTML."""
+        tex_path = Path(__file__).parent / "test_docs" / "diffeq_laplace.tex"
+        if not tex_path.exists():
+            pytest.skip("Test document not available")
+
+        result = parse_latex(str(tex_path))
+        assert result.success
+
+        html_result = build_html(result.document)
+        assert html_result.success
+        assert "<svg" in html_result.html  # Math rendered as SVG
+        assert "sr-only" in html_result.html  # Hidden MathML present
+        assert "<h" in html_result.html  # Headings present

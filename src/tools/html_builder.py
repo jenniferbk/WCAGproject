@@ -72,18 +72,41 @@ def build_html(
         para_map = {p.id: p for p in doc.paragraphs}
         math_map = {m.id: m for m in doc.math} if hasattr(doc, 'math') and doc.math else {}
 
-        # Build body content in document order, grouping column content
+        # Build body content in document order.
+        # For scanned PDFs with page numbers, use page-section layout
+        # (CSS column-count per page). Otherwise single-column.
         body_parts: list[str] = []
-        # Track whether we have any column info (enables two-column CSS)
-        has_columns = any(
-            (para_map.get(item.id) and para_map[item.id].column in (1, 2))
-            for item in doc.content_order
-            if item.content_type == ContentType.PARAGRAPH and item.id in para_map
+
+        # Detect page-section mode: scanned PDFs where most paragraphs have page_number
+        has_pages = (
+            doc.source_format == "pdf"
+            and sum(1 for p in doc.paragraphs if p.page_number is not None) > len(doc.paragraphs) * 0.5
         )
 
-        # Current column section state
-        in_column_section = False
-        current_col = 0  # 0=full-width, 1=left, 2=right
+        current_page: int | None = None
+
+        def _get_page(item_id: str) -> int | None:
+            """Get page_number for a content item."""
+            para = para_map.get(item_id)
+            if para and para.page_number is not None:
+                return para.page_number
+            table = table_map.get(item_id)
+            if table and hasattr(table, 'page_number') and table.page_number is not None:
+                return table.page_number
+            return None
+
+        def _close_page():
+            nonlocal current_page
+            if current_page is not None:
+                body_parts.append('  </section>')
+                current_page = None
+
+        def _open_page(page_num: int):
+            nonlocal current_page
+            if current_page is not None:
+                body_parts.append('  </section>')
+            body_parts.append(f'  <section class="page" data-page="{page_num + 1}">')
+            current_page = page_num
 
         for item in doc.content_order:
             if item.content_type == ContentType.PARAGRAPH:
@@ -94,56 +117,30 @@ def build_html(
                 if not para_html:
                     continue
 
-                col = para.column or 0
+                # Page-section transitions
+                if has_pages and para.page_number is not None:
+                    if para.page_number != current_page:
+                        _open_page(para.page_number)
 
-                if has_columns and col in (1, 2):
-                    # Entering or continuing a column section
-                    if not in_column_section:
-                        body_parts.append('  <div class="two-column">')
-                        body_parts.append('    <div class="column">')
-                        in_column_section = True
-                        current_col = col
-                    elif col != current_col and current_col == 1:
-                        # Switching from left to right column
-                        body_parts.append('    </div>')
-                        body_parts.append('    <div class="column">')
-                        current_col = col
-                    body_parts.append(f"  {para_html}")
-                else:
-                    # Full-width — close any open column section
-                    if in_column_section:
-                        body_parts.append('    </div>')
-                        body_parts.append('  </div>')
-                        in_column_section = False
-                        current_col = 0
-                    body_parts.append(para_html)
+                body_parts.append(para_html)
 
             elif item.content_type == ContentType.TABLE:
-                # Tables are always full-width
-                if in_column_section:
-                    body_parts.append('    </div>')
-                    body_parts.append('  </div>')
-                    in_column_section = False
-                    current_col = 0
                 table = table_map.get(item.id)
                 if table:
+                    # Check if table has a page_number for page transitions
+                    tbl_page = getattr(table, 'page_number', None)
+                    if has_pages and tbl_page is not None and tbl_page != current_page:
+                        _open_page(tbl_page)
                     body_parts.append(_render_table(table, warnings))
 
             elif item.content_type == ContentType.MATH:
                 math = math_map.get(item.id)
                 if math:
-                    # Close any open column section first (math blocks are full-width)
-                    if in_column_section:
-                        body_parts.append('    </div>')
-                        body_parts.append('  </div>')
-                        in_column_section = False
-                        current_col = 0
                     body_parts.append(_render_block_math(math))
 
-        # Close any trailing column section
-        if in_column_section:
-            body_parts.append('    </div>')
-            body_parts.append('  </div>')
+        # Close any trailing page section
+        if has_pages:
+            _close_page()
 
         body_content = "\n".join(body_parts)
 
@@ -162,14 +159,23 @@ def build_html(
       th, td { border: 1px solid #666; padding: 0.5em; text-align: left; }
       th { background-color: #f0f0f0; font-weight: bold; }
       img { max-width: 100%; height: auto; }
-      .two-column {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
+      .page {
+        column-count: 2;
         column-gap: 2em;
-        margin: 1em 0;
+        padding: 1em 0;
+        border-bottom: 1px solid #e0e0e0;
+      }
+      .page h1, .page h2, .page h3, .page h4, .page h5, .page h6 {
+        column-span: all;
+      }
+      .page table {
+        column-span: all;
+      }
+      .page .math-block {
+        column-span: all;
       }
       @media (max-width: 600px) {
-        .two-column { grid-template-columns: 1fr; }
+        .page { column-count: 1; }
       }
       .sr-only {
         position: absolute;

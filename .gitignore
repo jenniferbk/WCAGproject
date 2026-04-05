@@ -41,3 +41,5 @@ testdocs/
 
 # Production secrets
 .env.production
+*.latexml.log
+*.latexmlpost.log

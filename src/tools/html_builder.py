@@ -250,6 +250,10 @@ def _render_paragraph(
     if not para.text.strip() and not img_html_parts:
         return ""
 
+    # Algorithm pseudocode block (already formatted as HTML by latex_parser)
+    if para.text.strip().startswith("<pre"):
+        return f"  {para.text}"
+
     # List item
     if para.is_list_item:
         return f"  <li>{_render_inline(para, math_map=math_map)}</li>"

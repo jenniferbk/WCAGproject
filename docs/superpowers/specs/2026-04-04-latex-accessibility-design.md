@@ -1,7 +1,7 @@
 # LaTeX Accessibility Support — Design Spec
 
 **Date:** 2026-04-04
-**Status:** Approved
+**Status:** Approved (rev 3 — post-review)
 **Scope:** Add `.tex` / `.zip` LaTeX document support to the a11y remediation pipeline
 
 ## Problem
@@ -21,8 +21,8 @@ Accept LaTeX project uploads (`.tex` or `.zip`), convert to accessible HTML with
 ## User Stories
 
 **Blind student:** "I need to read this week's problem set with my screen reader and understand every equation."
-- Gets interactive HTML with navigable MathML (arrow key exploration via MathJax + SRE)
-- Every equation has a full natural language description as fallback
+- Gets HTML with navigable MathML for advanced screen readers, SVG + aria-label fallback for others
+- Every equation has a full natural language description
 
 **Professor (distributor):** "I need to post something accessible on Canvas by Monday."
 - Uploads .tex/.zip, gets back a .zip with accessible HTML + PDF
@@ -36,9 +36,11 @@ Accept LaTeX project uploads (`.tex` or `.zip`), convert to accessible HTML with
 ### Upload and Extraction
 
 1. User uploads `.tex` (single file) or `.zip` (project folder)
-2. If `.zip`: extract to temp directory, find main `.tex` by locating the file containing `\documentclass`. If multiple match, prefer the one in the root directory.
+2. If `.zip`: extract to temp directory, find main `.tex` by locating the file containing `\documentclass` (regex: `^\s*\\documentclass` not preceded by `%`, to skip comments). If multiple match, prefer the one in the root directory.
 3. Collect all image files (`.png`, `.jpg`, `.pdf`, `.eps`, `.svg`) from the project for alt text generation
 4. If single `.tex`: use as-is; referenced files (images, .bib) that are missing get flagged in the report
+
+**Image resolution:** LaTeX `\includegraphics{fig1}` often omits the extension. For each reference, search for `name.png`, `name.jpg`, `name.jpeg`, `name.pdf`, `name.eps` in the project directory. For PDF images, convert to PNG via PyMuPDF before sending to Gemini for alt text. For EPS, convert via Pillow.
 
 **Zip security:** Max 100MB extracted size, max 500 files, reject paths containing `..`, reject symlinks, extract to isolated temp directory. Use Python `zipfile` module with validation before extraction.
 
@@ -71,30 +73,31 @@ Note: `latexml` produces XML, `latexmlpost` converts to HTML. The `--pmml` flag 
 
 **Conversion quality assessment:** After conversion, count `<span class="ltx_ERROR undefined">` elements and `class="ltx_math_unparsed"` math elements. Include counts in the report. High error counts trigger a warning: "This document uses LaTeX features that couldn't be fully converted."
 
-**Fallback:** If LaTeXML fails (non-zero exit, empty output, timeout at 120s), fall back to Pandoc (`pandoc -f latex -t html5 --mathml`). Pandoc produces different HTML structure (clean semantic HTML without `ltx_` classes), so the parser needs a detection mode. Flag in the report that conversion was degraded and math accuracy may be reduced.
+**No Pandoc fallback in v1.** If LaTeXML fails (non-zero exit, empty output, timeout at 120s), return a clear error: "This document uses LaTeX features that couldn't be converted. Common causes: [list from stderr]. Please contact your accessibility office for manual remediation." Pandoc fallback deferred to Phase 2 — one parser to build and test is better than two with different HTML structures.
 
-**stderr capture:** LaTeXML writes warnings and errors to stderr. Capture and parse these for the report — missing packages, undefined macros, unparsed math.
+**stderr capture:** LaTeXML writes warnings and errors to stderr. Capture and parse these for the report — missing packages, undefined macros, unparsed math. On failure, include specific errors in the user-facing error message.
 
 ### Parsing into DocumentModel
 
-`latex_parser.py` uses BeautifulSoup (already a project dependency via other tools) to parse the LaTeXML HTML into our existing `DocumentModel`:
+`latex_parser.py` uses BeautifulSoup (already available, v4.14.3) to parse the LaTeXML HTML into our existing `DocumentModel`:
 
 **Mapping from LaTeXML HTML to DocumentModel:**
 
 | LaTeXML HTML | DocumentModel | Notes |
 |-------------|---------------|-------|
 | `<h1-h6 class="ltx_title">` | ParagraphInfo with heading_level | |
-| `<p class="ltx_p">` | ParagraphInfo | May contain inline `<math>` |
+| `<p class="ltx_p">` | ParagraphInfo | May contain inline `<math>` — see below |
 | `<math class="ltx_Math" display="inline">` | MathInfo (inline) | Stored as math_id on containing ParagraphInfo |
 | `<table class="ltx_equation">` containing `<math display="block">` | MathInfo (block) | ContentType.MATH in content_order |
-| `<math class="ltx_math_unparsed">` | MathInfo with flag | LaTeXML couldn't parse; use alttext LaTeX as fallback |
+| `<math class="ltx_math_unparsed">` | MathInfo with unparsed=True | LaTeXML couldn't parse; use alttext LaTeX as fallback |
+| `<span class="ltx_tag ltx_tag_equation">` | equation_number on MathInfo | e.g., "(1)", "(2)" |
 | `<img src="...">` | ImageInfo | Load image_data from project dir if available |
 | `<figure>` with `<figcaption>` | ImageInfo with caption | |
 | `<table class="ltx_tabular">` | TableInfo | Distinguish from equation tables by class |
 | `<span class="ltx_ERROR">` | Logged as warning | Count for quality assessment |
 | `<div class="ltx_theorem">` | ParagraphInfo with style_name="Theorem" | Preserve theorem labels |
 
-**Inline math in paragraphs:** When a paragraph contains inline math (`let <math>x</math> be real`), the ParagraphInfo.text gets the LaTeX source substituted: "let x be real". The MathInfo is created separately and referenced via `math_ids`. For simple inline math, the text representation is sufficient for screen readers. Complex inline math still gets a MathInfo with description.
+**Inline math in paragraphs — placeholder approach:** When a paragraph contains inline math, the ParagraphInfo.text uses placeholders: `"let [math_0] be a vector in [math_1]"`. Each `[math_N]` references a MathInfo by ID. The HTML builder resolves these during rendering — substituting SVG with aria-label for the output HTML, or description text for the PDF. This preserves math semantics through the pipeline instead of stripping to lossy plain text.
 
 **Content ordering:** DOM order of the HTML = content_order. Walk the DOM tree top-to-bottom, emit ContentOrderItem for each paragraph, math block, table, or image encountered.
 
@@ -102,13 +105,14 @@ Note: `latexml` produces XML, `latexmlpost` converts to HTML. The `--pmml` flag 
 
 ```python
 class MathInfo(BaseModel, frozen=True):
-    id: str                      # math_0, math_1, ...
-    latex_source: str            # from alttext attribute on <math>
-    mathml: str                  # full MathML markup from LaTeXML
-    display: str = "block"       # "block" or "inline"
-    description: str = ""        # full natural language reading (AI-generated)
-    confidence: float = 1.0      # AI confidence in the description
-    unparsed: bool = False       # True if LaTeXML couldn't parse (ltx_math_unparsed)
+    id: str                          # math_0, math_1, ...
+    latex_source: str                # from alttext attribute on <math>
+    mathml: str                      # full MathML markup from LaTeXML
+    display: str = "block"           # "block" or "inline"
+    description: str = ""            # full natural language reading (AI-generated)
+    equation_number: str | None = None  # "(1)", "(2)" from ltx_tag_equation
+    confidence: float = 1.0          # AI confidence in the description
+    unparsed: bool = False           # True if LaTeXML couldn't parse (ltx_math_unparsed)
 ```
 
 **DocumentModel extensions:**
@@ -117,11 +121,9 @@ class MathInfo(BaseModel, frozen=True):
 - `ContentType.MATH` variant for block equations in content_order
 - `DocumentStats` updated with `math_count`, `math_missing_description`
 
-Note: `page_number` omitted from MathInfo — LaTeX documents don't have page numbers until compiled.
-
 ### Math Description Generation
 
-Not all math needs an AI-generated description. Classification by complexity:
+Two tiers of complexity:
 
 **Trivial (no API call):** Single symbol, variable, number, Greek letter, simple subscript/superscript. LaTeX source ≤ 10 chars with no `\frac`, `\int`, `\sum`, `\begin`, `\sqrt`. Description = direct text rendering.
 - `$x$` → "x"
@@ -129,14 +131,13 @@ Not all math needs an AI-generated description. Classification by complexity:
 - `$x_i$` → "x sub i"
 - `$n!$` → "n factorial"
 
-**Moderate (template-based, no API call):** Short expressions ≤ 50 LaTeX chars with no nested structures. Use Speech Rule Engine or deterministic template to generate reading.
-- `$x^2 + y^2$` → "x squared plus y squared"
-- `$f(x) = 0$` → "f of x equals zero"
-
-**Complex (Claude API call with course context):** Multi-line equations, nested fractions, integrals, summations, matrices, anything with `\begin{align}` or `\begin{equation}`. Send to Claude with surrounding paragraph context and course context.
+**Complex (Claude API call with course context):** Everything else. Send to Claude with surrounding paragraph context and course context. Includes all display/block equations and any inline math with nesting, operators, or structures.
 - `\int_0^\infty f(t)e^{-st}dt` → "the Laplace transform integral: the integral from 0 to infinity of f of t times e to the negative s t, d t"
+- `$\mathbb{R}^n$` → "R n, the n-dimensional real numbers"
 
-**Batching:** Group complex equations and send to Claude in batches (5-10 per API call) with document context, rather than one call per equation.
+**Batching:** Group complex equations and send to Claude in batches (5-10 per API call) with document context, rather than one call per equation. Include surrounding paragraph text for context.
+
+**Equation numbering in descriptions:** If an equation has a number, prefix the description: "Equation 1: the Laplace transform..."
 
 ### AI Enhancement Pipeline
 
@@ -166,35 +167,28 @@ The existing 4-phase pipeline runs on the DocumentModel:
 
 ### Output Package
 
-User receives a downloadable `.zip` containing three files:
+User receives a downloadable `.zip` containing:
 
-#### `accessible.html` — LMS-safe, no JavaScript required
+#### `accessible.html` — Single HTML, works everywhere
 
-Equations rendered as **inline SVG** via `ziamath` (pure Python MathML → SVG). Each SVG has `role="img"` and `aria-label` set to the full `description`. No JavaScript dependency — works when uploaded to Canvas, Blackboard, or any LMS that strips `<script>` tags.
+One HTML file using progressive enhancement:
 
 ```html
-<div class="math-block" role="math">
-  <svg aria-label="the Laplace transform: the integral from 0 to infinity...">
-    <!-- ziamath SVG rendering -->
-  </svg>
-</div>
+<span class="math" role="math" aria-label="the integral from 0 to infinity...">
+  <svg><!-- ziamath visual rendering --></svg>
+  <math class="sr-only"><!-- hidden MathML for screen readers with MathML support --></math>
+</span>
 ```
+
+- **Visual rendering:** Equations rendered as inline SVG via ziamath (verified: 169/169 equations rendered successfully from LaTeXML output). No JavaScript required. Works in Canvas, Blackboard, any LMS.
+- **Screen reader layer:** Hidden MathML for advanced screen readers (NVDA+MathCAT, VoiceOver) that support interactive math navigation. `aria-label` with full description as fallback for screen readers without MathML support.
+- **No JavaScript dependency.** MathJax interactive version deferred to Phase 2 as an optional enhancement.
 
 Also includes: alt text on all images, proper heading hierarchy, `<html lang>`, `<title>`, responsive CSS.
 
-#### `accessible_interactive.html` — Best screen reader experience
-
-Same content but with **MathML preserved** and **MathJax 3 + SRE loaded from CDN**. Provides interactive equation navigation (arrow keys to explore sub-expressions). For direct download/local use only — not for LMS upload.
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-```
-
-`<noscript>` fallback shows the LaTeX source.
-
 #### `accessible.pdf` — Downloadable PDF/UA-1
 
-Generated via WeasyPrint from the SVG version of the HTML (since WeasyPrint doesn't render MathML). Equations appear as SVG images with `description` as alt text on `<Formula>` structure tags. Proper heading tags, image alt text. Validated with veraPDF where possible.
+Generated via WeasyPrint from the HTML. Equations appear as SVG images with `description` as alt text on `<Formula>` structure tags. Proper heading tags, image alt text. Validated with veraPDF where possible.
 
 #### `report.html` — Human-readable remediation report
 
@@ -208,6 +202,8 @@ Per-equation detail: rendered equation (SVG) + LaTeX source + our description + 
 Per-image detail: image + our alt text, for review.
 
 Conversion quality: LaTeXML error/warning count, list of unsupported packages, undefined macros.
+
+Note: the report is a review tool for the professor, not an accessible document for students.
 
 ### Report Redesign (All Document Types)
 
@@ -224,21 +220,21 @@ This is a separate workstream that can be built independently and applied to DOC
 ### New files
 | File | Purpose |
 |------|---------|
-| `src/tools/latex_parser.py` | Call LaTeXML, parse HTML into DocumentModel |
-| `src/tools/math_descriptions.py` | Classify math complexity, generate descriptions (trivial/template/Claude) |
-| `src/tools/math_renderer.py` | MathML → SVG via ziamath for PDF and LMS-safe HTML |
+| `src/tools/latex_parser.py` | Call LaTeXML, parse HTML into DocumentModel with BeautifulSoup |
+| `src/tools/math_descriptions.py` | Classify math complexity (trivial/complex), generate descriptions via Claude |
+| `src/tools/math_renderer.py` | MathML → SVG via ziamath for HTML and PDF output |
 | `src/prompts/math_description.md` | Prompt for equation description generation |
 | `src/tools/report_builder.py` | New human-readable report generator |
 | `tests/test_latex_parser.py` | Tests for LaTeX parsing |
-| `tests/test_math_descriptions.py` | Tests for math description and complexity classification |
+| `tests/test_math_descriptions.py` | Tests for math complexity classification and description generation |
 | `tests/test_math_renderer.py` | Tests for MathML → SVG rendering |
 
 ### Modified files
 | File | Change |
 |------|--------|
-| `src/models/document.py` | Add MathInfo, math_ids on ParagraphInfo, MATH content type, math on DocumentModel |
+| `src/models/document.py` | Add MathInfo (with equation_number), math_ids on ParagraphInfo, MATH content type, math on DocumentModel |
 | `src/agent/orchestrator.py` | Support .tex/.zip, route to latex_parser, zip output |
-| `src/tools/html_builder.py` | MathJax script injection, MathInfo rendering (SVG and MathML modes) |
+| `src/tools/html_builder.py` | Render MathInfo as SVG + hidden MathML, resolve math placeholders in paragraph text |
 | `src/agent/executor.py` | Handle add_math_description action |
 | `src/agent/comprehension.py` | Recognize math elements in comprehension |
 | `src/agent/strategy.py` | Generate math description actions |
@@ -250,12 +246,10 @@ This is a separate workstream that can be built independently and applied to DOC
 | Dependency | Type | Installation | Size |
 |-----------|------|-------------|------|
 | LaTeXML | System package | `apt install latexml` (Ubuntu) / `brew install latexml` (macOS) | ~11MB |
-| Pandoc | System package (fallback) | `apt install pandoc` / `brew install pandoc` | ~30MB |
 | ziamath | Python package | `pip install ziamath` | ~1.3MB (pure Python, pulls ziafont + latex2mathml) |
-| MathJax 3 | CDN (interactive HTML only) | `cdn.jsdelivr.net/npm/mathjax@3` | No install |
-| BeautifulSoup4 | Python package | Already in project or `pip install beautifulsoup4` | |
+| BeautifulSoup4 | Python package | Already available (v4.14.3) | |
 
-LaTeXML and Pandoc called via subprocess, same pattern as veraPDF and iText. ziamath is pure Python, no system dependencies, works on ARM.
+LaTeXML called via subprocess, same pattern as veraPDF and iText. ziamath is pure Python, no system dependencies, works on ARM. Verified: renders 169/169 equations from LaTeXML output successfully.
 
 ## Test Documents
 
@@ -263,27 +257,27 @@ Five LaTeX files in `tests/test_docs/`:
 
 | File | Content | Math elements | Tests |
 |------|---------|---------------|-------|
-| `homework.tex` | Stats problems, proofs, TikZ, algorithms | 96 | Complex math, custom environments, TikZ failure |
+| `homework.tex` | Stats problems, proofs, TikZ, algorithms | 95 | Complex math, custom environments, partial failure (53 errors) |
 | `diffeq_power_series.tex` | Power series, summations | ~80 | Heavy math notation |
 | `diffeq_laplace.tex` | Laplace transforms, fractions | 74 | Display math, tables, equation numbering |
 | `homework_template.tex` | Theorems, lemmas, proofs, integrals | ~30 | amsthm environments |
 | `syllabus.tex` | Tables, sections, lists | 0 | Basic LaTeX, no math |
 
-**Known from spike:** `homework.tex` produces 53 `ltx_ERROR` elements (TikZ + algorithm packages). `diffeq_laplace.tex` has 3 unparsed math elements and 1 undefined macro (TikZ). Both convert successfully with degraded content.
+**Known from spike:** `homework.tex` produces 53 `ltx_ERROR` elements (TikZ + algorithm packages) — tests graceful degradation with clear reporting. `diffeq_laplace.tex` has 3 unparsed math elements and 1 undefined macro (TikZ). Both convert successfully with degraded content.
 
 ## Error Handling
 
 | Scenario | Behavior |
 |----------|----------|
-| LaTeXML timeout (>120s) | Fall back to Pandoc. Flag in report. |
-| LaTeXML crash (non-zero exit) | Fall back to Pandoc. Flag in report. |
-| LaTeXML partial success (warnings, errors) | Use output. Count errors, include in report. |
-| Pandoc also fails | Return error: "This LaTeX document couldn't be converted. It may use unsupported packages." |
+| LaTeXML timeout (>120s) | Error with stderr details. No fallback in v1. |
+| LaTeXML crash (non-zero exit) | Error with stderr details: "Common causes: [missing packages]. Please contact your accessibility office." |
+| LaTeXML partial success (warnings, errors) | Use output. Count errors, include in report with specific warnings. |
 | Zip bomb / oversized | Reject before extraction: "Upload exceeds size limit." |
 | Zip path traversal | Reject: "Invalid zip file." |
 | No `\documentclass` in zip | Error: "Couldn't find main LaTeX file in the upload." |
-| Missing images | Convert without images. Flag each in report: "Image X referenced but not included." |
+| Missing images | Convert without images. Flag each in report: "Image X referenced but not included." Resolve extension-less references. |
 | Missing .bib file | Convert without bibliography. Flag: "Bibliography file not included." |
+| ziamath rendering failure | Fall back to LaTeX source text in the SVG alt text. Log warning. |
 
 ## Scope Boundaries
 
@@ -292,30 +286,32 @@ Five LaTeX files in `tests/test_docs/`:
 - .zip project folder upload
 - LaTeXML conversion to HTML with MathML
 - AI-generated equation descriptions (full natural language reading)
-- Trivial/moderate math: deterministic descriptions (no API call)
-- AI-generated image alt text (for images in the project)
-- Two HTML outputs: LMS-safe (SVG) + interactive (MathJax)
+- Trivial math: deterministic descriptions (no API call)
+- Complex math: Claude with course context (batched)
+- AI-generated image alt text (for images in the project, with extension resolution and PDF/EPS conversion)
+- Single HTML output with SVG + hidden MathML (progressive enhancement)
 - PDF output via WeasyPrint (from SVG HTML)
 - Human-readable report with per-equation review
-- Pandoc fallback for LaTeXML failures
+- Equation number preservation and cross-reference support
 - Flagging unconverted content (TikZ, missing files, unparsed math) for human review
 - Zip security (size limits, path validation)
+- Math placeholder system in paragraph text (preserves semantics)
 
 **Out of scope (Phase 2+):**
 - Remediated .tex source output (requires LaTeX3 tagging maturity)
 - TikZ diagram rendering (would need a TeX engine)
 - Compiling LaTeX (no TeX installation required)
 - Custom .cls/.sty file execution (LaTeXML handles common packages; custom ones degrade gracefully)
+- Pandoc fallback parser (add if users frequently hit LaTeXML failures)
+- MathJax interactive HTML version (optional enhancement)
 - PDF/UA-2 with embedded MathML associated files (future iText enhancement)
-- Bundled MathJax (CDN for now, offline bundle later if needed)
 - Report redesign for DOCX/PDF/PPTX (separate follow-up workstream)
 
 ## Cost Estimation
 
 For a typical 10-page homework with ~80 math elements:
 - ~60 trivial inline (no API cost)
-- ~10 moderate (template-based, no API cost)
-- ~10 complex display equations (Claude, batched in 2 calls)
+- ~20 complex equations (Claude, batched in 3-4 calls)
 - ~3 images needing alt text (Gemini vision)
 - Comprehension (1 Gemini call), Strategy (1 Claude call), Review (1 Claude call)
 
@@ -323,12 +319,13 @@ For a typical 10-page homework with ~80 math elements:
 
 ## Success Criteria
 
-1. All 5 test documents convert successfully through the pipeline
-2. MathML renders correctly in the interactive HTML with MathJax
-3. SVG equations render correctly in the LMS-safe HTML
-4. Screen reader (VoiceOver) can read equation descriptions in both HTML and PDF
-5. Professor can verify equation descriptions in the report
-6. Missing images and unconverted content are clearly flagged
-7. Processing time under 5 minutes for a typical homework document
-8. LaTeXML errors/warnings surfaced in report
-9. Pandoc fallback produces usable (if degraded) output
+1. All 5 test documents convert successfully through the pipeline (with expected degradation on homework.tex TikZ/algorithm content)
+2. SVG equations render correctly in the output HTML
+3. Hidden MathML is present and valid for screen reader consumption
+4. Screen reader (VoiceOver) can read equation descriptions via aria-label
+5. Equation numbers preserved in output and descriptions
+6. Math placeholders in paragraph text resolve correctly in all output formats
+7. Professor can verify equation descriptions in the report
+8. Missing images and unconverted content are clearly flagged
+9. Processing time under 5 minutes for a typical homework document
+10. LaTeXML errors/warnings surfaced in report with actionable guidance

@@ -3807,7 +3807,7 @@ const infoContent = {
       <h3>What is A11y Remediation?</h3>
       <p>A11y Remediation is an AI-powered tool that makes university course documents accessible to everyone, including students who use screen readers and other assistive technologies.</p>
       <p>The DOJ's Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by April 24, 2026. Manual remediation costs $3&ndash;4 per page and can't keep up with the volume of material faculty produce each semester.</p>
-      <p>Supports Word documents (.docx), PDFs (.pdf), and PowerPoint presentations (.pptx).</p>
+      <p>Supports Word documents (.docx), PDFs (.pdf), PowerPoint presentations (.pptx), and LaTeX files (.tex, .zip).</p>
 
       <h3>How it works</h3>
       <p>Most accessibility tools run a fixed checklist &mdash; find missing alt text, flag it, move on. They treat every document the same and produce results that are technically present but not useful to someone actually using a screen reader.</p>
@@ -3832,6 +3832,10 @@ const infoContent = {
 
       <h3>Limitations</h3>
       <p>Complex merged-cell tables, mathematical notation, and heavily scanned documents often need human review. The compliance report flags these honestly.</p>
+
+      <h3>LaTeX &amp; math</h3>
+      <p>Upload <code>.tex</code> files directly, or <code>.zip</code> archives that include images and style files. The system converts LaTeX to structured HTML using <a href="https://dlmf.nist.gov/LaTeXML/" target="_blank" rel="noopener">LaTeXML</a>, renders equations as SVG with embedded MathML for screen reader access, and generates plain-language descriptions for complex math. Algorithms and pseudocode are preserved as formatted blocks.</p>
+      <p>TikZ diagrams get placeholder descriptions noting the diagram structure. Full visual rendering of TikZ is planned for a future release.</p>
 
       <h3>Questions?</h3>
       <p>Reach out at <a href="mailto:remediate@jenkleiman.com">remediate@jenkleiman.com</a>.</p>
@@ -3934,6 +3938,8 @@ const infoContent = {
         <li><strong>python-pptx</strong> &mdash; PowerPoint processing</li>
         <li><strong>iText</strong> &mdash; PDF structure tagging</li>
         <li><strong>WeasyPrint</strong> &mdash; Accessible PDF generation</li>
+        <li><strong>LaTeXML</strong> &mdash; LaTeX to HTML/MathML conversion</li>
+        <li><strong>ziamath</strong> &mdash; MathML to SVG rendering</li>
         <li><strong>Fraunces</strong> &amp; <strong>DM Sans</strong> &mdash; Typefaces by Google Fonts</li>
       </ul>
 

@@ -2533,6 +2533,7 @@
   <h1>A11y Remediation</h1>
   <div class="header-right">
     <span class="header-subtitle" id="headerSubtitle">WCAG 2.1 AA Document Accessibility</span>
+    <a class="whats-new-link hidden" id="whatsNewLink" onclick="openChangelog(event)" role="button" tabindex="0">What's New</a>
     <a class="admin-link hidden" id="adminLink" onclick="showAdminView()" role="button" tabindex="0">Admin</a>
     <div class="user-menu hidden" id="userMenu">
       <span class="user-menu-name" id="userDisplayName"></span>
@@ -2672,6 +2673,16 @@
 
   <!-- App View -->
   <div id="appView" class="hidden">
+
+    <!-- Changelog banner -->
+    <div id="changelogBanner" role="status">
+      <div class="changelog-banner-text">
+        <strong id="changelogBannerTitle"></strong> &mdash;
+        <span id="changelogBannerSummary"></span>
+        <button class="changelog-banner-link" onclick="openChangelog(event)">See what's new</button>
+      </div>
+      <button class="changelog-banner-dismiss" onclick="dismissChangelog()" aria-label="Dismiss">&times;</button>
+    </div>
 
     <!-- Account Status Card -->
     <div class="account-card" id="accountCard">

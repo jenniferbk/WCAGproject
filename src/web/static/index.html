@@ -3044,6 +3044,10 @@ let selectedJobs = new Set();
 let allJobs = [];
 let pendingDeleteAction = null;  // { type: 'single'|'bulk', ids: [...] }
 
+// ── Changelog ──
+const CHANGELOG_LATEST = '2026-04-06-1';
+const CHANGELOG_KEY = 'changelog_seen';
+
 // ── Auth state ──
 
 async function checkAuth() {
@@ -3093,6 +3097,10 @@ function showAppView() {
   document.getElementById('userMenu').classList.remove('hidden');
   document.getElementById('userDisplayName').textContent = currentUser.display_name || currentUser.email;
   document.getElementById('adminLink').classList.toggle('hidden', !currentUser.is_admin);
+  // Show What's New link and check for unread
+  document.getElementById('whatsNewLink').classList.remove('hidden');
+  updateChangelogIndicators();
+  showChangelogBanner();
   updateUsageBar();
   refreshJobs();
   loadTransactions();
@@ -3925,6 +3933,70 @@ function showToast(msg) {
   toast.textContent = msg;
   toast.classList.add('visible');
   setTimeout(() => toast.classList.remove('visible'), 3000);
+}
+
+// ── Changelog (What's New) ──
+
+function hasUnreadChangelog() {
+  return localStorage.getItem(CHANGELOG_KEY) !== CHANGELOG_LATEST;
+}
+
+function markChangelogRead() {
+  localStorage.setItem(CHANGELOG_KEY, CHANGELOG_LATEST);
+  const link = document.getElementById('whatsNewLink');
+  if (link) link.classList.remove('has-unread');
+  const banner = document.getElementById('changelogBanner');
+  if (banner) banner.classList.remove('visible');
+}
+
+function dismissChangelog() {
+  markChangelogRead();
+}
+
+function updateChangelogIndicators() {
+  const link = document.getElementById('whatsNewLink');
+  if (!link) return;
+  if (hasUnreadChangelog()) {
+    link.classList.add('has-unread');
+  } else {
+    link.classList.remove('has-unread');
+  }
+}
+
+function showChangelogBanner() {
+  if (!hasUnreadChangelog()) return;
+  const banner = document.getElementById('changelogBanner');
+  if (!banner) return;
+  document.getElementById('changelogBannerTitle').textContent = 'LaTeX & Math Support';
+  document.getElementById('changelogBannerSummary').textContent = 'Upload .tex files and get accessible PDFs with rendered equations.';
+  banner.classList.add('visible');
+}
+
+async function openChangelog(e) {
+  if (e) e.preventDefault();
+  const modal = document.getElementById('infoModal');
+  const title = document.getElementById('infoModalTitle');
+  const body = document.getElementById('infoModalBody');
+  title.textContent = "What's New";
+  body.textContent = 'Loading...';
+  modal.classList.add('active');
+  try {
+    const resp = await fetch('/static/changelog.html');
+    if (!resp.ok) throw new Error('Failed to load changelog');
+    const html = await resp.text();
+    body.textContent = '';
+    // changelog.html is a trusted first-party static file served by our own FastAPI
+    // static middleware. We parse via a temp div and transfer children (not using
+    // innerHTML on the modal body directly) as a defense-in-depth measure.
+    const temp = document.createElement('div');
+    temp.innerHTML = html; // trusted static file — author-controlled, same origin
+    while (temp.firstChild) {
+      body.appendChild(temp.firstChild);
+    }
+  } catch (err) {
+    body.textContent = 'Could not load changelog. Please try again.';
+  }
+  markChangelogRead();
 }
 
 // ── Info modals (About, TOS, Privacy, Credits) ──

@@ -241,6 +241,16 @@ def _render_paragraph(
     if not para.text.strip() and not img_html_parts:
         return ""
 
+    # TikZ diagram — use Claude-generated description if available
+    if math_map and para.math_ids:
+        for mid in para.math_ids:
+            math = math_map.get(mid)
+            if math and getattr(math, "tikz_source", ""):
+                desc = math.description
+                # Skip if still the placeholder
+                if desc and "[Diagram:" not in desc:
+                    return f'  <div class="tikz-description" role="img" aria-label="{_esc(desc)}"><p><strong>Diagram:</strong> {_esc(desc)}</p></div>'
+
     # Algorithm pseudocode block (already formatted as HTML by latex_parser)
     if para.text.strip().startswith("<pre"):
         return f"  {para.text}"

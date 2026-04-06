@@ -3719,6 +3719,10 @@ function buildMeta(job) {
   }
 
   if (job.status === 'completed') {
+    if (job.created_at) {
+      const d = new Date(job.created_at);
+      parts.push(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+    }
     parts.push(`${job.processing_time}s`);
     parts.push(`<span class="stats">
       <span class="stat"><span class="stat-value stat-fixed">${job.issues_fixed}</span> fixed</span>

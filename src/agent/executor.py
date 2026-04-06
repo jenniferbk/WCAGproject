@@ -477,6 +477,50 @@ def _apply_pdf_action(
             model_dict["math"][math_idx]["confidence"] = confidence
             return _action_dict(action, "executed", f"Set math description: {description[:80]}")
 
+        elif action_type == "describe_tikz":
+            tikz_source = params.get("tikz_source", "")
+            if not tikz_source:
+                return _action_dict(action, "failed", "No TikZ source provided")
+
+            math_list = model_dict.get("math", [])
+            math_idx = next(
+                (i for i, m in enumerate(math_list) if m.get("id") == element_id),
+                None,
+            )
+            if math_idx is None:
+                return _action_dict(action, "failed", f"Math element not found: {element_id}")
+
+            # Load prompt
+            prompt_path = Path(__file__).parent.parent / "prompts" / "tikz_description.md"
+            if prompt_path.exists():
+                prompt_template = prompt_path.read_text(encoding="utf-8")
+            else:
+                prompt_template = (
+                    "Describe this TikZ diagram thoroughly for a blind student. "
+                    "Include all nodes, edges, labels, and relationships.\n\n"
+                    "TikZ source:\n{tikz_source}"
+                )
+            prompt = prompt_template.replace("{tikz_source}", tikz_source)
+
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                return _action_dict(action, "failed", "ANTHROPIC_API_KEY not set — keeping placeholder")
+
+            try:
+                from anthropic import Anthropic
+                client = Anthropic(api_key=api_key)
+                response = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                description = response.content[0].text.strip()
+                model_dict["math"][math_idx]["description"] = description
+                return _action_dict(action, "executed", f"TikZ described: {description[:80]}")
+            except Exception as e:
+                logger.warning("TikZ description failed for %s: %s", element_id, e)
+                return _action_dict(action, "failed", f"Claude API failed: {e}")
+
         elif action_type == "fix_all_contrast":
             # For PDFs, check each run's color against background and fix if needed
             default_bg = params.get("default_bg", "#FFFFFF")

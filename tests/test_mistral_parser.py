@@ -1,9 +1,14 @@
 """Tests for Mistral OCR markdown-to-DocumentModel parser."""
 
+import json
+from pathlib import Path
+
 import pytest
 
-from src.tools.mistral_ocr import parse_page_markdown
+from src.tools.mistral_ocr import parse_page_markdown, stitch_pages
 from src.models.document import ContentType
+
+EVAL_DIR = Path(__file__).parent.parent / "testdocs" / "output" / "mistral_ocr_eval"
 
 
 class TestHeadingParsing:
@@ -137,3 +142,111 @@ class TestIDOffsets:
     def test_link_offset(self):
         _, _, links, _ = parse_page_markdown("A [link](http://x.com).", page_index=0, link_offset=7)
         assert links[0].id == "ocr_link_7"
+
+
+class TestMultiPageStitching:
+    def test_ids_sequential_across_pages(self):
+        pages_md = ["# Title\n\nParagraph one.", "## Section\n\nParagraph two."]
+        paras, tables, links, order = stitch_pages(pages_md, page_tables=[None, None])
+        ids = [p.id for p in paras]
+        assert ids == ["ocr_p_0", "ocr_p_1", "ocr_p_2", "ocr_p_3"]
+
+    def test_page_numbers_correct(self):
+        pages_md = ["Text on page 0.", "Text on page 1."]
+        paras, tables, links, order = stitch_pages(pages_md, page_tables=[None, None])
+        assert paras[0].page_number == 0
+        assert paras[1].page_number == 1
+
+    def test_table_ids_sequential_across_pages(self):
+        pages_md = ["| A |\n|---|\n| 1 |", "| B |\n|---|\n| 2 |"]
+        paras, tables, links, order = stitch_pages(pages_md, page_tables=[None, None])
+        assert tables[0].id == "ocr_tbl_0"
+        assert tables[1].id == "ocr_tbl_1"
+
+    def test_empty_page_skipped(self):
+        pages_md = ["Content.", "", "More content."]
+        paras, tables, links, order = stitch_pages(pages_md, page_tables=[None, None, None])
+        assert len(paras) == 2
+
+
+@pytest.mark.skipif(
+    not (EVAL_DIR / "page_1.md").exists(),
+    reason="Mistral eval output not available",
+)
+class TestMayerEndToEnd:
+    def test_page1_title_and_abstract(self):
+        md = (EVAL_DIR / "page_1.md").read_text()
+        paras, tables, links, order = parse_page_markdown(md, page_index=0)
+        headings = [p for p in paras if p.heading_level is not None]
+        assert len(headings) >= 1
+        assert headings[0].heading_level == 1
+        assert "Learners as Information Processors" in headings[0].text
+        assert len(paras) >= 3  # title + abstract + body
+
+    def test_page6_table3_found(self):
+        """Table 3 is the one the hybrid pipeline misses."""
+        md = (EVAL_DIR / "page_6.md").read_text()
+        with open(EVAL_DIR / "full_response.json") as f:
+            data = json.load(f)
+        page_data = data["pages"][5]  # 0-indexed
+        tables_data = page_data.get("tables") or []
+        paras, tables, links, order = parse_page_markdown(
+            md, page_index=5, tables=[
+                {"content": t["content"], "id": t["id"]} for t in tables_data
+            ],
+        )
+        assert len(tables) >= 1
+        assert tables[0].header_row_count == 1
+        assert tables[0].col_count >= 3
+
+    def test_page6_headings(self):
+        md = (EVAL_DIR / "page_6.md").read_text()
+        paras, tables, links, order = parse_page_markdown(md, page_index=5)
+        headings = [p for p in paras if p.heading_level is not None]
+        heading_texts = [h.text for h in headings]
+        assert "Literal Interpretation of Information Processing" in heading_texts
+        assert "Constructivist Interpretation of Information Processing" in heading_texts
+
+    def test_page10_no_recitation_loss(self):
+        """Page 10 triggers RECITATION in Gemini — Mistral should get full text."""
+        md = (EVAL_DIR / "page_10.md").read_text()
+        paras, tables, links, order = parse_page_markdown(md, page_index=9)
+        total_chars = sum(len(p.text) for p in paras)
+        assert total_chars > 3000
+        headings = [p for p in paras if p.heading_level is not None]
+        heading_texts = [h.text for h in headings]
+        assert "The Critical Path" in heading_texts
+        assert "ACKNOWLEDGMENTS" in heading_texts
+        assert "REFERENCES" in heading_texts
+
+    def test_all_11_pages_stitched(self):
+        """Parse all 11 pages and verify sequential IDs."""
+        with open(EVAL_DIR / "full_response.json") as f:
+            data = json.load(f)
+        pages_md = [p["markdown"] for p in data["pages"]]
+        page_tables = []
+        for p in data["pages"]:
+            tbls = p.get("tables") or []
+            if tbls:
+                page_tables.append([
+                    {"content": t["content"], "id": t["id"]} for t in tbls
+                ])
+            else:
+                page_tables.append(None)
+
+        paras, tables, links, order = stitch_pages(pages_md, page_tables)
+
+        assert len(paras) >= 50
+        assert len(tables) >= 4
+
+        # IDs sequential
+        para_ids = [int(p.id.split("_")[-1]) for p in paras]
+        assert para_ids == list(range(len(paras)))
+        table_ids = [int(t.id.split("_")[-1]) for t in tables]
+        assert table_ids == list(range(len(tables)))
+
+        # Content order covers everything
+        para_in_order = [o for o in order if o.content_type == ContentType.PARAGRAPH]
+        table_in_order = [o for o in order if o.content_type == ContentType.TABLE]
+        assert len(para_in_order) == len(paras)
+        assert len(table_in_order) == len(tables)

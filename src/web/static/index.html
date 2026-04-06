@@ -1472,6 +1472,13 @@
       font-size: 1.05rem;
       font-weight: 500;
       color: var(--text);
+      flex: 1;
+    }
+
+    .btn-report-download {
+      font-size: 0.8rem;
+      margin-right: 0.75rem;
+      text-decoration: none;
     }
 
     .modal-close {
@@ -2977,6 +2984,7 @@
   <div class="modal">
     <div class="modal-header">
       <h2 id="reportTitle">Compliance Report</h2>
+      <a id="reportDownload" class="btn btn-report-download" download>Download</a>
       <button class="modal-close" onclick="closeReport()" aria-label="Close report">&times;</button>
     </div>
     <div class="modal-body">
@@ -3758,7 +3766,12 @@ function buildActions(job) {
 
 function viewReport(jobId, filename) {
   document.getElementById('reportTitle').textContent = `Report — ${filename}`;
-  document.getElementById('reportFrame').src = `${API}/api/jobs/${jobId}/report`;
+  const reportUrl = `${API}/api/jobs/${jobId}/report`;
+  document.getElementById('reportFrame').src = reportUrl;
+  const dl = document.getElementById('reportDownload');
+  dl.href = reportUrl;
+  const safeName = filename.replace(/\.[^.]+$/, '') + '_report.html';
+  dl.download = safeName;
   document.getElementById('reportModal').classList.add('active');
 }
 

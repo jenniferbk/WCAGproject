@@ -33,6 +33,7 @@ from src.tools.latex_parser import parse_latex
 from src.tools.pdf_parser import parse_pdf
 from src.tools.pptx_parser import parse_pptx
 from src.tools.report_generator import generate_report_html
+from src.tools.mistral_ocr import process_scanned_pages_mistral
 from src.tools.scanned_page_ocr import ScannedPageResult, process_scanned_pages
 from src.tools.validator import format_report, validate_document
 from src.tools.visual_qa import run_visual_qa
@@ -426,6 +427,8 @@ def process(
     # before comprehension so the rest of the pipeline sees paragraphs,
     # not image placeholders.
     ocr_usage: list = []
+    ocr_result = None
+    mistral_result = None
     if suffix == ".pdf" and hasattr(parse_result, "scanned_page_numbers") and parse_result.scanned_page_numbers:
         n_scanned = len(parse_result.scanned_page_numbers)
         logger.info("Detected %d scanned page(s) — running OCR", n_scanned)
@@ -443,12 +446,51 @@ def process(
                 parts.append(request.course_context.description)
             course_ctx = " — ".join(parts)
 
-        ocr_result = process_scanned_pages(
-            pdf_path=doc_path,
-            scanned_page_numbers=parse_result.scanned_page_numbers,
-            course_context=course_ctx,
-            on_progress=lambda detail: on_phase("ocr", detail) if on_phase else None,
-        )
+        import concurrent.futures
+        import os
+
+        mistral_api_key = os.environ.get("MISTRAL_API_KEY")
+
+        if mistral_api_key:
+            # Run both OCR pipelines concurrently
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                hybrid_future = pool.submit(
+                    process_scanned_pages,
+                    pdf_path=doc_path,
+                    scanned_page_numbers=parse_result.scanned_page_numbers,
+                    course_context=course_ctx,
+                    on_progress=lambda detail: on_phase("ocr", detail) if on_phase else None,
+                )
+                mistral_future = pool.submit(
+                    process_scanned_pages_mistral,
+                    pdf_path=Path(doc_path),
+                    scanned_page_numbers=parse_result.scanned_page_numbers,
+                )
+
+                ocr_result = hybrid_future.result()
+
+                try:
+                    mistral_result = mistral_future.result()
+                    if mistral_result.success:
+                        logger.info(
+                            "Mistral OCR: %d paragraphs, %d tables from %d pages",
+                            len(mistral_result.paragraphs),
+                            len(mistral_result.tables),
+                            len(mistral_result.pages_processed),
+                        )
+                    else:
+                        logger.warning("Mistral OCR failed (non-fatal): %s", mistral_result.error)
+                        mistral_result = None
+                except Exception as e:
+                    logger.warning("Mistral OCR failed (non-fatal): %s", e)
+                    mistral_result = None
+        else:
+            ocr_result = process_scanned_pages(
+                pdf_path=doc_path,
+                scanned_page_numbers=parse_result.scanned_page_numbers,
+                course_context=course_ctx,
+                on_progress=lambda detail: on_phase("ocr", detail) if on_phase else None,
+            )
 
         if ocr_result.success and (ocr_result.paragraphs or ocr_result.tables):
             doc_model = _merge_ocr_into_model(
@@ -692,6 +734,8 @@ def process(
             final_result,
             visual_qa_findings=visual_qa_findings,
             output_dir=output_dir,
+            hybrid_ocr_result=ocr_result if ocr_result else None,
+            mistral_ocr_result=mistral_result,
         )
         report_path.write_text(report_html)
         final_result = RemediationResult(

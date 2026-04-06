@@ -224,6 +224,16 @@ _PACKAGE_ARGS_NOISE = re.compile(
     r"(?:automata|positioning|plain|auto|grid|[,\s])*$"
 )
 
+# Leaked lstset/lstdefinestyle key-value blocks
+# e.g., "frame=single, rulecolor=, numbers=left, numbersep=8pt, ..."
+_LSTSET_NOISE = re.compile(
+    r"^(?:frame|rulecolor|numbers|numbersep|numberstyle|commentstyle|"
+    r"basicstyle|keywordstyle|showstringspaces|xleftmargin|framexleftmargin|"
+    r"breaklines|postbreak|stringstyle|identifierstyle|tabsize|"
+    r"backgroundcolor|captionpos|escapeinside|language|style)"
+    r"\s*=",
+)
+
 
 def _clean_paragraph_noise(text: str) -> str:
     """Remove leaked LaTeX noise patterns from paragraph text.
@@ -233,6 +243,9 @@ def _clean_paragraph_noise(text: str) -> str:
     """
     # Strip \extramarks noise
     cleaned = _EXTRAMARKS_NOISE.sub("", text)
+    # Strip entire text if it's a leaked lstset/lstdefinestyle block
+    if _LSTSET_NOISE.match(cleaned.strip()):
+        return ""
     # Strip lines that are just package arguments
     lines = []
     for line in cleaned.split("\n"):

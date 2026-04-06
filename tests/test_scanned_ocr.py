@@ -33,6 +33,7 @@ from src.tools.scanned_page_ocr import (
     _rescue_missed_tables,
     _sort_regions_by_column,
     _stitch_page_results,
+    _tesseract_extract_blocks,
 )
 
 
@@ -1787,3 +1788,194 @@ class TestEnhancedTesseractFallback:
         # The real validation is the e2e test on Mayer.
         from src.tools.scanned_page_ocr import _tesseract_fallback
         assert callable(_tesseract_fallback)
+
+
+def _make_tess_data(**overrides):
+    """Build a minimal pytesseract image_to_data DICT with one word per entry.
+
+    Callers pass lists for each key; all lists must have the same length.
+    Defaults produce a single word block with reasonable values.
+    """
+    defaults = {
+        "text":      ["Hello"],
+        "conf":      [90],
+        "block_num": [1],
+        "left":      [10],
+        "top":       [20],
+        "width":     [50],
+        "height":    [15],
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def _make_mock_doc_page(tess_data: dict, page_width: int = 800):
+    """Return (mock_doc, mock_pytesseract_module) ready for patching.
+
+    mock_doc[page_number] returns a page whose get_pixmap() has .tobytes() and .width.
+    """
+    import io
+    from unittest.mock import MagicMock
+
+    # Minimal valid PNG bytes (1×1 white pixel)
+    _PNG_1X1 = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+        b"\x00\x11\x00\x01\x9a`\x01\x97\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    pix = MagicMock()
+    pix.tobytes.return_value = _PNG_1X1
+    pix.width = page_width
+
+    page = MagicMock()
+    page.get_pixmap.return_value = pix
+
+    doc = MagicMock()
+    doc.__getitem__ = MagicMock(return_value=page)
+
+    mock_tess = MagicMock()
+    mock_tess.Output.DICT = "dict"
+    mock_tess.image_to_data.return_value = tess_data
+
+    return doc, mock_tess
+
+
+class TestTesseractExtractBlocks:
+    """Tests for _tesseract_extract_blocks() raw block extraction."""
+
+    def _call(self, doc, mock_tess, page_number=0, dpi=300):
+        """Invoke _tesseract_extract_blocks with pytesseract patched."""
+        with patch.dict("sys.modules", {"pytesseract": mock_tess, "PIL": MagicMock(), "PIL.Image": MagicMock()}):
+            with patch("builtins.__import__", side_effect=lambda name, *a, **kw: mock_tess if name == "pytesseract" else __import__(name, *a, **kw)):
+                # Use a direct patch on the module namespace instead
+                pass
+        # Patch pytesseract at the point of lazy import inside the function
+        import sys
+        orig = sys.modules.get("pytesseract")
+        sys.modules["pytesseract"] = mock_tess
+        # Also patch PIL.Image
+        pil_mock = MagicMock()
+        pil_mock.open.return_value = MagicMock()
+        orig_pil = sys.modules.get("PIL")
+        orig_pil_image = sys.modules.get("PIL.Image")
+        sys.modules["PIL"] = pil_mock
+        sys.modules["PIL.Image"] = pil_mock
+        try:
+            result = _tesseract_extract_blocks(doc, page_number, dpi)
+        finally:
+            if orig is None:
+                sys.modules.pop("pytesseract", None)
+            else:
+                sys.modules["pytesseract"] = orig
+            if orig_pil is None:
+                sys.modules.pop("PIL", None)
+            else:
+                sys.modules["PIL"] = orig_pil
+            if orig_pil_image is None:
+                sys.modules.pop("PIL.Image", None)
+            else:
+                sys.modules["PIL.Image"] = orig_pil_image
+        return result
+
+    def test_returns_blocks_with_id_text_bbox(self):
+        """Groups words into blocks by block_num, returns id/text/bbox dicts."""
+        data = _make_tess_data(
+            text=["Hello", "world"],
+            conf=[90, 85],
+            block_num=[1, 1],
+            left=[10, 70],
+            top=[20, 20],
+            width=[50, 60],
+            height=[15, 15],
+        )
+        doc, mock_tess = _make_mock_doc_page(data)
+        blocks = self._call(doc, mock_tess)
+
+        assert len(blocks) == 1
+        b = blocks[0]
+        assert b["id"] == 0
+        assert b["text"] == "Hello world"
+        # bbox is [left, top, width, height]
+        assert len(b["bbox"]) == 4
+        assert b["bbox"][0] == 10   # leftmost x
+        assert b["bbox"][1] == 20   # topmost y
+
+    def test_filters_low_confidence_words(self):
+        """Words with conf < 20 are excluded; block with no remaining words is dropped."""
+        data = _make_tess_data(
+            text=["Good", "Bad"],
+            conf=[80, 10],       # "Bad" below threshold
+            block_num=[1, 1],
+            left=[10, 70],
+            top=[20, 20],
+            width=[50, 40],
+            height=[15, 15],
+        )
+        doc, mock_tess = _make_mock_doc_page(data)
+        blocks = self._call(doc, mock_tess)
+
+        assert len(blocks) == 1
+        assert "Bad" not in blocks[0]["text"]
+        assert "Good" in blocks[0]["text"]
+
+    def test_filters_low_confidence_words_drops_block(self):
+        """A block whose only word has conf < 20 is not returned at all."""
+        data = _make_tess_data(
+            text=["Junk"],
+            conf=[5],
+            block_num=[1],
+            left=[10],
+            top=[20],
+            width=[50],
+            height=[15],
+        )
+        doc, mock_tess = _make_mock_doc_page(data)
+        blocks = self._call(doc, mock_tess)
+        assert blocks == []
+
+    def test_filters_short_fragments(self):
+        """Blocks whose assembled text is shorter than 3 chars are excluded."""
+        data = _make_tess_data(
+            text=["Hi"],       # 2 chars — too short
+            conf=[90],
+            block_num=[1],
+            left=[10],
+            top=[20],
+            width=[20],
+            height=[15],
+        )
+        doc, mock_tess = _make_mock_doc_page(data)
+        blocks = self._call(doc, mock_tess)
+        assert blocks == []
+
+    def test_filters_leaked_headers_footers(self):
+        """Blocks matching header/footer pattern (e.g. '158 MAYER') are excluded."""
+        # "158 MAYER" matches the page-number + ALL CAPS author pattern
+        data = _make_tess_data(
+            text=["158", "MAYER"],
+            conf=[95, 95],
+            block_num=[1, 1],
+            left=[10, 50],
+            top=[5, 5],
+            width=[30, 60],
+            height=[12, 12],
+        )
+        doc, mock_tess = _make_mock_doc_page(data)
+        blocks = self._call(doc, mock_tess)
+        assert blocks == []
+
+    def test_empty_page_returns_empty_list(self):
+        """If pytesseract returns no words, result is an empty list."""
+        data = _make_tess_data(
+            text=[],
+            conf=[],
+            block_num=[],
+            left=[],
+            top=[],
+            width=[],
+            height=[],
+        )
+        doc, mock_tess = _make_mock_doc_page(data)
+        blocks = self._call(doc, mock_tess)
+        assert blocks == []

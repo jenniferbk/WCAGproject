@@ -715,6 +715,120 @@ def _is_leaked_header_footer(text: str) -> bool:
     return False
 
 
+def _tesseract_extract_blocks(
+    doc: fitz.Document,
+    page_number: int,
+    dpi: int = PAGE_DPI,
+) -> list[dict]:
+    """Run Tesseract on a page and return raw block dicts.
+
+    Groups words by ``block_num``, filters noise, and returns one dict per
+    surviving block in the order Tesseract produced them.
+
+    Each returned dict has the shape::
+
+        {
+            "id":   int,            # sequential 0-based index
+            "text": str,            # joined word text for the block
+            "bbox": [x, y, w, h],  # left, top, width, height in pixels
+        }
+
+    Filtering applied:
+    - Words with conf < 20 are excluded (low-confidence OCR noise).
+    - Blocks whose assembled text is < 3 chars are excluded (single chars /
+      punctuation fragments).
+    - Blocks matching :func:`_is_leaked_header_footer` are excluded.
+
+    Args:
+        doc: Open PyMuPDF document.
+        page_number: 0-based page index.
+        dpi: Render resolution; defaults to ``PAGE_DPI`` (300).
+
+    Returns:
+        List of block dicts, possibly empty on failure or blank page.
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+        import io
+    except ImportError:
+        logger.warning("pytesseract or Pillow not installed — cannot use Tesseract extraction")
+        return []
+
+    try:
+        page = doc[page_number]
+        pix = page.get_pixmap(dpi=dpi)
+        img_bytes = pix.tobytes("png")
+        img = Image.open(io.BytesIO(img_bytes))
+
+        data = pytesseract.image_to_data(img, lang="eng", output_type=pytesseract.Output.DICT)
+
+        if not data or not data.get("text"):
+            return []
+
+        # Group high-confidence words into blocks keyed by block_num.
+        # Track bounding box extents per block.
+        raw_blocks: dict[int, dict] = {}
+
+        for i in range(len(data["text"])):
+            word = data["text"][i].strip()
+            conf_raw = data["conf"][i]
+            conf = int(conf_raw) if conf_raw != "-1" else 0
+            if not word or conf < 20:
+                continue
+
+            block_num = data["block_num"][i]
+            left = data["left"][i]
+            top = data["top"][i]
+            width = data["width"][i]
+            height = data["height"][i]
+
+            if block_num not in raw_blocks:
+                raw_blocks[block_num] = {
+                    "words": [],
+                    "min_left": left,
+                    "min_top": top,
+                    "max_right": left + width,
+                    "max_bottom": top + height,
+                }
+            b = raw_blocks[block_num]
+            b["words"].append(word)
+            b["min_left"] = min(b["min_left"], left)
+            b["min_top"] = min(b["min_top"], top)
+            b["max_right"] = max(b["max_right"], left + width)
+            b["max_bottom"] = max(b["max_bottom"], top + height)
+
+        if not raw_blocks:
+            return []
+
+        result: list[dict] = []
+        idx = 0
+        for _block_num, b in sorted(raw_blocks.items()):
+            text = " ".join(b["words"])
+
+            # Filter short fragments (page numbers, stray punctuation, artefacts)
+            if len(text) < 3:
+                continue
+
+            # Filter leaked headers/footers
+            if _is_leaked_header_footer(text):
+                continue
+
+            x = b["min_left"]
+            y = b["min_top"]
+            w = b["max_right"] - b["min_left"]
+            h = b["max_bottom"] - b["min_top"]
+
+            result.append({"id": idx, "text": text, "bbox": [x, y, w, h]})
+            idx += 1
+
+        return result
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("_tesseract_extract_blocks failed on page %d: %s", page_number, exc)
+        return []
+
+
 def _is_garbled_text(text: str, threshold: float = 0.15) -> bool:
     """Detect garbled OCR output that should be retried or discarded.
 

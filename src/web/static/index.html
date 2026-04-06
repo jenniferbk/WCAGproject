@@ -2639,7 +2639,7 @@
         </span>
         <span class="welcome-pill">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          3 formats
+          5 formats
         </span>
         <span class="welcome-pill">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -2694,17 +2694,31 @@
             <text x="24" y="44" text-anchor="middle" fill="white" font-size="7" font-weight="700" font-family="system-ui">PPTX</text>
             <path d="M14 14h20M14 20h16M14 26h12" stroke="#E65100" stroke-width="2" stroke-linecap="round"/>
           </svg>
+          <!-- TEX icon -->
+          <svg class="upload-file-icon" viewBox="0 0 48 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="44" height="52" rx="4" fill="#E8F5E9" stroke="#2E7D32" stroke-width="2"/>
+            <rect x="10" y="36" width="28" height="10" rx="2" fill="#2E7D32"/>
+            <text x="24" y="44" text-anchor="middle" fill="white" font-size="7" font-weight="700" font-family="system-ui">TEX</text>
+            <path d="M14 14h20M14 20h16M14 26h12" stroke="#2E7D32" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <!-- ZIP icon -->
+          <svg class="upload-file-icon" viewBox="0 0 48 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="44" height="52" rx="4" fill="#F3E5F5" stroke="#7B1FA2" stroke-width="2"/>
+            <rect x="10" y="36" width="28" height="10" rx="2" fill="#7B1FA2"/>
+            <text x="24" y="44" text-anchor="middle" fill="white" font-size="7" font-weight="700" font-family="system-ui">ZIP</text>
+            <path d="M14 14h20M14 20h16M14 26h12" stroke="#7B1FA2" stroke-width="2" stroke-linecap="round"/>
+          </svg>
         </div>
         <div class="upload-content">
           <div class="upload-title">Drop files here or click to upload</div>
-          <div class="upload-hint">.docx, .pdf, and .pptx files</div>
+          <div class="upload-hint">.docx, .pdf, .pptx, .tex, and .zip files</div>
           <div class="upload-meta">
             <span>Up to 20 MB</span>
             <span class="upload-meta-sep" aria-hidden="true">|</span>
             <span>Multiple files</span>
           </div>
         </div>
-        <input type="file" id="fileInput" accept=".docx,.pdf,.pptx" multiple
+        <input type="file" id="fileInput" accept=".docx,.pdf,.pptx,.tex,.ltx,.zip" multiple
                aria-label="Choose files to upload">
       </div>
     </div>

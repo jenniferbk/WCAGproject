@@ -3,8 +3,32 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: LaTeX + OCR fixes shipped, polish and table recognition next
-- **Tests**: 900 passing
+- **Phase**: Hybrid OCR shipped, table quality + Mistral evaluation next
+- **Tests**: 872 passing
+
+## What Was Shipped (2026-04-06 session — Hybrid OCR Architecture)
+
+### Three-Model Hybrid OCR
+- **Eliminated RECITATION failures** — all 11 Mayer pages now process successfully (was 9/11)
+- Tesseract extracts raw text blocks with bounding boxes (deterministic, no API dependency)
+- Gemini 2.5 Flash classifies structure only (headings, tables, figures, reading order, columns) — never reproduces text, so no RECITATION risk
+- Claude Haiku 4.5 corrects Tesseract OCR errors by comparing against page image — no copyright filter
+- Graceful fallback at every level: Gemini fails → heuristic classification, Haiku fails → uncorrected text, Tesseract fails → page fails
+- Removed ~1700 lines of old Gemini-only OCR code (retry chains, garble detection, half-page crops)
+- New prompts: `hybrid_ocr_structure.md` (Gemini), `hybrid_ocr_correction.md` (Haiku)
+- 872 tests passing, cost ~$0.08/document (was ~$0.02 but no RECITATION losses)
+- Mayer results: 91 paragraphs, 4 tables, Haiku corrected 24/124 blocks across 6 pages
+
+### Known Issues from Mayer Run
+- Table 3 (page 6) missing — Gemini structure classifier didn't extract it
+- Table 4 (page 7) has garbled cell text — Tesseract OCR errors in table cells not corrected by Haiku (Haiku only corrects text blocks, not table_data)
+- Table rescue pipeline may need adaptation to work with hybrid OCR output
+
+### Up Next
+1. **Table quality fixes** — improve Gemini table extraction in hybrid mode, consider running table rescue on Gemini-missed tables
+2. **Evaluate Mistral OCR 3** — $1/1K pages, purpose-built for document OCR with structure, potential single-model replacement
+3. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
+4. **Per-equation review in report** — for LaTeX docs, show rendered equation + description
 
 ## What Was Shipped (2026-04-05 session — OCR Fallback Improvements)
 

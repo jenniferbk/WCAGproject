@@ -235,6 +235,10 @@ def _process_single_page(
             corrected_blocks, structure, page_number,
             para_offset=0, table_offset=0, img_offset=0, pdf_doc=doc,
         )
+        # Correct table cell OCR errors via Haiku
+        if tables:
+            tables = _haiku_correct_table_cells(tables, doc, page_number)
+
         result.paragraphs = paras
         result.tables = tables
         result.figures = figures
@@ -945,6 +949,145 @@ def _haiku_correct_text(
     except Exception as e:
         logger.warning("Haiku OCR correction failed for page %d: %s", page_number + 1, e)
         return {}
+
+
+def _haiku_correct_table_cells(
+    tables: list[TableInfo],
+    doc: fitz.Document,
+    page_number: int,
+    dpi: int = PAGE_DPI,
+) -> list[TableInfo]:
+    """Send table cell texts to Claude Haiku for OCR correction.
+
+    Gemini extracts table_data directly from the page image, but its OCR
+    of cell contents can have errors. This function sends all cell texts
+    to Haiku with the page image for correction.
+
+    Returns a new list of TableInfo with corrected cell texts.
+    Returns the original tables unchanged on failure.
+    """
+    if not tables:
+        return tables
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return tables
+
+    # Collect all cell texts across all tables
+    cell_entries: list[dict] = []
+    idx = 0
+    for tbl_i, table in enumerate(tables):
+        for row_i, row in enumerate(table.rows):
+            for col_i, cell in enumerate(row):
+                if cell.text.strip():
+                    cell_entries.append({
+                        "id": idx,
+                        "text": cell.text,
+                        "table": tbl_i,
+                        "row": row_i,
+                        "col": col_i,
+                    })
+                    idx += 1
+
+    if not cell_entries:
+        return tables
+
+    try:
+        import base64
+
+        page = doc[page_number]
+        pix = page.get_pixmap(dpi=dpi)
+        png_bytes = pix.tobytes("png")
+        image_b64 = base64.standard_b64encode(png_bytes).decode("utf-8")
+
+        # Build a simple blocks list for the correction prompt
+        blocks_for_prompt = [{"id": e["id"], "text": e["text"]} for e in cell_entries]
+        blocks_json = json.dumps(blocks_for_prompt, ensure_ascii=False)
+
+        prompt = (
+            "You are an OCR correction tool. Below are table cell texts extracted "
+            "by OCR from the attached scanned page. Compare each cell against the "
+            "actual table visible in the image. Return corrections ONLY for cells "
+            "with errors. Common OCR errors: 'ftom'→'from', spurious periods "
+            "('to.research'→'to research'), wrong characters.\n\n"
+            "Return JSON: {\"corrections\": [{\"id\": 0, \"corrected_text\": \"...\"}]}\n"
+            "If all correct: {\"corrections\": []}\n\n"
+            f"CELLS:\n{blocks_json}"
+        )
+
+        client = Anthropic()
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": image_b64,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+
+        raw = response.content[0].text
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = parse_json_lenient(raw)
+
+        corrections: dict[int, str] = {}
+        for item in data.get("corrections", []):
+            cid = item.get("id")
+            corrected = item.get("corrected_text")
+            if cid is not None and corrected is not None:
+                corrections[int(cid)] = corrected
+
+        if not corrections:
+            logger.debug("Haiku: no table cell corrections needed for page %d", page_number + 1)
+            return tables
+
+        logger.info(
+            "Haiku corrected %d/%d table cells on page %d",
+            len(corrections), len(cell_entries), page_number + 1,
+        )
+
+        # Rebuild tables with corrected cells
+        corrected_tables: list[TableInfo] = []
+        for tbl_i, table in enumerate(tables):
+            new_rows: list[list[CellInfo]] = []
+            for row_i, row in enumerate(table.rows):
+                new_cells: list[CellInfo] = []
+                for col_i, cell in enumerate(row):
+                    # Find the matching entry
+                    match = next(
+                        (e for e in cell_entries
+                         if e["table"] == tbl_i and e["row"] == row_i and e["col"] == col_i),
+                        None,
+                    )
+                    if match and match["id"] in corrections:
+                        corrected_text = corrections[match["id"]]
+                        new_cells.append(CellInfo(
+                            text=corrected_text,
+                            paragraphs=[corrected_text],
+                            grid_span=cell.grid_span,
+                            v_merge=cell.v_merge,
+                        ))
+                    else:
+                        new_cells.append(cell)
+                new_rows.append(new_cells)
+            corrected_tables.append(table.model_copy(update={"rows": new_rows}))
+
+        return corrected_tables
+
+    except Exception as e:
+        logger.warning("Haiku table cell correction failed for page %d: %s", page_number + 1, e)
+        return tables
 
 
 # ── Hybrid block merging ──────────────────────────────────────────

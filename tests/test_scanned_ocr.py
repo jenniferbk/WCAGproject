@@ -28,6 +28,7 @@ from src.tools.scanned_page_ocr import (
     _haiku_correct_text,
     _heuristic_classify_blocks,
     _is_leaked_header_footer,
+    _haiku_correct_table_cells,
     _merge_blocks_and_structure,
     _process_single_page,
     _relative_to_pt,
@@ -1724,4 +1725,75 @@ class TestHeuristicClassifyBlocks:
     def test_empty_blocks_returns_empty(self):
         """Empty block list returns an empty list."""
         result = _heuristic_classify_blocks([], page_number=0, para_offset=0)
+        assert result == []
+
+
+class TestHaikuCorrectTableCells:
+    """Tests for _haiku_correct_table_cells()."""
+
+    def _make_mock_doc(self):
+        doc = MagicMock()
+        page = MagicMock()
+        doc.__getitem__ = MagicMock(return_value=page)
+        pix = MagicMock()
+        pix.tobytes.return_value = b"fake_png"
+        page.get_pixmap.return_value = pix
+        return doc
+
+    def _make_table(self, headers, rows, table_id="ocr_tbl_0"):
+        table_rows = []
+        if headers:
+            table_rows.append([CellInfo(text=h, paragraphs=[h]) for h in headers])
+        for row in rows:
+            table_rows.append([CellInfo(text=c, paragraphs=[c]) for c in row])
+        return TableInfo(
+            id=table_id,
+            rows=table_rows,
+            header_row_count=1 if headers else 0,
+            has_header_style=bool(headers),
+            row_count=len(table_rows),
+            col_count=len(headers) if headers else (len(rows[0]) if rows else 0),
+        )
+
+    @patch("src.tools.scanned_page_ocr.Anthropic")
+    def test_corrects_table_cells(self, mock_anthropic_cls):
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(
+            text='{"corrections": [{"id": 4, "corrected_text": "from research"}]}',
+            type="text",
+        )]
+        mock_response.usage = MagicMock(input_tokens=100, output_tokens=50)
+        mock_client.messages.create.return_value = mock_response
+
+        table = self._make_table(
+            headers=["Legacies", "Limitations"],
+            rows=[
+                ["Enabled rebirth", "Ignored affect"],
+                ["ftom research", "Rigid architecture"],
+            ],
+        )
+
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test"}):
+            result = _haiku_correct_table_cells([table], self._make_mock_doc(), page_number=6)
+
+        assert len(result) == 1
+        # Row 2 (index 2 in table_rows), col 0 should be corrected
+        assert result[0].rows[2][0].text == "from research"
+        # Others unchanged
+        assert result[0].rows[0][0].text == "Legacies"
+        assert result[0].rows[1][0].text == "Enabled rebirth"
+
+    def test_returns_original_without_api_key(self):
+        table = self._make_table(headers=["A"], rows=[["B"]])
+
+        with patch.dict("os.environ", {}, clear=True):
+            result = _haiku_correct_table_cells([table], self._make_mock_doc(), page_number=0)
+
+        assert result[0].rows[0][0].text == "A"
+
+    def test_empty_tables_returns_empty(self):
+        result = _haiku_correct_table_cells([], MagicMock(), page_number=0)
         assert result == []

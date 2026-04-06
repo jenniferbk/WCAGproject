@@ -553,6 +553,27 @@ def process(
         len(strategy.items_for_human_review),
     )
 
+    # ── Auto-generate TikZ description actions ─────────────────────
+    if hasattr(doc_model, "math") and doc_model.math:
+        tikz_actions = []
+        for math_info in doc_model.math:
+            if math_info.tikz_source:
+                tikz_actions.append(RemediationAction(
+                    element_id=math_info.id,
+                    action_type="describe_tikz",
+                    parameters={"tikz_source": math_info.tikz_source},
+                    wcag_criterion="1.1.1",
+                    description=f"Generate thorough description for TikZ diagram {math_info.id}",
+                ))
+        if tikz_actions:
+            logger.info("Added %d TikZ description action(s)", len(tikz_actions))
+            strategy = RemediationStrategy(
+                actions=tikz_actions + list(strategy.actions),
+                items_for_human_review=strategy.items_for_human_review,
+                strategy_summary=strategy.strategy_summary,
+                api_usage=strategy.api_usage,
+            )
+
     # ── Phase 3: Execute ────────────────────────────────────────────
     if on_phase:
         on_phase(

@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 from src.tools.scanned_page_ocr import (
     PageOCRResult,
     ScannedPageResult,
+    _apply_corrections,
     _collect_table_paragraphs,
     _find_garbled_pages,
     _find_table_captions,
@@ -29,6 +30,7 @@ from src.tools.scanned_page_ocr import (
     _integrate_page_data,
     _is_garbled_text,
     _is_leaked_header_footer,
+    _merge_blocks_and_structure,
     _process_single_page,
     _regions_to_model_objects,
     _relative_to_pt,
@@ -2194,6 +2196,211 @@ class TestHaikuCorrectText:
                 result = _haiku_correct_text(blocks, doc, page_number=0)
 
         assert result == {}
+
+
+# ── Tests for _apply_corrections ──────────────────────────────────
+
+
+class TestApplyCorrections:
+    """Tests for _apply_corrections()."""
+
+    def test_applies_corrections_to_matching_blocks(self):
+        """Corrections are applied to blocks whose id matches."""
+        blocks = [
+            {"id": 0, "text": "tbe learner", "bbox": [0, 0, 100, 20]},
+            {"id": 1, "text": "correct text", "bbox": [0, 30, 100, 20]},
+            {"id": 2, "text": "adn more", "bbox": [0, 60, 100, 20]},
+        ]
+        corrections = {0: "the learner", 2: "and more"}
+
+        result = _apply_corrections(blocks, corrections)
+
+        assert len(result) == 3
+        assert result[0]["text"] == "the learner"
+        assert result[1]["text"] == "correct text"  # unchanged
+        assert result[2]["text"] == "and more"
+
+    def test_empty_corrections_returns_blocks_unchanged(self):
+        """Empty corrections dict returns a copy of blocks with original text."""
+        blocks = [
+            {"id": 0, "text": "some text", "bbox": [0, 0, 100, 20]},
+            {"id": 1, "text": "more text", "bbox": [0, 30, 100, 20]},
+        ]
+        result = _apply_corrections(blocks, {})
+
+        assert len(result) == 2
+        assert result[0]["text"] == "some text"
+        assert result[1]["text"] == "more text"
+
+    def test_preserves_bbox_and_id(self):
+        """Corrected blocks keep original id and bbox unchanged."""
+        blocks = [
+            {"id": 5, "text": "wrng", "bbox": [10, 20, 200, 30]},
+        ]
+        corrections = {5: "wrong"}
+
+        result = _apply_corrections(blocks, corrections)
+
+        assert result[0]["id"] == 5
+        assert result[0]["bbox"] == [10, 20, 200, 30]
+        assert result[0]["text"] == "wrong"
+
+
+# ── Tests for _merge_blocks_and_structure ─────────────────────────
+
+
+class TestMergeBlocksAndStructure:
+    """Tests for _merge_blocks_and_structure()."""
+
+    _BLOCKS = [
+        {"id": 0, "text": "Introduction", "bbox": [10, 20, 200, 30]},
+        {"id": 1, "text": "This is body text.", "bbox": [10, 60, 400, 20]},
+        {"id": 2, "text": "More body text here.", "bbox": [10, 90, 400, 20]},
+    ]
+
+    def test_heading_region(self):
+        """Heading region creates ParagraphInfo with correct style, level, and bold run."""
+        structure = {
+            "regions": [
+                {
+                    "block_ids": [0],
+                    "type": "heading",
+                    "heading_level": 2,
+                    "bold": True,
+                    "font_size_relative": "large",
+                    "reading_order": 1,
+                },
+            ]
+        }
+        paras, tables, figures = _merge_blocks_and_structure(
+            self._BLOCKS, structure, page_number=0,
+            para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 1
+        assert paras[0].text == "Introduction"
+        assert paras[0].heading_level == 2
+        assert paras[0].style_name == "Heading 2"
+        assert paras[0].runs[0].bold is True
+        assert len(tables) == 0
+        assert len(figures) == 0
+
+    def test_paragraph_region_merges_blocks(self):
+        """Multiple block_ids are concatenated into a single paragraph."""
+        structure = {
+            "regions": [
+                {
+                    "block_ids": [1, 2],
+                    "type": "paragraph",
+                    "reading_order": 1,
+                },
+            ]
+        }
+        paras, tables, figures = _merge_blocks_and_structure(
+            self._BLOCKS, structure, page_number=3,
+            para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 1
+        assert "This is body text." in paras[0].text
+        assert "More body text here." in paras[0].text
+        assert paras[0].page_number == 3
+
+    def test_table_region(self):
+        """table_data → TableInfo with header row and data rows."""
+        blocks = [{"id": 0, "text": "table text", "bbox": [0, 0, 100, 100]}]
+        structure = {
+            "regions": [
+                {
+                    "block_ids": [0],
+                    "type": "table",
+                    "reading_order": 1,
+                    "table_data": {
+                        "headers": ["Name", "Score"],
+                        "rows": [["Alice", "95"], ["Bob", "87"]],
+                    },
+                },
+            ]
+        }
+        paras, tables, figures = _merge_blocks_and_structure(
+            blocks, structure, page_number=1,
+            para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(tables) == 1
+        tbl = tables[0]
+        assert tbl.header_row_count == 1
+        assert tbl.row_count == 3  # 1 header + 2 data
+        assert tbl.col_count == 2
+        assert tbl.rows[0][0].text == "Name"
+        assert tbl.rows[1][0].text == "Alice"
+        assert tbl.rows[2][1].text == "87"
+        assert tbl.id == "ocr_tbl_0"
+
+    def test_figure_region(self):
+        """figure_description → ImageInfo with alt_text."""
+        blocks = [{"id": 0, "text": "", "bbox": [0, 0, 500, 400]}]
+        structure = {
+            "regions": [
+                {
+                    "block_ids": [0],
+                    "type": "figure",
+                    "figure_description": "A bar chart showing student performance.",
+                    "reading_order": 1,
+                },
+            ]
+        }
+        paras, tables, figures = _merge_blocks_and_structure(
+            blocks, structure, page_number=2,
+            para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(figures) == 1
+        assert figures[0].alt_text == "A bar chart showing student performance."
+        assert figures[0].page_number == 2
+        assert figures[0].is_decorative is False
+        assert figures[0].id == "ocr_img_0"
+
+    def test_page_header_footer_skipped(self):
+        """page_header and page_footer regions are excluded from output."""
+        blocks = [
+            {"id": 0, "text": "Journal of Ed", "bbox": [0, 0, 400, 20]},
+            {"id": 1, "text": "Body paragraph content.", "bbox": [0, 50, 400, 20]},
+            {"id": 2, "text": "Page 7", "bbox": [0, 780, 400, 20]},
+        ]
+        structure = {
+            "regions": [
+                {"block_ids": [0], "type": "page_header", "reading_order": 1},
+                {"block_ids": [1], "type": "paragraph", "reading_order": 2},
+                {"block_ids": [2], "type": "page_footer", "reading_order": 3},
+            ]
+        }
+        paras, tables, figures = _merge_blocks_and_structure(
+            blocks, structure, page_number=6,
+            para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 1
+        assert paras[0].text == "Body paragraph content."
+
+    def test_reading_order_respected(self):
+        """Regions are output in ascending reading_order regardless of list order."""
+        blocks = [
+            {"id": 0, "text": "First heading", "bbox": [0, 0, 200, 20]},
+            {"id": 1, "text": "Second paragraph.", "bbox": [0, 30, 400, 20]},
+            {"id": 2, "text": "Third paragraph.", "bbox": [0, 60, 400, 20]},
+        ]
+        structure = {
+            "regions": [
+                # Deliberately out of order in the list
+                {"block_ids": [2], "type": "paragraph", "reading_order": 3},
+                {"block_ids": [0], "type": "heading", "heading_level": 1, "reading_order": 1},
+                {"block_ids": [1], "type": "paragraph", "reading_order": 2},
+            ]
+        }
+        paras, tables, figures = _merge_blocks_and_structure(
+            blocks, structure, page_number=0,
+            para_offset=0, table_offset=0, img_offset=0,
+        )
+        assert len(paras) == 3
+        assert paras[0].text == "First heading"
+        assert paras[1].text == "Second paragraph."
+        assert paras[2].text == "Third paragraph."
 
 
 class TestHeuristicClassifyBlocks:

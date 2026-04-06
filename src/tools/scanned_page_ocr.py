@@ -2023,3 +2023,317 @@ def _haiku_correct_text(
     except Exception as e:
         logger.warning("Haiku OCR correction failed for page %d: %s", page_number + 1, e)
         return {}
+
+
+# ── Hybrid block merging ──────────────────────────────────────────
+
+
+def _apply_corrections(blocks: list[dict], corrections: dict[int, str]) -> list[dict]:
+    """Apply Haiku text corrections to Tesseract blocks.
+
+    For each block, if its ``id`` appears in ``corrections``, replace the
+    ``text`` field with the corrected version.  All other fields (``id``,
+    ``bbox``) are preserved unchanged.
+
+    Args:
+        blocks: List of block dicts as returned by :func:`_tesseract_extract_blocks`.
+            Each dict has ``id``, ``text``, and ``bbox`` keys.
+        corrections: Mapping of ``{block_id: corrected_text}`` as returned by
+            :func:`_haiku_correct_text`.  May be empty.
+
+    Returns:
+        New list of block dicts with corrected text where available.
+        Blocks absent from ``corrections`` are returned unchanged.
+    """
+    if not corrections:
+        return list(blocks)
+
+    result: list[dict] = []
+    for block in blocks:
+        block_id = block.get("id")
+        if block_id is not None and block_id in corrections:
+            result.append({**block, "text": corrections[block_id]})
+        else:
+            result.append(block)
+    return result
+
+
+def _merge_blocks_and_structure(
+    blocks: list[dict],
+    structure: dict,
+    page_number: int,
+    para_offset: int,
+    table_offset: int,
+    img_offset: int,
+    pdf_doc: fitz.Document | None = None,
+) -> tuple[list[ParagraphInfo], list[TableInfo], list[ImageInfo]]:
+    """Combine corrected Tesseract blocks with Gemini structural annotations.
+
+    Takes the ``structure`` dict returned by :func:`_gemini_classify_structure`
+    (which has a ``"regions"`` key), looks up the text for each region's
+    ``block_ids`` from the ``blocks`` lookup, then creates
+    :class:`ParagraphInfo`, :class:`TableInfo`, or :class:`ImageInfo` objects.
+
+    Processing order:
+    1. Build a ``{id: block}`` lookup from ``blocks``.
+    2. Sort regions by ``reading_order``.
+    3. For each region, assemble text by joining text from referenced
+       ``block_ids`` (space-separated).  Skip page_header/page_footer regions
+       and text that matches :func:`_is_leaked_header_footer`.
+    4. Create the appropriate model object based on region type, mirroring
+       the logic in :func:`_regions_to_model_objects`.
+
+    Args:
+        blocks: Corrected block list (output of :func:`_apply_corrections`).
+        structure: Dict with a ``"regions"`` key as returned by
+            :func:`_gemini_classify_structure`.
+        page_number: 0-based page number for the created model objects.
+        para_offset: Starting index for paragraph IDs (``ocr_p_{N}``).
+        table_offset: Starting index for table IDs (``ocr_tbl_{N}``).
+        img_offset: Starting index for image IDs (``ocr_img_{N}``).
+        pdf_doc: Optional open PyMuPDF document for figure image extraction.
+
+    Returns:
+        Tuple of ``(paragraphs, tables, figures)``.
+    """
+    blocks_by_id: dict[int, dict] = {b["id"]: b for b in blocks}
+
+    regions = structure.get("regions", [])
+    regions = sorted(regions, key=lambda r: r.get("reading_order", 0))
+
+    paragraphs: list[ParagraphInfo] = []
+    tables: list[TableInfo] = []
+    figures: list[ImageInfo] = []
+
+    para_idx = 0
+    tbl_idx = 0
+    fig_idx = 0
+
+    for region in regions:
+        region_type = region.get("type", "")
+
+        # Skip nav/structural elements we don't want in the document body
+        if region_type in ("page_header", "page_footer"):
+            continue
+
+        # Assemble text from referenced block IDs
+        block_ids = region.get("block_ids", [])
+        text_parts = []
+        for bid in block_ids:
+            b = blocks_by_id.get(bid)
+            if b and b.get("text", "").strip():
+                text_parts.append(b["text"].strip())
+        text = " ".join(text_parts).strip()
+
+        # Filter leaked headers/footers that Gemini misclassified
+        if text and region_type not in ("table", "figure") and _is_leaked_header_footer(text):
+            logger.debug("_merge_blocks_and_structure: filtered leaked header/footer: %r", text[:80])
+            continue
+
+        if region_type == "heading":
+            level = region.get("heading_level", 2)
+            level = max(1, min(6, level))  # clamp to 1-6
+            if not text:
+                continue
+            paragraphs.append(ParagraphInfo(
+                id=f"ocr_p_{para_offset + para_idx}",
+                text=text,
+                style_name=f"Heading {level}",
+                heading_level=level,
+                runs=[RunInfo(
+                    text=text,
+                    bold=True,
+                    font_size_pt=_relative_to_pt(region.get("font_size_relative", "large")),
+                )],
+                page_number=page_number,
+            ))
+            para_idx += 1
+
+        elif region_type == "paragraph":
+            if not text:
+                continue
+            bold = region.get("bold", False)
+            italic = region.get("italic", False)
+            paragraphs.append(ParagraphInfo(
+                id=f"ocr_p_{para_offset + para_idx}",
+                text=text,
+                style_name="Normal",
+                runs=[RunInfo(
+                    text=text,
+                    bold=bold if bold else None,
+                    italic=italic if italic else None,
+                    font_size_pt=_relative_to_pt(region.get("font_size_relative", "normal")),
+                )],
+                page_number=page_number,
+            ))
+            para_idx += 1
+
+        elif region_type == "equation":
+            if not text:
+                continue
+            paragraphs.append(ParagraphInfo(
+                id=f"ocr_p_{para_offset + para_idx}",
+                text=text,
+                style_name="Normal",
+                runs=[RunInfo(
+                    text=text,
+                    italic=True,
+                    font_size_pt=_relative_to_pt(region.get("font_size_relative", "normal")),
+                )],
+                page_number=page_number,
+            ))
+            para_idx += 1
+
+        elif region_type == "caption":
+            if not text:
+                continue
+            paragraphs.append(ParagraphInfo(
+                id=f"ocr_p_{para_offset + para_idx}",
+                text=text,
+                style_name="Normal",
+                runs=[RunInfo(
+                    text=text,
+                    italic=True,
+                    font_size_pt=_relative_to_pt("small"),
+                )],
+                page_number=page_number,
+            ))
+            para_idx += 1
+
+        elif region_type == "footnote":
+            if not text:
+                continue
+            paragraphs.append(ParagraphInfo(
+                id=f"ocr_p_{para_offset + para_idx}",
+                text=text,
+                style_name="Normal",
+                runs=[RunInfo(
+                    text=text,
+                    font_size_pt=_relative_to_pt("small"),
+                )],
+                page_number=page_number,
+            ))
+            para_idx += 1
+
+        elif region_type == "table":
+            table_data = region.get("table_data", {})
+            headers = table_data.get("headers", []) if table_data else []
+            rows = table_data.get("rows", []) if table_data else []
+
+            if not headers and not rows:
+                # Fall back to rendering as text if no structured data
+                if text:
+                    paragraphs.append(ParagraphInfo(
+                        id=f"ocr_p_{para_offset + para_idx}",
+                        text=text,
+                        style_name="Normal",
+                        page_number=page_number,
+                    ))
+                    para_idx += 1
+                continue
+
+            table_rows: list[list[CellInfo]] = []
+            if headers:
+                table_rows.append([CellInfo(text=h, paragraphs=[h]) for h in headers])
+            for row_cells in rows:
+                table_rows.append([CellInfo(text=c, paragraphs=[c]) for c in row_cells])
+
+            col_count = max((len(r) for r in table_rows), default=0)
+            tables.append(TableInfo(
+                id=f"ocr_tbl_{table_offset + tbl_idx}",
+                rows=table_rows,
+                header_row_count=1 if headers else 0,
+                has_header_style=bool(headers),
+                row_count=len(table_rows),
+                col_count=col_count,
+                page_number=page_number,
+            ))
+            tbl_idx += 1
+
+        elif region_type == "figure":
+            desc = region.get("figure_description", "") or text
+            img_data = None
+            width = None
+            height = None
+            if pdf_doc is not None and 0 <= page_number < len(pdf_doc):
+                try:
+                    page = pdf_doc[page_number]
+                    pix = page.get_pixmap(dpi=150)
+                    img_data = pix.tobytes("png")
+                    width = pix.width
+                    height = pix.height
+                except Exception:
+                    pass
+
+            figures.append(ImageInfo(
+                id=f"ocr_img_{img_offset + fig_idx}",
+                image_data=img_data,
+                content_type="image/png",
+                alt_text=desc,
+                width_px=width,
+                height_px=height,
+                page_number=page_number,
+                is_decorative=False,
+            ))
+            fig_idx += 1
+
+    return paragraphs, tables, figures
+
+
+def _heuristic_classify_blocks(
+    blocks: list[dict],
+    page_number: int,
+    para_offset: int,
+) -> list[ParagraphInfo]:
+    """Fallback classifier: convert raw Tesseract blocks to ParagraphInfo objects.
+
+    Used when both Gemini structure classification and other models are
+    unavailable.  Applies simple heuristics to detect headings:
+    - Short (≤ 6 words) ALL CAPS text → Heading 2 (bold, 16pt)
+    - Everything else → Normal paragraph
+
+    Args:
+        blocks: Block list as returned by :func:`_tesseract_extract_blocks`.
+        page_number: 0-based page number for created model objects.
+        para_offset: Starting index for paragraph IDs (``ocr_p_{N}``).
+
+    Returns:
+        List of :class:`ParagraphInfo` objects (no tables or figures).
+    """
+    paragraphs: list[ParagraphInfo] = []
+    para_idx = 0
+
+    for block in blocks:
+        text = block.get("text", "").strip()
+        if not text:
+            continue
+        if _is_leaked_header_footer(text):
+            continue
+
+        words = text.split()
+        is_heading = (
+            len(words) <= 6
+            and text == text.upper()
+            and any(c.isalpha() for c in text)
+        )
+
+        if is_heading:
+            paragraphs.append(ParagraphInfo(
+                id=f"ocr_p_{para_offset + para_idx}",
+                text=text,
+                style_name="Heading 2",
+                heading_level=2,
+                runs=[RunInfo(text=text, bold=True, font_size_pt=16.0)],
+                page_number=page_number,
+            ))
+        else:
+            paragraphs.append(ParagraphInfo(
+                id=f"ocr_p_{para_offset + para_idx}",
+                text=text,
+                style_name="Normal",
+                runs=[RunInfo(text=text, font_size_pt=12.0)],
+                page_number=page_number,
+            ))
+        para_idx += 1
+
+    return paragraphs

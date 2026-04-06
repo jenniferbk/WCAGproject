@@ -759,11 +759,22 @@ def _parse_latexml_html(
                     f"TikZ diagram detected (paragraph p_{p_idx}); "
                     f"replaced with placeholder. Source: {tikz_source[:200]}"
                 )
+                # Store TikZ source on a MathInfo for Claude description later
+                tikz_math_id = f"math_tikz_{len(math_list)}"
+                math_list.append(MathInfo(
+                    id=tikz_math_id,
+                    latex_source="",
+                    mathml="",
+                    display="block",
+                    description=placeholder,
+                    tikz_source=tikz_source,
+                ))
                 pid = f"p_{p_idx}"
                 p_idx += 1
                 return ParagraphInfo(
                     id=pid, text=placeholder, style_name="Normal",
                     runs=[RunInfo(text=placeholder, font_size_pt=12.0)],
+                    math_ids=[tikz_math_id],
                 )
 
             # 3. Otherwise — strip bare command names and noise, keep real text

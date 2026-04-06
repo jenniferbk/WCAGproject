@@ -736,6 +736,43 @@ class TestTikzDetection:
         assert len(tikz_warnings) >= 1
 
 
+class TestTikzSourceOnMathInfo:
+    def test_tikz_creates_mathinfo_with_source(self):
+        """When a TikZ diagram is detected during parsing, a MathInfo with tikz_source is created."""
+        from src.models.document import MathInfo
+        from src.tools.latex_parser import _is_tikz_content, _tikz_placeholder
+
+        tikz_src = r"\begin{tikzpicture}\node[state] (q0) {$q_0$};\draw (q0) -- (q1);\end{tikzpicture}"
+        assert _is_tikz_content(tikz_src)
+
+        m = MathInfo(
+            id="math_tikz_0", latex_source="", mathml="",
+            display="block", description=_tikz_placeholder(tikz_src),
+            tikz_source=tikz_src,
+        )
+        assert m.tikz_source == tikz_src
+        assert "tikzpicture" in m.tikz_source
+        assert "[Diagram:" in m.description
+
+    def test_tikz_paragraph_has_math_ids(self):
+        """Parsing a TikZ paragraph sets math_ids on the ParagraphInfo."""
+        html = '''<html lang="en"><head><title>T</title></head><body>
+        <article class="ltx_document">
+        <div class="ltx_para"><p class="ltx_p">
+        <span class="ltx_ERROR undefined">\\node</span>[state] (q_0) {$q_0$};
+        <span class="ltx_ERROR undefined">\\path</span> (q_0) edge (q_1);
+        </p></div>
+        </article></body></html>'''
+        from src.tools.latex_parser import _parse_latexml_html
+        doc = _parse_latexml_html(html, project_dir=None)
+        assert len(doc.paragraphs) == 1
+        para = doc.paragraphs[0]
+        assert para.math_ids, "TikZ paragraph should have math_ids"
+        assert len(doc.math) == 1
+        assert doc.math[0].tikz_source != ""
+        assert doc.math[0].id == para.math_ids[0]
+
+
 class TestErrorCleanup:
     """Tests for ltx_ERROR span cleanup — stripping bare commands, keeping real text."""
 

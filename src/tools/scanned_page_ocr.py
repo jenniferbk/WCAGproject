@@ -1847,3 +1847,110 @@ def _tesseract_fallback(
     except Exception as e:
         logger.warning("Tesseract fallback failed for page %d: %s", page_number + 1, e)
         return []
+
+
+# ── Haiku OCR text correction ─────────────────────────────────────
+
+_HYBRID_CORRECTION_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "hybrid_ocr_correction.md"
+
+
+def _load_hybrid_correction_prompt() -> str:
+    """Load the Haiku OCR correction prompt template."""
+    return _HYBRID_CORRECTION_PROMPT_PATH.read_text()
+
+
+def _haiku_correct_text(
+    blocks: list[dict],
+    doc: fitz.Document,
+    page_number: int,
+    dpi: int = PAGE_DPI,
+) -> dict[int, str]:
+    """Compare Tesseract blocks against the page image and return corrections.
+
+    Calls Claude Haiku with a vision message containing the rendered page image
+    and all Tesseract blocks. Returns a mapping of {block_id: corrected_text}
+    for blocks that contain OCR errors. Blocks that are correct are omitted.
+
+    Returns an empty dict on any failure (graceful degradation).
+    """
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        logger.debug("ANTHROPIC_API_KEY not set — skipping Haiku OCR correction")
+        return {}
+
+    try:
+        # Render page to PNG and base64-encode it
+        page = doc[page_number]
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
+        pix = page.get_pixmap(matrix=mat)
+        png_bytes = pix.tobytes("png")
+        image_b64 = base64.b64encode(png_bytes).decode("utf-8")
+
+        # Build prompt with blocks JSON
+        blocks_json = json.dumps(blocks, ensure_ascii=False)
+        prompt_template = _load_hybrid_correction_prompt()
+        prompt = prompt_template.replace("{blocks_json}", blocks_json)
+
+        # Call Claude Haiku
+        client = Anthropic()
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": image_b64,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        },
+                    ],
+                }
+            ],
+        )
+
+        # Parse response
+        content_block = response.content[0]
+        if content_block.type != "text":
+            logger.warning("Haiku returned non-text response for page %d", page_number + 1)
+            return {}
+
+        raw = content_block.text
+        logger.debug(
+            "Haiku correction page %d: %d input tokens, %d output tokens",
+            page_number + 1,
+            response.usage.input_tokens,
+            response.usage.output_tokens,
+        )
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = parse_json_lenient(raw)
+
+        corrections_list = data.get("corrections", [])
+        result: dict[int, str] = {}
+        for item in corrections_list:
+            block_id = item.get("id")
+            corrected = item.get("corrected_text")
+            if block_id is not None and corrected is not None:
+                result[int(block_id)] = corrected
+
+        logger.info(
+            "Haiku correction page %d: %d/%d blocks corrected",
+            page_number + 1,
+            len(result),
+            len(blocks),
+        )
+        return result
+
+    except Exception as e:
+        logger.warning("Haiku OCR correction failed for page %d: %s", page_number + 1, e)
+        return {}

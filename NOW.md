@@ -26,10 +26,17 @@
 - 5 tables extracted (was 4) — table rescue caught Table 2 that Gemini structure classifier missed
 - 875 tests passing
 
+### TikZ AI Descriptions + Math Review Section (same session)
+- `tikz_source` field on MathInfo — stores raw TikZ source during parsing
+- `describe_tikz` executor action — sends TikZ source to Claude Haiku for thorough structural descriptions
+- Orchestrator auto-generates describe_tikz actions for all TikZ diagrams before execution
+- **Math Review section** in report — collapsible, shows ALL equations with rendered SVG, LaTeX source, description, status badges (Auto/AI-generated/Missing)
+- homework.tex validated: 54 equations (12 block, 42 inline), 1 TikZ automaton detected
+- 11 new report tests
+
 ### Up Next
-1. **Evaluate Mistral OCR 3** — $1/1K pages, purpose-built for document OCR with structure, potential single-model replacement (testing in parallel)
-2. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
-3. **Per-equation review in report** — for LaTeX docs, show rendered equation + description
+1. **Evaluate Mistral OCR 3** — testing in parallel, looking promising
+2. **LaTeX .tex remediation output** — return fixed .tex source file
 
 ## What Was Shipped (2026-04-05 session — OCR Fallback Improvements)
 

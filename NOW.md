@@ -19,16 +19,17 @@
 - 872 tests passing, cost ~$0.08/document (was ~$0.02 but no RECITATION losses)
 - Mayer results: 91 paragraphs, 4 tables, Haiku corrected 24/124 blocks across 6 pages
 
-### Known Issues from Mayer Run
-- Table 3 (page 6) missing — Gemini structure classifier didn't extract it
-- Table 4 (page 7) has garbled cell text — Tesseract OCR errors in table cells not corrected by Haiku (Haiku only corrects text blocks, not table_data)
-- Table rescue pipeline may need adaptation to work with hybrid OCR output
+### Table Quality Fix (same session)
+- Added `_haiku_correct_table_cells()` — sends Gemini-extracted table cell texts to Haiku for OCR correction
+- Improved Haiku correction prompt with common Tesseract error patterns (period insertion at line breaks, rn/m confusion, spurious commas)
+- Mayer re-run results: Table 4 cells corrected (2/4 cells, including "ftom"→"from"), more text corrections caught (page 3: 0→4, page 7: 0→3, page 11: 0→2)
+- 5 tables extracted (was 4) — table rescue caught Table 2 that Gemini structure classifier missed
+- 875 tests passing
 
 ### Up Next
-1. **Table quality fixes** — improve Gemini table extraction in hybrid mode, consider running table rescue on Gemini-missed tables
-2. **Evaluate Mistral OCR 3** — $1/1K pages, purpose-built for document OCR with structure, potential single-model replacement
-3. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
-4. **Per-equation review in report** — for LaTeX docs, show rendered equation + description
+1. **Evaluate Mistral OCR 3** — $1/1K pages, purpose-built for document OCR with structure, potential single-model replacement (testing in parallel)
+2. **TikZ AI descriptions** — send TikZ source to Claude for diagram description
+3. **Per-equation review in report** — for LaTeX docs, show rendered equation + description
 
 ## What Was Shipped (2026-04-05 session — OCR Fallback Improvements)
 

@@ -3934,7 +3934,7 @@ function esc(str) {
 }
 
 function escJs(str) {
-  return esc(str).replace(/'/g, '&#39;');
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function showToast(msg) {

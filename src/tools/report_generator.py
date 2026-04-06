@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from src.models.document import MathInfo
 from src.models.pipeline import RemediationResult, VisualQAFinding, estimate_usage_cost
 from src.tools.scanned_page_ocr import ScannedPageResult
 
@@ -552,6 +553,104 @@ def _generate_ocr_comparison_html(
     """
 
 
+def _build_math_review_section(math_list: list) -> str:
+    """Build the Math Review section for the report.
+
+    Shows every equation with rendered SVG, LaTeX source, description, and status.
+    Grouped by display type: block equations first, then inline.
+    Returns empty string if no math objects.
+    """
+    if not math_list:
+        return ""
+
+    from src.tools.math_renderer import render_mathml_to_svg
+    from src.tools.math_descriptions import classify_math
+
+    block_items = [m for m in math_list if getattr(m, "display", "block") == "block"]
+    inline_items = [m for m in math_list if getattr(m, "display", "block") != "block"]
+
+    total = len(math_list)
+    n_block = len(block_items)
+    n_inline = len(inline_items)
+
+    eq_word = "equation" if total == 1 else "equations"
+    parts_summary = []
+    if n_block:
+        parts_summary.append(f"{n_block} block")
+    if n_inline:
+        parts_summary.append(f"{n_inline} inline")
+    summary_detail = ": " + ", ".join(parts_summary) if parts_summary else ""
+
+    def _status_badge(m) -> str:
+        description = getattr(m, "description", "")
+        tikz_source = getattr(m, "tikz_source", "")
+        if not description:
+            return '<span class="status-missing">Missing</span>'
+        if tikz_source:
+            return '<span class="status-ai">AI-generated</span>'
+        if classify_math(m) == "trivial":
+            return '<span class="status-auto">Auto</span>'
+        return '<span class="status-ai">AI-generated</span>'
+
+    def _render_cell(m) -> str:
+        tikz_source = getattr(m, "tikz_source", "")
+        if tikz_source:
+            return "[TikZ Diagram]"
+        mathml = getattr(m, "mathml", "")
+        svg = render_mathml_to_svg(mathml) if mathml else ""
+        return svg if svg else "<em>(no render)</em>"
+
+    def _latex_cell(m) -> str:
+        tikz_source = getattr(m, "tikz_source", "")
+        latex = getattr(m, "latex_source", "")
+        if tikz_source:
+            truncated = tikz_source[:120] + ("..." if len(tikz_source) > 120 else "")
+            return f"<code>{_esc(truncated)}</code>"
+        return f"<code>{_esc(latex)}</code>"
+
+    def _description_cell(m) -> str:
+        description = getattr(m, "description", "")
+        if not description:
+            return "<em>No description</em>"
+        return _esc(description)
+
+    def _build_table(items: list, caption: str) -> str:
+        if not items:
+            return ""
+        rows = ""
+        for m in items:
+            rows += (
+                f"<tr>"
+                f'<td class="math-render">{_render_cell(m)}</td>'
+                f"<td>{_latex_cell(m)}</td>"
+                f"<td>{_description_cell(m)}</td>"
+                f"<td>{_status_badge(m)}</td>"
+                f"</tr>\n"
+            )
+        return (
+            f"<h3>{_esc(caption)}</h3>\n"
+            f'<table class="math-review">\n'
+            f"<thead><tr>"
+            f"<th>Rendered</th>"
+            f"<th>LaTeX Source</th>"
+            f"<th>Description</th>"
+            f"<th>Status</th>"
+            f"</tr></thead>\n"
+            f"<tbody>\n{rows}</tbody>\n"
+            f"</table>\n"
+        )
+
+    body = _build_table(block_items, "Block Equations")
+    body += _build_table(inline_items, "Inline Equations")
+
+    return (
+        f'<details class="math-review-section">\n'
+        f'<summary>Math Review ({total} {eq_word}{summary_detail})</summary>\n'
+        f"{body}"
+        f"</details>\n"
+    )
+
+
 def generate_report_html(
     result: RemediationResult,
     visual_qa_findings: list[VisualQAFinding] | None = None,
@@ -769,6 +868,13 @@ def generate_report_html(
     if hybrid_ocr_result and mistral_ocr_result and mistral_ocr_result.success:
         ocr_comparison_html = _generate_ocr_comparison_html(hybrid_ocr_result, mistral_ocr_result)
 
+    math_review_html = ""
+    doc_model = getattr(result, "document_model", None)
+    if doc_model is not None:
+        math_list = getattr(doc_model, "math", None) or []
+        if math_list:
+            math_review_html = _build_math_review_section(math_list)
+
     # ── Build full HTML ──
     report_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -902,6 +1008,30 @@ def generate_report_html(
     /* Strategy summary */
     .strategy-summary {{ font-size: 0.9rem; color: #555; margin-bottom: 1rem;
                          line-height: 1.5; }}
+
+    /* Math review section */
+    .math-review-section {{ margin: 1.5rem 0; background: white; border-radius: 8px;
+                            padding: 1rem 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+    .math-review-section summary {{ cursor: pointer; font-size: 1rem; font-weight: 600;
+                                    color: #555; list-style: none; display: flex;
+                                    align-items: center; gap: 0.5rem; padding: 0.25rem 0; }}
+    .math-review-section summary::-webkit-details-marker {{ display: none; }}
+    .math-review-section summary::before {{ content: "\\25B6"; font-size: 0.7rem;
+                                            transition: transform 0.2s; }}
+    .math-review-section[open] summary::before {{ transform: rotate(90deg); }}
+    .math-review {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 0.5rem 0 1rem; }}
+    .math-review th {{ background: #f0f0f0; text-align: left; padding: 0.5rem;
+                       border-bottom: 2px solid #ddd; }}
+    .math-review td {{ padding: 0.5rem; border-bottom: 1px solid #eee; vertical-align: top; }}
+    .math-review .math-render {{ max-width: 200px; overflow-x: auto; }}
+    .math-review code {{ font-size: 0.8rem; background: #f5f5f5; padding: 0.15rem 0.3rem;
+                         border-radius: 3px; word-break: break-all; }}
+    .status-auto {{ background: #dcfce7; color: #166534; padding: 0.15rem 0.5rem;
+                    border-radius: 10px; font-size: 0.8rem; white-space: nowrap; }}
+    .status-ai {{ background: #fef3c7; color: #92400e; padding: 0.15rem 0.5rem;
+                  border-radius: 10px; font-size: 0.8rem; white-space: nowrap; }}
+    .status-missing {{ background: #fee2e2; color: #991b1b; padding: 0.15rem 0.5rem;
+                       border-radius: 10px; font-size: 0.8rem; white-space: nowrap; }}
   </style>
 </head>
 <body>
@@ -949,6 +1079,8 @@ def generate_report_html(
 {'<div class="section"><h2>What Needs Your Attention</h2>' + needs_attention_html + '</div>' if needs_attention_html else ''}
 
 {'<div class="section"><h2>Your Output Files</h2>' + output_files_html + '</div>' if output_files_html else ''}
+
+{math_review_html}
 
 <div class="section" style="font-size: 0.85rem; color: #666;">
   <p>Evaluated against <strong>WCAG 2.1 Level AA</strong> as required by the DOJ Title II ADA rule for public universities (compliance deadline: April 2026).</p>

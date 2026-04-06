@@ -25,6 +25,7 @@ from src.tools.scanned_page_ocr import (
     _find_garbled_pages,
     _find_table_captions,
     _gemini_classify_structure,
+    _heuristic_classify_blocks,
     _integrate_page_data,
     _is_garbled_text,
     _is_leaked_header_footer,
@@ -2193,3 +2194,60 @@ class TestHaikuCorrectText:
                 result = _haiku_correct_text(blocks, doc, page_number=0)
 
         assert result == {}
+
+
+class TestHeuristicClassifyBlocks:
+    """Tests for _heuristic_classify_blocks() — Gemini-unavailable fallback classifier."""
+
+    def test_all_caps_detected_as_heading(self):
+        """ALL CAPS short text is classified as Heading 2; body text stays Normal."""
+        blocks = [
+            {"id": 0, "text": "INTRODUCTION", "bbox": [10, 10, 200, 18]},
+            {
+                "id": 1,
+                "text": "This is a normal paragraph with enough text to be body content.",
+                "bbox": [10, 40, 400, 14],
+            },
+        ]
+        result = _heuristic_classify_blocks(blocks, page_number=1, para_offset=0)
+
+        assert len(result) == 2
+
+        heading = result[0]
+        assert heading.style_name == "Heading 2"
+        assert heading.heading_level == 2
+        assert heading.runs[0].bold is True
+        assert heading.runs[0].font_size_pt == 16.0
+        assert heading.page_number == 1
+        assert heading.id == "ocr_p_0"
+
+        body = result[1]
+        assert body.style_name == "Normal"
+        assert body.heading_level is None
+        assert body.runs[0].bold is None or body.runs[0].bold is False
+        assert body.runs[0].font_size_pt == 12.0
+        assert body.page_number == 1
+        assert body.id == "ocr_p_1"
+
+    def test_body_text_not_heading(self):
+        """Long lowercase text is classified as Normal with correct id and page_number."""
+        blocks = [
+            {
+                "id": 0,
+                "text": "This sentence is long enough to be counted as body text and should not be a heading.",
+                "bbox": [10, 10, 500, 14],
+            },
+        ]
+        result = _heuristic_classify_blocks(blocks, page_number=3, para_offset=5)
+
+        assert len(result) == 1
+        para = result[0]
+        assert para.style_name == "Normal"
+        assert para.heading_level is None
+        assert para.page_number == 3
+        assert para.id == "ocr_p_5"
+
+    def test_empty_blocks_returns_empty(self):
+        """Empty block list returns an empty list."""
+        result = _heuristic_classify_blocks([], page_number=0, para_offset=0)
+        assert result == []

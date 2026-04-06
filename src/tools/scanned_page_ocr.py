@@ -1648,6 +1648,75 @@ def _rescue_missed_tables(
     return new_paragraphs, new_tables, all_usage
 
 
+def _heuristic_classify_blocks(
+    blocks: list[dict],
+    page_number: int,
+    para_offset: int,
+) -> list[ParagraphInfo]:
+    """Classify OCR block dicts as headings or body paragraphs using simple heuristics.
+
+    This is the degraded-mode classifier used when Gemini structure classification
+    is unavailable.  It applies the same ALL CAPS and font-size heuristics as
+    ``_tesseract_fallback()`` but operates on pre-extracted block dicts rather than
+    raw Tesseract data, so column detection is not repeated here.
+
+    Args:
+        blocks: List of ``{"id": int, "text": str, "bbox": [x, y, width, height]}``
+            dicts as produced by ``_tesseract_extract_blocks()``.
+        page_number: 0-based page number (stored on each returned ParagraphInfo).
+        para_offset: Starting offset for paragraph IDs (``ocr_p_{para_offset + i}``).
+
+    Returns:
+        List of ParagraphInfo objects; empty list when *blocks* is empty.
+    """
+    if not blocks:
+        return []
+
+    # Estimate average body-text height from blocks with substantial text
+    body_heights = [b["bbox"][3] for b in blocks if len(b["text"]) > 20]
+    avg_body_height: float = sum(body_heights) / len(body_heights) if body_heights else 14.0
+
+    paragraphs: list[ParagraphInfo] = []
+
+    for i, block in enumerate(blocks):
+        text = block["text"]
+        words = text.split()
+        height = block["bbox"][3]
+
+        # Heading detection heuristics
+        is_heading = False
+
+        # ALL CAPS short text (e.g., "REFERENCES", "ACKNOWLEDGMENTS")
+        if (
+            len(words) <= 8
+            and text == text.upper()
+            and any(c.isalpha() for c in text)
+            and len(text) > 3
+        ):
+            is_heading = True
+
+        # Significantly larger than body text
+        elif height > avg_body_height * 1.3 and len(words) <= 10:
+            is_heading = True
+
+        font_size = 16.0 if is_heading else 12.0
+
+        paragraphs.append(ParagraphInfo(
+            id=f"ocr_p_{para_offset + i}",
+            text=text,
+            style_name="Heading 2" if is_heading else "Normal",
+            heading_level=2 if is_heading else None,
+            runs=[RunInfo(
+                text=text,
+                bold=True if is_heading else None,
+                font_size_pt=font_size,
+            )],
+            page_number=page_number,
+        ))
+
+    return paragraphs
+
+
 def _tesseract_fallback(
     doc: fitz.Document,
     page_number: int,

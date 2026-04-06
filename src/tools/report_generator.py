@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.models.pipeline import RemediationResult, VisualQAFinding, estimate_usage_cost
+from src.tools.scanned_page_ocr import ScannedPageResult
 
 logger = logging.getLogger(__name__)
 
@@ -485,10 +486,78 @@ def _build_visual_qa_section(
     return "\n".join(html_parts)
 
 
+def _generate_ocr_comparison_html(
+    hybrid_result: ScannedPageResult,
+    mistral_result: ScannedPageResult,
+) -> str:
+    """Generate HTML for the OCR engine comparison section."""
+    hybrid_paras = hybrid_result.paragraphs
+    hybrid_headings = [p for p in hybrid_paras if p.heading_level is not None]
+    hybrid_tables = hybrid_result.tables
+
+    mistral_headings = [p for p in mistral_result.paragraphs if p.heading_level is not None]
+
+    # Find differences
+    diffs = []
+    h_diff = len(mistral_headings) - len(hybrid_headings)
+    if h_diff > 0:
+        diffs.append(f"Mistral found {h_diff} additional heading(s) not detected by the standard engine")
+    elif h_diff < 0:
+        diffs.append(f"Standard engine found {-h_diff} additional heading(s) not detected by Mistral")
+
+    t_diff = len(mistral_result.tables) - len(hybrid_tables)
+    if t_diff > 0:
+        diffs.append(f"Mistral found {t_diff} additional table(s) not detected by the standard engine")
+    elif t_diff < 0:
+        diffs.append(f"Standard engine found {-t_diff} additional table(s) not detected by Mistral")
+
+    diff_html = ""
+    if diffs:
+        diff_items = "".join(f"<li>{d}</li>" for d in diffs)
+        diff_html = f"<h4>Differences Found</h4><ul>{diff_items}</ul>"
+
+    return f"""
+    <div class="section" style="border: 2px solid #e0e0e0; border-radius: 8px; background: #fafafa;">
+        <h2>OCR Engine Comparison (Experimental)</h2>
+        <p>This document was processed through two OCR engines for quality comparison.
+        Only the standard engine's output was used for remediation.</p>
+        <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+            <thead>
+                <tr style="background: #f0f0f0;">
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Metric</th>
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">Standard (Hybrid)</th>
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">Experimental (Mistral)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;">Paragraphs</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">{len(hybrid_paras)}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">{len(mistral_result.paragraphs)}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;">Headings</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">{len(hybrid_headings)}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">{len(mistral_headings)}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;">Tables</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">{len(hybrid_tables)}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">{len(mistral_result.tables)}</td>
+                </tr>
+            </tbody>
+        </table>
+        {diff_html}
+    </div>
+    """
+
+
 def generate_report_html(
     result: RemediationResult,
     visual_qa_findings: list[VisualQAFinding] | None = None,
     output_dir: str = "",
+    hybrid_ocr_result: ScannedPageResult | None = None,
+    mistral_ocr_result: ScannedPageResult | None = None,
 ) -> str:
     """Generate an HTML compliance report from a RemediationResult."""
     now = datetime.now().strftime("%B %d, %Y at %I:%M %p")
@@ -696,6 +765,10 @@ def generate_report_html(
     if visual_qa_findings:
         visual_qa_html = _build_visual_qa_section(visual_qa_findings, output_dir)
 
+    ocr_comparison_html = ""
+    if hybrid_ocr_result and mistral_ocr_result and mistral_ocr_result.success:
+        ocr_comparison_html = _generate_ocr_comparison_html(hybrid_ocr_result, mistral_ocr_result)
+
     # ── Build full HTML ──
     report_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -870,6 +943,8 @@ def generate_report_html(
 {'<div class="section"><h2>What We Did</h2>' + ('<p class="strategy-summary">' + _esc(strategy_summary) + '</p>' if strategy_summary else '') + what_we_did_html + '</div>' if what_we_did_html else ''}
 
 {visual_qa_html}
+
+{ocr_comparison_html}
 
 {'<div class="section"><h2>What Needs Your Attention</h2>' + needs_attention_html + '</div>' if needs_attention_html else ''}
 

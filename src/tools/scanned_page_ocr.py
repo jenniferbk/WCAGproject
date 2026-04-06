@@ -8,6 +8,7 @@ remediation pipeline can work on real text instead of image descriptions.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ from pathlib import Path
 import re
 
 import fitz  # PyMuPDF
+from anthropic import Anthropic
 
 from src.utils.json_repair import parse_json_lenient
 
@@ -827,6 +829,137 @@ def _tesseract_extract_blocks(
     except Exception as exc:  # noqa: BLE001
         logger.warning("_tesseract_extract_blocks failed on page %d: %s", page_number, exc)
         return []
+
+
+HYBRID_STRUCTURE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "regions": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "block_ids": {"type": "ARRAY", "items": {"type": "INTEGER"}},
+                    "type": {"type": "STRING", "enum": ["heading", "paragraph", "table", "figure", "equation", "caption", "page_header", "page_footer", "footnote"]},
+                    "heading_level": {"type": "INTEGER"},
+                    "column": {"type": "INTEGER"},
+                    "reading_order": {"type": "INTEGER"},
+                    "bold": {"type": "BOOLEAN"},
+                    "italic": {"type": "BOOLEAN"},
+                    "font_size_relative": {"type": "STRING", "enum": ["large", "normal", "small"]},
+                    "table_data": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "headers": {"type": "ARRAY", "items": {"type": "STRING"}},
+                            "rows": {"type": "ARRAY", "items": {"type": "ARRAY", "items": {"type": "STRING"}}},
+                        },
+                    },
+                    "figure_description": {"type": "STRING"},
+                },
+                "required": ["block_ids", "type", "reading_order"],
+            },
+        },
+    },
+    "required": ["regions"],
+}
+
+
+def _load_hybrid_structure_prompt() -> str:
+    """Load the hybrid OCR structure classification prompt."""
+    prompt_path = Path(__file__).parent.parent / "prompts" / "hybrid_ocr_structure.md"
+    if prompt_path.exists():
+        return prompt_path.read_text(encoding="utf-8")
+    # Minimal fallback
+    return (
+        "Classify these Tesseract blocks into structural regions "
+        "(heading, paragraph, table, figure, etc.). "
+        "Return JSON with a 'regions' array. "
+        "Blocks JSON: {blocks_json}"
+    )
+
+
+def _gemini_classify_structure(
+    client: object,
+    model: str,
+    doc: fitz.Document,
+    page_number: int,
+    blocks: list[dict],
+    dpi: int = PAGE_DPI,
+) -> dict | None:
+    """Classify Tesseract blocks into structural regions using Gemini vision.
+
+    Renders ``page_number`` as a PNG at ``dpi`` resolution, then sends the
+    image together with the Tesseract block list to Gemini.  Gemini sees the
+    page visually to understand layout but does **not** reproduce text (all
+    text already lives in ``blocks``).
+
+    Args:
+        client: Initialised ``google.genai.Client``.
+        model:  Gemini model name (e.g. ``"gemini-2.5-flash"``).
+        doc:    Open PyMuPDF document.
+        page_number: 0-based page index to classify.
+        blocks: Tesseract block list as returned by
+                :func:`_tesseract_extract_blocks`.
+        dpi:    Render resolution for the page image.
+
+    Returns:
+        Parsed dict with a ``"regions"`` key on success, or ``None`` on
+        RECITATION, empty response, or any exception.
+    """
+    try:
+        from google.genai import types
+    except ImportError:
+        logger.warning("google-genai not installed — cannot run Gemini structure classification")
+        return None
+
+    try:
+        page = doc[page_number]
+        pix = page.get_pixmap(dpi=dpi)
+        png_bytes = pix.tobytes("png")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("_gemini_classify_structure: failed to render page %d: %s", page_number, exc)
+        return None
+
+    prompt_template = _load_hybrid_structure_prompt()
+    blocks_json = json.dumps(blocks, ensure_ascii=False)
+    prompt = prompt_template.replace("{blocks_json}", blocks_json)
+
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
+                prompt,
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=HYBRID_STRUCTURE_SCHEMA,
+                temperature=0.1,
+            ),
+        )
+
+        resp_text = response.text
+        if resp_text is None:
+            logger.warning(
+                "_gemini_classify_structure: empty response for page %d (RECITATION?)",
+                page_number,
+            )
+            return None
+
+        try:
+            return json.loads(resp_text)
+        except json.JSONDecodeError:
+            result = parse_json_lenient(resp_text)
+            if result is None:
+                logger.warning(
+                    "_gemini_classify_structure: could not parse JSON for page %d",
+                    page_number,
+                )
+            return result
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("_gemini_classify_structure: exception on page %d: %s", page_number, exc)
+        return None
 
 
 def _is_garbled_text(text: str, threshold: float = 0.15) -> bool:

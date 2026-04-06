@@ -24,6 +24,7 @@ from src.tools.scanned_page_ocr import (
     _collect_table_paragraphs,
     _find_garbled_pages,
     _find_table_captions,
+    _gemini_classify_structure,
     _integrate_page_data,
     _is_garbled_text,
     _is_leaked_header_footer,
@@ -1979,3 +1980,216 @@ class TestTesseractExtractBlocks:
         doc, mock_tess = _make_mock_doc_page(data)
         blocks = self._call(doc, mock_tess)
         assert blocks == []
+
+
+# ── Minimal 1×1 white PNG for mocking page rendering ────────────────
+
+_PNG_1X1_GEMINI = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+    b"\x00\x11\x00\x01\x9a`\x01\x97\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _make_gemini_mock_doc():
+    """Return a mock fitz.Document whose page renders to a 1×1 PNG."""
+    pix = MagicMock()
+    pix.tobytes.return_value = _PNG_1X1_GEMINI
+
+    page = MagicMock()
+    page.get_pixmap.return_value = pix
+
+    doc = MagicMock()
+    doc.__getitem__ = MagicMock(return_value=page)
+    return doc
+
+
+class TestGeminiClassifyStructure:
+    """Tests for _gemini_classify_structure()."""
+
+    _VALID_BLOCKS = [
+        {"id": 0, "text": "Introduction", "bbox": [10, 20, 200, 30]},
+        {"id": 1, "text": "This is body text.", "bbox": [10, 60, 400, 20]},
+    ]
+
+    _VALID_RESPONSE = json.dumps({
+        "regions": [
+            {
+                "block_ids": [0],
+                "type": "heading",
+                "heading_level": 1,
+                "reading_order": 1,
+                "column": 0,
+                "bold": True,
+                "font_size_relative": "large",
+            },
+            {
+                "block_ids": [1],
+                "type": "paragraph",
+                "reading_order": 2,
+                "column": 0,
+            },
+        ]
+    })
+
+    def test_returns_structure_on_success(self):
+        """Returns parsed dict when Gemini returns valid structure JSON."""
+        mock_response = MagicMock()
+        mock_response.text = self._VALID_RESPONSE
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        doc = _make_gemini_mock_doc()
+        result = _gemini_classify_structure(
+            mock_client, "gemini-2.5-flash", doc, page_number=0, blocks=self._VALID_BLOCKS
+        )
+
+        assert result is not None
+        assert "regions" in result
+        assert len(result["regions"]) == 2
+        assert result["regions"][0]["type"] == "heading"
+        assert result["regions"][1]["type"] == "paragraph"
+
+    def test_returns_none_on_empty_response(self):
+        """Returns None when Gemini returns None text (e.g. RECITATION block)."""
+        mock_response = MagicMock()
+        mock_response.text = None
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        doc = _make_gemini_mock_doc()
+        result = _gemini_classify_structure(
+            mock_client, "gemini-2.5-flash", doc, page_number=0, blocks=self._VALID_BLOCKS
+        )
+
+        assert result is None
+
+    def test_returns_none_on_exception(self):
+        """Returns None when Gemini raises an exception."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = RuntimeError("API error")
+
+        doc = _make_gemini_mock_doc()
+        result = _gemini_classify_structure(
+            mock_client, "gemini-2.5-flash", doc, page_number=0, blocks=self._VALID_BLOCKS
+        )
+
+        assert result is None
+
+
+# ── Tests for _haiku_correct_text ────────────────────────────────
+
+
+# Minimal valid PNG bytes (1×1 white pixel) for mock pixmap
+_PNG_1X1_HAIKU = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+    b"\x00\x11\x00\x01\x9a`\x01\x97\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _make_haiku_mock_doc(page_number: int = 0):
+    """Return a mock fitz.Document suitable for _haiku_correct_text tests."""
+    pix = MagicMock()
+    pix.tobytes.return_value = _PNG_1X1_HAIKU
+
+    page = MagicMock()
+    page.get_pixmap.return_value = pix
+
+    doc = MagicMock()
+    doc.__getitem__ = MagicMock(return_value=page)
+    return doc
+
+
+def _make_haiku_mock_response(corrections_json: str):
+    """Build a mock Anthropic message response with the given JSON text."""
+    content_block = MagicMock()
+    content_block.text = corrections_json
+    content_block.type = "text"
+
+    usage = MagicMock()
+    usage.input_tokens = 100
+    usage.output_tokens = 50
+
+    response = MagicMock()
+    response.content = [content_block]
+    response.usage = usage
+    return response
+
+
+class TestHaikuCorrectText:
+    """Tests for _haiku_correct_text()."""
+
+    def test_returns_corrections_dict(self):
+        """Mock Anthropic returning corrections JSON — verify mapping returned."""
+        from src.tools.scanned_page_ocr import _haiku_correct_text
+
+        blocks = [{"id": 1, "text": "tbe learner"}]
+        doc = _make_haiku_mock_doc()
+
+        corrections_json = '{"corrections": [{"id": 1, "corrected_text": "the learner"}]}'
+        mock_response = _make_haiku_mock_response(corrections_json)
+
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+            with patch("src.tools.scanned_page_ocr.Anthropic") as mock_anthropic_cls:
+                mock_client = MagicMock()
+                mock_client.messages.create.return_value = mock_response
+                mock_anthropic_cls.return_value = mock_client
+
+                result = _haiku_correct_text(blocks, doc, page_number=0)
+
+        assert result == {1: "the learner"}
+
+    def test_returns_empty_dict_when_all_correct(self):
+        """Mock returning empty corrections — verify empty dict returned."""
+        from src.tools.scanned_page_ocr import _haiku_correct_text
+
+        blocks = [{"id": 0, "text": "the learner"}]
+        doc = _make_haiku_mock_doc()
+
+        corrections_json = '{"corrections": []}'
+        mock_response = _make_haiku_mock_response(corrections_json)
+
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+            with patch("src.tools.scanned_page_ocr.Anthropic") as mock_anthropic_cls:
+                mock_client = MagicMock()
+                mock_client.messages.create.return_value = mock_response
+                mock_anthropic_cls.return_value = mock_client
+
+                result = _haiku_correct_text(blocks, doc, page_number=0)
+
+        assert result == {}
+
+    def test_returns_empty_dict_when_no_api_key(self):
+        """When ANTHROPIC_API_KEY is absent, return {} without calling API."""
+        from src.tools.scanned_page_ocr import _haiku_correct_text
+
+        blocks = [{"id": 0, "text": "some text"}]
+        doc = _make_haiku_mock_doc()
+
+        import os as _os
+        env_without_key = {k: v for k, v in _os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
+        with patch.dict("os.environ", env_without_key, clear=True):
+            with patch("src.tools.scanned_page_ocr.Anthropic") as mock_anthropic_cls:
+                result = _haiku_correct_text(blocks, doc, page_number=0)
+                mock_anthropic_cls.assert_not_called()
+
+        assert result == {}
+
+    def test_returns_empty_dict_on_exception(self):
+        """When Anthropic raises an exception, return {} gracefully."""
+        from src.tools.scanned_page_ocr import _haiku_correct_text
+
+        blocks = [{"id": 0, "text": "some text"}]
+        doc = _make_haiku_mock_doc()
+
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+            with patch("src.tools.scanned_page_ocr.Anthropic") as mock_anthropic_cls:
+                mock_anthropic_cls.side_effect = Exception("API unavailable")
+
+                result = _haiku_correct_text(blocks, doc, page_number=0)
+
+        assert result == {}

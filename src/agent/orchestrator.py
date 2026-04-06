@@ -583,7 +583,7 @@ def process(
     logger.info("Phase 3: Execution")
     output_dir = request.output_dir or str(path.parent)
     exec_progress = lambda detail: on_phase("executing", detail) if on_phase else None
-    if suffix == ".pdf":
+    if suffix in (".pdf", ".tex", ".ltx", ".zip"):
         exec_result = execute_pdf(strategy, doc_model, output_dir, on_progress=exec_progress)
     else:
         exec_result = execute(strategy, doc_path, output_dir, paragraphs=doc_model.paragraphs, on_progress=exec_progress)
@@ -654,7 +654,10 @@ def process(
     logger.info("Phase 4: Review (Claude)")
 
     # Re-parse the remediated document
-    if suffix == ".pptx":
+    # LaTeX output is HTML — no re-parser available, use the fixed model directly
+    if suffix in (".tex", ".ltx", ".zip"):
+        post_parse = type("FakeParseResult", (), {"success": False})()
+    elif suffix == ".pptx":
         post_parse = parse_pptx(exec_result.output_path)
     elif suffix == ".pdf":
         post_parse = parse_pdf(exec_result.output_path)

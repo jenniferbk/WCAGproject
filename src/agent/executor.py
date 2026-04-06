@@ -161,17 +161,16 @@ def execute_pdf(
     output_dir: str = "",
     on_progress: Callable[[str], None] | None = None,
 ) -> ExecutionResult:
-    """Execute remediation for PDF documents.
+    """Execute remediation for PDF and LaTeX documents.
 
-    Uses iText for in-place tagging of the original PDF via position-based
-    matching. Preserves 100% visual fidelity. Falls back to pdf_writer for
-    metadata/alt text if Java is unavailable.
+    For PDFs: uses iText for in-place tagging via position-based matching.
+    For LaTeX: skips iText (no source PDF), generates accessible HTML + PDF.
 
     Also generates a companion accessible HTML version.
 
     Args:
         strategy: The remediation strategy with planned actions.
-        doc_model: Parsed DocumentModel from the PDF.
+        doc_model: Parsed DocumentModel from the PDF or LaTeX.
         output_dir: Directory for output.
 
     Returns:
@@ -257,92 +256,94 @@ def execute_pdf(
             updated_actions=updated_actions,
         )
 
-    # ── Track 1: iText in-place tagging ─────────────────────────────
+    # ── Track 1: iText in-place tagging (skip for LaTeX — no source PDF) ──
+    is_latex = input_path.suffix.lower() in (".tex", ".ltx", ".zip")
     tagged_pdf_path = str(out_dir / f"{input_path.stem}_remediated.pdf")
 
-    # Strip existing structure tree before iText processes the PDF.
-    # This prevents duplicate /Figure elements when the original PDF
-    # already has structure tags (e.g., from PowerPoint export).
-    # iText will create a fresh, clean structure tree.
-    stripped_input = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".pdf", delete=False, dir=str(out_dir),
-        ) as tmp:
-            stripped_input = tmp.name
-        if strip_struct_tree(str(input_path), stripped_input):
-            itext_input = stripped_input
-        else:
-            itext_input = str(input_path)
-    except Exception:
-        itext_input = str(input_path)
-
-    if on_progress:
-        on_progress("Tagging PDF structure")
-    tagging_plan = build_tagging_plan(
-        strategy, doc_model,
-        input_path=itext_input,
-        output_path=tagged_pdf_path,
-    )
-    tag_result = tag_pdf(tagging_plan)
-
-    # Clean up temp file
-    if stripped_input:
+    if not is_latex:
+        # Strip existing structure tree before iText processes the PDF.
+        # This prevents duplicate /Figure elements when the original PDF
+        # already has structure tags (e.g., from PowerPoint export).
+        # iText will create a fresh, clean structure tree.
+        stripped_input = None
         try:
-            os.unlink(stripped_input)
+            with tempfile.NamedTemporaryFile(
+                suffix=".pdf", delete=False, dir=str(out_dir),
+            ) as tmp:
+                stripped_input = tmp.name
+            if strip_struct_tree(str(input_path), stripped_input):
+                itext_input = stripped_input
+            else:
+                itext_input = str(input_path)
         except Exception:
-            pass
+            itext_input = str(input_path)
 
-    if tag_result.success:
-        logger.info(
-            "Track 1 (iText): %d tags applied to %s",
-            tag_result.tags_applied, tagged_pdf_path,
-        )
-        # Apply contrast fixes to the tagged PDF via PyMuPDF
-        if contrast_color_map:
-            contrast_result = apply_contrast_fixes_to_pdf(
-                tagged_pdf_path, contrast_color_map, verify=True
-            )
-            if contrast_result.success and contrast_result.contrast_fixes_applied > 0:
-                logger.info(
-                    "Contrast fixes applied: %d changes to %s",
-                    contrast_result.contrast_fixes_applied, tagged_pdf_path,
-                )
-            elif not contrast_result.success:
-                logger.warning(
-                    "Contrast fix failed on tagged PDF: %s",
-                    "; ".join(contrast_result.errors),
-                )
-    else:
-        # Fallback: use pdf_writer for Tier 1 (metadata + alt text)
-        logger.warning(
-            "Track 1 (iText) failed: %s. Falling back to pdf_writer.",
-            "; ".join(tag_result.errors),
-        )
-        pdf_result = apply_pdf_fixes(
-            source_path=doc_model.source_path,
-            doc_model=doc_model,
-            title=pdf_title,
-            language=pdf_language,
-            alt_texts=pdf_alt_texts,
-            decorative_ids=pdf_decorative_ids,
-            heading_actions=[],
-            contrast_fixes=[],
+        if on_progress:
+            on_progress("Tagging PDF structure")
+        tagging_plan = build_tagging_plan(
+            strategy, doc_model,
+            input_path=itext_input,
             output_path=tagged_pdf_path,
-            verify_visually=False,
         )
-        if not pdf_result.success:
-            return ExecutionResult(
-                success=False,
-                error=f"Both iText and pdf_writer failed: {'; '.join(pdf_result.errors)}",
-                actions_executed=executed,
-                actions_failed=failed,
-                actions_skipped=skipped,
-                updated_actions=updated_actions,
-            )
-        tagged_pdf_path = pdf_result.output_path
+        tag_result = tag_pdf(tagging_plan)
 
-    # ── Companion HTML ────────────────────────────────────────────
+        # Clean up temp file
+        if stripped_input:
+            try:
+                os.unlink(stripped_input)
+            except Exception:
+                pass
+
+        if tag_result.success:
+            logger.info(
+                "Track 1 (iText): %d tags applied to %s",
+                tag_result.tags_applied, tagged_pdf_path,
+            )
+            # Apply contrast fixes to the tagged PDF via PyMuPDF
+            if contrast_color_map:
+                contrast_result = apply_contrast_fixes_to_pdf(
+                    tagged_pdf_path, contrast_color_map, verify=True
+                )
+                if contrast_result.success and contrast_result.contrast_fixes_applied > 0:
+                    logger.info(
+                        "Contrast fixes applied: %d changes to %s",
+                        contrast_result.contrast_fixes_applied, tagged_pdf_path,
+                    )
+                elif not contrast_result.success:
+                    logger.warning(
+                        "Contrast fix failed on tagged PDF: %s",
+                        "; ".join(contrast_result.errors),
+                    )
+        else:
+            # Fallback: use pdf_writer for Tier 1 (metadata + alt text)
+            logger.warning(
+                "Track 1 (iText) failed: %s. Falling back to pdf_writer.",
+                "; ".join(tag_result.errors),
+            )
+            pdf_result = apply_pdf_fixes(
+                source_path=doc_model.source_path,
+                doc_model=doc_model,
+                title=pdf_title,
+                language=pdf_language,
+                alt_texts=pdf_alt_texts,
+                decorative_ids=pdf_decorative_ids,
+                heading_actions=[],
+                contrast_fixes=[],
+                output_path=tagged_pdf_path,
+                verify_visually=False,
+            )
+            if not pdf_result.success:
+                return ExecutionResult(
+                    success=False,
+                    error=f"Both iText and pdf_writer failed: {'; '.join(pdf_result.errors)}",
+                    actions_executed=executed,
+                    actions_failed=failed,
+                    actions_skipped=skipped,
+                    updated_actions=updated_actions,
+                )
+            tagged_pdf_path = pdf_result.output_path
+
+    # ── HTML output ─────────────────────────────────────────────────
     companion_html_path = ""
 
     html_result = build_html(fixed_model, embed_images=True)
@@ -355,8 +356,22 @@ def execute_pdf(
         except Exception as e:
             logger.warning("Failed to write companion HTML: %s", e)
 
+    # For LaTeX: generate PDF from HTML via WeasyPrint (no source PDF to tag)
+    if is_latex and html_result.success:
+        try:
+            from weasyprint import HTML as WeasyHTML
+            WeasyHTML(string=html_result.html).write_pdf(
+                tagged_pdf_path, pdf_variant="pdf/ua-1",
+            )
+            logger.info("LaTeX → PDF generated: %s", tagged_pdf_path)
+        except Exception as e:
+            logger.warning("WeasyPrint PDF generation failed: %s", e)
+            # Fall back to HTML-only output
+            tagged_pdf_path = companion_html_path
+
     logger.info(
-        "PDF remediated: %s (executed=%d, failed=%d, skipped=%d)",
+        "%s remediated: %s (executed=%d, failed=%d, skipped=%d)",
+        "LaTeX" if is_latex else "PDF",
         tagged_pdf_path, executed, failed, skipped,
     )
 

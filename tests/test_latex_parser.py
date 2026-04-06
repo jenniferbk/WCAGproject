@@ -65,6 +65,19 @@ class TestMathInfo:
         assert m.unparsed is True
 
 
+class TestMathInfoTikzSource:
+    def test_tikz_source_default_empty(self):
+        from src.models.document import MathInfo
+        m = MathInfo(id="math_0", latex_source="x", mathml="<math><mi>x</mi></math>")
+        assert m.tikz_source == ""
+
+    def test_tikz_source_stored(self):
+        from src.models.document import MathInfo
+        tikz = r"\begin{tikzpicture}\node[state] (q0) {$q_0$};\end{tikzpicture}"
+        m = MathInfo(id="math_0", latex_source="", mathml="", tikz_source=tikz)
+        assert m.tikz_source == tikz
+
+
 class TestContentTypeMath:
     def test_math_enum_exists(self):
         assert ContentType.MATH == "math"

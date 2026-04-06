@@ -132,6 +132,7 @@ class MathInfo(BaseModel, frozen=True):
     equation_number: str | None = None
     confidence: float = 1.0
     unparsed: bool = False
+    tikz_source: str = ""
 
 
 class MetadataInfo(BaseModel, frozen=True):

@@ -2398,6 +2398,124 @@
       .job-card.selectable .job-actions { grid-column: 1 / -1; }
     }
 
+    /* ── Changelog banner ────────────────────── */
+    #changelogBanner {
+      display: none;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.85rem 1.2rem;
+      margin-bottom: 1rem;
+      background: var(--accent-light);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+    }
+    #changelogBanner.visible { display: flex; }
+    .changelog-banner-text { flex: 1; }
+    .changelog-banner-text strong { font-weight: 600; }
+    .changelog-banner-link {
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+      white-space: nowrap;
+      background: none;
+      border: none;
+      font: inherit;
+      padding: 0;
+    }
+    .changelog-banner-link:hover { color: var(--accent-hover); }
+    .changelog-banner-dismiss {
+      background: none;
+      border: none;
+      color: var(--text-tertiary);
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 0.2rem;
+      line-height: 1;
+    }
+    .changelog-banner-dismiss:hover { color: var(--text); }
+
+    /* ── What's New header link ──────────────── */
+    .whats-new-link {
+      color: var(--accent);
+      font-weight: 500;
+      font-size: 0.85rem;
+      cursor: pointer;
+      position: relative;
+      text-decoration: none;
+      padding-right: 0.5rem;
+    }
+    .whats-new-link:hover { color: var(--accent-hover); }
+    .whats-new-link.has-unread::after {
+      content: '';
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      width: 8px;
+      height: 8px;
+      background: var(--accent);
+      border-radius: 50%;
+      border: 2px solid var(--bg);
+    }
+
+    /* ── Changelog entries (inside info modal) ── */
+    .changelog { padding: 0; }
+    .changelog-entry {
+      padding: 1.2rem 0;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .changelog-entry:last-child { border-bottom: none; }
+    .changelog-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.4rem;
+    }
+    .changelog-meta time {
+      font-size: 0.8rem;
+      color: var(--text-tertiary);
+    }
+    .changelog-tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.15rem 0.5rem;
+      border-radius: 99px;
+    }
+    .changelog-tag.new-feature {
+      background: var(--accent-light);
+      color: var(--accent);
+    }
+    .changelog-tag.quality {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+    .changelog-tag.new-format {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+    .changelog-entry h3 {
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+    }
+    .changelog-entry p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+    .changelog-entry code {
+      background: var(--bg-warm);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.82rem;
+    }
+
     /* ── Print ────────────────────────────────── */
     @media print {
       body::before { display: none; }

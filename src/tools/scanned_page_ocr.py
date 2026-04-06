@@ -385,173 +385,60 @@ def _process_single_page(
     page_number: int,
     prompt: str,
 ) -> PageOCRResult:
-    """Process a single scanned page through Gemini OCR with retry chain.
+    """Process a single scanned page using hybrid OCR.
 
-    Tries: Gemini at 200 DPI → Gemini at 300 DPI (if garbled) → Tesseract.
-    Returns exactly one result — never duplicates content.
+    1. Tesseract extracts raw text blocks (always runs first)
+    2. Gemini classifies structure, Haiku corrects text
+    3. Merge results
+
+    Falls back gracefully at each level.
     """
     result = PageOCRResult(page_number=page_number)
 
-    # ── Try 1: Gemini at standard DPI ───────────────────────────
-    try:
-        batch_result = _process_ocr_batch(client, model, doc, [page_number], prompt, dpi=PAGE_DPI)
-
-        if batch_result is not None:
-            page_data_list, usage = batch_result
-            if usage:
-                result.api_usage.append(usage)
-
-            if page_data_list:
-                paras, tables, figures = _regions_to_model_objects(
-                    page_data_list[0],
-                    page_number=page_number,
-                    para_offset=0,
-                    table_offset=0,
-                    img_offset=0,
-                    pdf_doc=doc,
-                )
-
-                # Check for garbled output
-                if paras and not _find_garbled_pages(paras):
-                    result.paragraphs = paras
-                    result.tables = tables
-                    result.figures = figures
-                    result.source = "gemini"
-                    logger.debug("Page %d: Gemini success (%d paras, %d tables)",
-                                 page_number + 1, len(paras), len(tables))
-                    return result
-                elif paras:
-                    logger.warning("Page %d: garbled at %d DPI, retrying at %d DPI",
-                                   page_number + 1, PAGE_DPI, PAGE_DPI_RETRY)
-        else:
-            logger.warning("Page %d: Gemini returned empty (likely RECITATION)",
-                           page_number + 1)
-    except Exception as e:
-        logger.warning("Page %d: Gemini failed (%s)", page_number + 1, e)
-
-    # ── Try 2: Gemini at high DPI ───────────────────────────────
-    try:
-        time.sleep(3)
-        batch_result = _process_ocr_batch(client, model, doc, [page_number], prompt, dpi=PAGE_DPI_RETRY)
-
-        if batch_result is not None:
-            page_data_list, usage = batch_result
-            if usage:
-                result.api_usage.append(usage)
-
-            if page_data_list:
-                paras, tables, figures = _regions_to_model_objects(
-                    page_data_list[0],
-                    page_number=page_number,
-                    para_offset=0,
-                    table_offset=0,
-                    img_offset=0,
-                    pdf_doc=doc,
-                )
-
-                if paras and not _find_garbled_pages(paras):
-                    result.paragraphs = paras
-                    result.tables = tables
-                    result.figures = figures
-                    result.source = "gemini_hd"
-                    logger.debug("Page %d: Gemini HD success (%d paras, %d tables)",
-                                 page_number + 1, len(paras), len(tables))
-                    return result
-                elif paras:
-                    logger.warning("Page %d: still garbled at %d DPI", page_number + 1, PAGE_DPI_RETRY)
-        else:
-            logger.warning("Page %d: Gemini HD returned empty", page_number + 1)
-    except Exception as e:
-        logger.warning("Page %d: Gemini HD failed (%s)", page_number + 1, e)
-
-    # ── Try 2.5: Half-page crops (RECITATION workaround) ─────────
-    # NOTE: temperature bump removed — higher temp encourages hallucination
-    # instead of faithful transcription. Crops send smaller page sections
-    # at normal temperature to avoid triggering copyright filter.
-    logger.info("Page %d: trying half-page crops", page_number + 1)
-    try:
-        page = doc[page_number]
-        rect = page.rect
-        mid_y = (rect.y0 + rect.y1) / 2
-
-        top_rect = fitz.Rect(rect.x0, rect.y0, rect.x1, mid_y)
-        bot_rect = fitz.Rect(rect.x0, mid_y, rect.x1, rect.y1)
-
-        combined_paras = []
-        combined_tables = []
-        combined_figures = []
-
-        for half_idx, clip_rect in enumerate([top_rect, bot_rect]):
-            pix = page.get_pixmap(dpi=PAGE_DPI, clip=clip_rect)
-            png_bytes = pix.tobytes("png")
-
-            from google.genai import types
-            content_parts = [
-                prompt,
-                types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
-                f"This is the {'top' if half_idx == 0 else 'bottom'} half of page {page_number + 1}. Extract all content.",
-            ]
-
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=content_parts,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_json_schema=OCR_PAGE_SCHEMA,
-                        temperature=1.0,
-                    ),
-                )
-                resp_text = response.text
-                if resp_text:
-                    try:
-                        data = json.loads(resp_text)
-                    except json.JSONDecodeError:
-                        data = parse_json_lenient(resp_text)
-
-                    usage_obj = _extract_usage(response, model)
-                    if usage_obj:
-                        result.api_usage.append(usage_obj)
-
-                    pages_data = data.get("pages", [])
-                    if pages_data:
-                        paras, tables, figures = _regions_to_model_objects(
-                            pages_data[0], page_number=page_number,
-                            para_offset=len(combined_paras),
-                            table_offset=len(combined_tables),
-                            img_offset=len(combined_figures),
-                            pdf_doc=doc,
-                        )
-                        combined_paras.extend(paras)
-                        combined_tables.extend(tables)
-                        combined_figures.extend(figures)
-            except Exception as crop_e:
-                logger.warning("Page %d %s half crop failed: %s",
-                             page_number + 1, "top" if half_idx == 0 else "bottom", crop_e)
-
-        if combined_paras:
-            result.paragraphs = combined_paras
-            result.tables = combined_tables
-            result.figures = combined_figures
-            result.source = "gemini_crops"
-            logger.info("Page %d: crop OCR extracted %d paragraphs, %d tables",
-                       page_number + 1, len(combined_paras), len(combined_tables))
-            return result
-    except Exception as e:
-        logger.warning("Page %d: crop splitting failed (%s)", page_number + 1, e)
-
-    # ── Try 3: Tesseract fallback ───────────────────────────────
-    logger.info("Page %d: falling back to Tesseract", page_number + 1)
-    tess_paras = _tesseract_fallback(doc, page_number, 0)
-    if tess_paras:
-        result.paragraphs = tess_paras
-        result.source = "tesseract"
-        logger.info("Page %d: Tesseract extracted %d paragraphs", page_number + 1, len(tess_paras))
+    # Step 1: Tesseract text extraction
+    blocks = _tesseract_extract_blocks(doc, page_number)
+    if not blocks:
+        result.warnings.append(f"Page {page_number + 1}: Tesseract extracted no text")
         return result
 
-    # ── All failed ──────────────────────────────────────────────
-    result.warnings.append(f"Page {page_number + 1}: all OCR methods failed")
-    logger.warning("Page %d: all OCR methods failed", page_number + 1)
+    logger.info("Page %d: Tesseract extracted %d blocks", page_number + 1, len(blocks))
+
+    # Step 2: Gemini structure + Haiku correction
+    structure = None
+    corrections: dict[int, str] = {}
+
+    if client is not None:
+        structure = _gemini_classify_structure(client, model, doc, page_number, blocks)
+        if structure:
+            logger.info("Page %d: Gemini structure classification succeeded", page_number + 1)
+        else:
+            logger.warning("Page %d: Gemini structure classification failed — using heuristics", page_number + 1)
+
+    corrections = _haiku_correct_text(blocks, doc, page_number)
+    if corrections:
+        logger.info("Page %d: Haiku corrected %d/%d blocks", page_number + 1, len(corrections), len(blocks))
+
+    # Step 3: Apply corrections
+    corrected_blocks = _apply_corrections(blocks, corrections)
+
+    # Step 4: Merge into model objects
+    if structure:
+        paras, tables, figures = _merge_blocks_and_structure(
+            corrected_blocks, structure, page_number,
+            para_offset=0, table_offset=0, img_offset=0, pdf_doc=doc,
+        )
+        result.paragraphs = paras
+        result.tables = tables
+        result.figures = figures
+        result.source = "hybrid"
+    else:
+        result.paragraphs = _heuristic_classify_blocks(corrected_blocks, page_number, para_offset=0)
+        result.source = "hybrid_fallback"
+
+    logger.info("Page %d: %s → %d paragraphs, %d tables, %d figures",
+                page_number + 1, result.source,
+                len(result.paragraphs), len(result.tables), len(result.figures))
+
     return result
 
 

@@ -26,8 +26,8 @@ from src.tools.scanned_page_ocr import (
     _find_garbled_pages,
     _find_table_captions,
     _gemini_classify_structure,
+    _haiku_correct_text,
     _heuristic_classify_blocks,
-    _integrate_page_data,
     _is_garbled_text,
     _is_leaked_header_footer,
     _merge_blocks_and_structure,
@@ -1466,34 +1466,6 @@ class TestRescueMissedTables:
         assert len(new_tables) == 2
 
 
-class TestIntegratePageDataWithRescue:
-    """Test that _integrate_page_data passes through to rescue when client is provided."""
-
-    def test_no_rescue_without_client(self):
-        """Without client, paragraphs with table captions stay as paragraphs."""
-        page_data_list = [{
-            "page_number": 1,
-            "page_type": "text_dominant",
-            "regions": [
-                {"type": "paragraph", "text": "TABLE 1 Test", "reading_order": 1},
-                {"type": "paragraph", "text": "Cell A", "reading_order": 2},
-            ],
-        }]
-
-        all_paragraphs: list[ParagraphInfo] = []
-        all_tables: list[TableInfo] = []
-        all_figures: list[ImageInfo] = []
-        pages_processed: list[int] = []
-
-        _integrate_page_data(
-            page_data_list, None,
-            all_paragraphs, all_tables, all_figures,
-            pages_processed, 0, 0, 0,
-            known_page_numbers=[0],
-        )
-        assert len(all_paragraphs) == 2
-
-
 class TestColumnSortingValidation:
     """Tests for column balance validation in _sort_regions_by_column."""
 
@@ -1637,89 +1609,141 @@ class TestRescueMultipleTablesOnSamePage:
         assert len(new_paras) == 0
 
 
-# ── TestProcessSinglePage ─────────────────────────────────────────
+# ── TestHybridProcessSinglePage ──────────────────────────────────
 
 
-class TestProcessSinglePage:
-    def test_gemini_success_returns_result(self):
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.text = json.dumps({
-            "pages": [{
-                "page_number": 1,
-                "page_type": "text_dominant",
-                "regions": [
-                    {"type": "paragraph", "text": "Hello world.", "reading_order": 1},
-                ],
-            }]
-        })
-        mock_response.usage_metadata = None
-        mock_client.models.generate_content.return_value = mock_response
+class TestHybridProcessSinglePage:
+    """Tests for the hybrid OCR _process_single_page() pipeline."""
 
-        mock_doc = MagicMock()
-        mock_page = MagicMock()
-        mock_pix = MagicMock()
-        mock_pix.tobytes.return_value = b"fake_png"
-        mock_page.get_pixmap.return_value = mock_pix
-        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
-        mock_doc.__len__ = MagicMock(return_value=5)
-
-        result = _process_single_page(
-            mock_client, "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
-        )
-
-        assert result.page_number == 0
-        assert result.source == "gemini"
-        assert len(result.paragraphs) >= 1
-        assert result.paragraphs[0].text == "Hello world."
-
-    def test_gemini_none_falls_to_tesseract(self):
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.text = None
-        mock_client.models.generate_content.return_value = mock_response
-
-        mock_doc = MagicMock()
-        mock_page = MagicMock()
-        mock_pix = MagicMock()
-        mock_pix.tobytes.return_value = b"fake_png"
-        mock_page.get_pixmap.return_value = mock_pix
-        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
-        mock_doc.__len__ = MagicMock(return_value=5)
-
-        with patch("src.tools.scanned_page_ocr._tesseract_fallback") as mock_tess:
-            mock_tess.return_value = [
-                ParagraphInfo(id="ocr_p_0", text="Tesseract text", style_name="Normal", page_number=0),
+    def test_full_success_path(self):
+        """All three stages succeed: Tesseract blocks, Gemini structure, Haiku corrections."""
+        blocks = [
+            {"block_id": 0, "text": "INTRODUCTION", "x0": 10, "y0": 10, "x1": 200, "y1": 30},
+            {"block_id": 1, "text": "Teh quick brown fox.", "x0": 10, "y0": 40, "x1": 400, "y1": 60},
+        ]
+        structure = {
+            "blocks": [
+                {"block_id": 0, "type": "heading", "level": 1},
+                {"block_id": 1, "type": "paragraph"},
             ]
+        }
+        corrections = {1: "The quick brown fox."}
+
+        mock_doc = MagicMock()
+
+        with patch("src.tools.scanned_page_ocr._tesseract_extract_blocks", return_value=blocks), \
+             patch("src.tools.scanned_page_ocr._gemini_classify_structure", return_value=structure), \
+             patch("src.tools.scanned_page_ocr._haiku_correct_text", return_value=corrections), \
+             patch("src.tools.scanned_page_ocr._apply_corrections") as mock_apply, \
+             patch("src.tools.scanned_page_ocr._merge_blocks_and_structure") as mock_merge:
+
+            # _apply_corrections returns corrected blocks
+            corrected = [
+                {"block_id": 0, "text": "INTRODUCTION", "x0": 10, "y0": 10, "x1": 200, "y1": 30},
+                {"block_id": 1, "text": "The quick brown fox.", "x0": 10, "y0": 40, "x1": 400, "y1": 60},
+            ]
+            mock_apply.return_value = corrected
+
+            heading_para = ParagraphInfo(
+                id="ocr_p_0", text="INTRODUCTION", style_name="Heading1", page_number=0,
+            )
+            body_para = ParagraphInfo(
+                id="ocr_p_1", text="The quick brown fox.", style_name="Normal", page_number=0,
+            )
+            mock_merge.return_value = ([heading_para, body_para], [], [])
+
             result = _process_single_page(
-                mock_client, "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
+                MagicMock(), "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
             )
 
-        assert result.source == "tesseract"
-        assert len(result.paragraphs) == 1
+        assert result.source == "hybrid"
+        assert len(result.paragraphs) == 2
+        assert result.paragraphs[0].text == "INTRODUCTION"
+        assert result.paragraphs[0].style_name == "Heading1"
+        assert result.paragraphs[1].text == "The quick brown fox."
+        assert result.tables == []
+        assert result.figures == []
 
-    def test_all_fail_returns_empty(self):
-        mock_client = MagicMock()
-        mock_client.models.generate_content.side_effect = Exception("API error")
+    def test_gemini_fails_haiku_succeeds(self):
+        """Gemini returns None, Haiku returns corrections — falls back to heuristic."""
+        blocks = [
+            {"block_id": 0, "text": "Teh abstract.", "x0": 10, "y0": 10, "x1": 400, "y1": 30},
+        ]
+        corrections = {0: "The abstract."}
 
         mock_doc = MagicMock()
-        mock_page = MagicMock()
-        mock_pix = MagicMock()
-        mock_pix.tobytes.return_value = b"fake_png"
-        mock_page.get_pixmap.return_value = mock_pix
-        mock_doc.__getitem__ = MagicMock(return_value=mock_page)
-        mock_doc.__len__ = MagicMock(return_value=5)
 
-        with patch("src.tools.scanned_page_ocr._tesseract_fallback") as mock_tess:
-            mock_tess.return_value = []
+        with patch("src.tools.scanned_page_ocr._tesseract_extract_blocks", return_value=blocks), \
+             patch("src.tools.scanned_page_ocr._gemini_classify_structure", return_value=None), \
+             patch("src.tools.scanned_page_ocr._haiku_correct_text", return_value=corrections), \
+             patch("src.tools.scanned_page_ocr._apply_corrections") as mock_apply, \
+             patch("src.tools.scanned_page_ocr._heuristic_classify_blocks") as mock_heuristic:
+
+            corrected = [
+                {"block_id": 0, "text": "The abstract.", "x0": 10, "y0": 10, "x1": 400, "y1": 30},
+            ]
+            mock_apply.return_value = corrected
+
+            para = ParagraphInfo(
+                id="ocr_p_0", text="The abstract.", style_name="Normal", page_number=0,
+            )
+            mock_heuristic.return_value = [para]
+
             result = _process_single_page(
-                mock_client, "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
+                MagicMock(), "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
+            )
+
+        assert result.source == "hybrid_fallback"
+        assert len(result.paragraphs) == 1
+        assert result.paragraphs[0].text == "The abstract."
+        # _merge_blocks_and_structure should NOT have been called
+        assert result.tables == []
+
+    def test_both_apis_fail(self):
+        """Gemini returns None, Haiku returns {} — uncorrected text with heuristic."""
+        blocks = [
+            {"block_id": 0, "text": "Teh abstract.", "x0": 10, "y0": 10, "x1": 400, "y1": 30},
+        ]
+
+        mock_doc = MagicMock()
+
+        with patch("src.tools.scanned_page_ocr._tesseract_extract_blocks", return_value=blocks), \
+             patch("src.tools.scanned_page_ocr._gemini_classify_structure", return_value=None), \
+             patch("src.tools.scanned_page_ocr._haiku_correct_text", return_value={}), \
+             patch("src.tools.scanned_page_ocr._apply_corrections") as mock_apply, \
+             patch("src.tools.scanned_page_ocr._heuristic_classify_blocks") as mock_heuristic:
+
+            # No corrections, so blocks pass through unchanged
+            mock_apply.return_value = blocks
+
+            para = ParagraphInfo(
+                id="ocr_p_0", text="Teh abstract.", style_name="Normal", page_number=0,
+            )
+            mock_heuristic.return_value = [para]
+
+            result = _process_single_page(
+                MagicMock(), "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
+            )
+
+        assert result.source == "hybrid_fallback"
+        assert len(result.paragraphs) == 1
+        assert result.paragraphs[0].text == "Teh abstract."
+
+    def test_tesseract_fails(self):
+        """Tesseract returns [] — early return with failed source and warning."""
+        mock_doc = MagicMock()
+
+        with patch("src.tools.scanned_page_ocr._tesseract_extract_blocks", return_value=[]):
+            result = _process_single_page(
+                MagicMock(), "gemini-2.5-flash", mock_doc, 0, "OCR prompt",
             )
 
         assert result.source == "failed"
         assert len(result.paragraphs) == 0
+        assert any("Tesseract extracted no text" in w for w in result.warnings)
 
     def test_result_dataclass_fields(self):
+        """PageOCRResult defaults."""
         result = PageOCRResult(page_number=3)
         assert result.page_number == 3
         assert result.paragraphs == []

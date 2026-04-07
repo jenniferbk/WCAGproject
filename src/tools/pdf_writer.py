@@ -1846,3 +1846,80 @@ def _is_content_producing_op(op: str) -> bool:
 def _is_state_setting_op(op: str) -> bool:
     """Return True if the operator sets graphics state without producing marks."""
     return op in _STATE_SETTING_OPS
+
+
+def _find_untagged_content_runs(tokens: list[Token]) -> list[tuple[int, int]]:
+    """Find runs of depth-0 untagged content that need /Artifact wrapping.
+
+    Walks the token list maintaining BDC nesting depth. A "run" is a
+    contiguous sequence of tokens at depth 0 that begins with a
+    content-producing operator and may include subsequent state-setting
+    operators. State-only sequences at depth 0 do not start a run —
+    they are left untouched.
+
+    Args:
+        tokens: Output of ``_tokenize_content_stream``.
+
+    Returns:
+        List of ``(start_index, end_index)`` pairs, inclusive on both
+        ends, where each pair denotes a run to wrap in /Artifact BDC / EMC.
+        Indices point at the first content/state operator token (start)
+        and the last content/state operator token (end).
+    """
+    runs: list[tuple[int, int]] = []
+    depth = 0
+    run_start: int | None = None
+    run_end: int | None = None
+
+    def _close_run() -> None:
+        nonlocal run_start, run_end
+        if run_start is not None and run_end is not None:
+            runs.append((run_start, run_end))
+        run_start = None
+        run_end = None
+
+    for i, token in enumerate(tokens):
+        if token.type != "operator":
+            # Non-op token (operand, whitespace, comment, name, dict).
+            # If we're inside an open run, the index range will sweep
+            # over it implicitly because runs are contiguous index spans.
+            continue
+
+        op = token.value
+
+        if op == "BDC" or op == "BMC":
+            _close_run()
+            depth += 1
+            continue
+
+        if op == "EMC":
+            depth -= 1
+            continue
+
+        if depth != 0:
+            # Inside a tagged region — leave it alone.
+            continue
+
+        if op == "BT":
+            # BT at depth 0 always starts a run. A text object that
+            # isn't already inside a BDC contains content that needs to
+            # be tagged or marked as Artifact, by definition. The
+            # (string) operand between BT and Tj sits between the two
+            # operators, so the run must start AT BT (not at the
+            # subsequent Tj) for the string to fall inside the wrapper.
+            if run_start is None:
+                run_start = i
+            run_end = i
+            continue
+
+        if _is_content_producing_op(op):
+            if run_start is None:
+                run_start = i
+            run_end = i
+        elif _is_state_setting_op(op):
+            if run_start is not None:
+                # State op extends an open run; doesn't start one.
+                run_end = i
+
+    _close_run()
+    return runs

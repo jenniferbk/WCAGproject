@@ -808,3 +808,78 @@ class TestArtifactMarkingHelpers:
         for op in ["BDC", "BMC", "EMC"]:
             assert not _is_content_producing_op(op)
             assert not _is_state_setting_op(op)
+
+
+class TestFindUntaggedRuns:
+    """Tests for _find_untagged_content_runs() — Track A state machine."""
+
+    def _tokenize(self, stream_str: str):
+        from src.tools.pdf_writer import _tokenize_content_stream
+        return _tokenize_content_stream(stream_str.encode("latin-1"))
+
+    def test_empty_stream_no_runs(self):
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("")
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_state_ops_alone_no_runs(self):
+        """A page with only state ops at depth 0 — no content to wrap."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("q\n1 0 0 1 0 0 cm\nQ\n")
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_content_at_depth_0_yields_run(self):
+        """A simple BT/ET text object at depth 0 — one run covering it."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("BT\n/F0 10 Tf\n72 720 Td\n(hi) Tj\nET\n")
+        runs = _find_untagged_content_runs(tokens)
+        assert len(runs) == 1
+        start, end = runs[0]
+        # Run should include the Tj token
+        ops_in_run = [
+            t.value for t in tokens[start:end + 1]
+            if t.type == "operator"
+        ]
+        assert "Tj" in ops_in_run
+
+    def test_content_inside_bdc_not_wrapped(self):
+        """Content inside /P BDC is at depth 1 — yields no run."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        stream = "/P << /MCID 0 >> BDC\nBT (hi) Tj ET\nEMC\n"
+        tokens = self._tokenize(stream)
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_mixed_tagged_and_untagged(self):
+        """Tagged body plus untagged footer — only the footer becomes a run."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        stream = (
+            "/P << /MCID 0 >> BDC\n"
+            "BT (body) Tj ET\n"
+            "EMC\n"
+            "BT (footer) Tj ET\n"
+        )
+        tokens = self._tokenize(stream)
+        runs = _find_untagged_content_runs(tokens)
+        assert len(runs) == 1
+        start, end = runs[0]
+        run_text = "".join(t.value for t in tokens[start:end + 1])
+        assert "footer" in run_text
+        assert "body" not in run_text
+
+    def test_nested_bdc_handled(self):
+        """/P BDC /Span BDC content EMC EMC — untouched."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        stream = "/P BDC /Span BDC BT (x) Tj ET EMC EMC\n"
+        tokens = self._tokenize(stream)
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_do_operator_at_depth_0_yields_run(self):
+        """Form XObject call (Do) at depth 0 produces a run."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("/Fm0 Do\n")
+        runs = _find_untagged_content_runs(tokens)
+        assert len(runs) == 1

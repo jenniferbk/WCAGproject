@@ -2,14 +2,14 @@
 
 Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessibility-Benchmark)
 
-**Overall accuracy: 68.80%** (86/125 correct)
-**Elapsed: 152.3s**
+**Overall accuracy: 84.00%** (105/125 correct)
+**Elapsed: 152.1s**
 
 ## Comparison to Published Baselines
 
 | System | Overall Accuracy |
 |--------|-----------------|
-| **A11y Remediate (this tool)** | **68.80%** |
+| **A11y Remediate (this tool)** | **84.00%** |
 | GPT-4-Turbo | 85.00% |
 | GPT-4o-Vision | 81.00% |
 | Gemini-1.5 | 75.00% |
@@ -20,13 +20,13 @@ Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessi
 
 | Task | Correct | Total | Accuracy |
 |------|---------|-------|----------|
-| alt_text_quality | 13 | 20 | 65.00% |
-| color_contrast | 10 | 15 | 66.67% |
-| fonts_readability | 10 | 15 | 66.67% |
-| functional_hyperlinks | 15 | 20 | 75.00% |
-| logical_reading_order | 8 | 15 | 53.33% |
+| alt_text_quality | 15 | 20 | 75.00% |
+| color_contrast | 12 | 15 | 80.00% |
+| fonts_readability | 15 | 15 | 100.00% |
+| functional_hyperlinks | 18 | 20 | 90.00% |
+| logical_reading_order | 11 | 15 | 73.33% |
 | semantic_tagging | 15 | 20 | 75.00% |
-| table_structure | 15 | 20 | 75.00% |
+| table_structure | 19 | 20 | 95.00% |
 
 ## Confusion Matrices
 
@@ -36,8 +36,8 @@ Rows = ground truth, columns = predicted
 
 | gold ↓ / predicted → | cannot_tell | failed | not_present | passed |
 |---|---|---|---|---|
-| cannot_tell | 0 | 0 | 0 | 5 |
-| failed | 0 | 4 | 0 | 1 |
+| cannot_tell | 1 | 0 | 0 | 4 |
+| failed | 0 | 5 | 0 | 0 |
 | not_present | 0 | 0 | 4 | 1 |
 | passed | 0 | 0 | 0 | 5 |
 
@@ -45,15 +45,15 @@ Rows = ground truth, columns = predicted
 
 | gold ↓ / predicted → | cannot_tell | failed | passed |
 |---|---|---|---|
-| cannot_tell | 1 | 0 | 4 |
-| failed | 0 | 4 | 1 |
-| passed | 0 | 0 | 5 |
+| cannot_tell | 3 | 1 | 1 |
+| failed | 0 | 5 | 0 |
+| passed | 1 | 0 | 4 |
 
 ### fonts_readability
 
 | gold ↓ / predicted → | cannot_tell | failed | passed |
 |---|---|---|---|
-| cannot_tell | 0 | 2 | 3 |
+| cannot_tell | 5 | 0 | 0 |
 | failed | 0 | 5 | 0 |
 | passed | 0 | 0 | 5 |
 
@@ -61,18 +61,18 @@ Rows = ground truth, columns = predicted
 
 | gold ↓ / predicted → | cannot_tell | failed | not_present | passed |
 |---|---|---|---|---|
-| cannot_tell | 0 | 5 | 0 | 0 |
+| cannot_tell | 5 | 0 | 0 | 0 |
 | failed | 0 | 5 | 0 | 0 |
-| not_present | 0 | 0 | 5 | 0 |
+| not_present | 0 | 2 | 3 | 0 |
 | passed | 0 | 0 | 0 | 5 |
 
 ### logical_reading_order
 
 | gold ↓ / predicted → | cannot_tell | failed | passed |
 |---|---|---|---|
-| cannot_tell | 2 | 1 | 2 |
-| failed | 0 | 4 | 1 |
-| passed | 2 | 1 | 2 |
+| cannot_tell | 5 | 0 | 0 |
+| failed | 0 | 5 | 0 |
+| passed | 4 | 0 | 1 |
 
 ### semantic_tagging
 
@@ -87,7 +87,7 @@ Rows = ground truth, columns = predicted
 
 | gold ↓ / predicted → | cannot_tell | failed | not_present | passed |
 |---|---|---|---|---|
-| cannot_tell | 0 | 0 | 0 | 5 |
+| cannot_tell | 5 | 0 | 0 | 0 |
 | failed | 0 | 5 | 0 | 0 |
 | not_present | 0 | 0 | 5 | 0 |
-| passed | 0 | 0 | 0 | 5 |
+| passed | 1 | 0 | 0 | 4 |

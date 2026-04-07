@@ -30,7 +30,15 @@ from src.tools.headings import set_heading_level
 from src.tools.html_builder import build_html
 from src.tools.itext_tagger import build_tagging_plan, tag_pdf
 from src.tools.metadata import set_language, set_language_pptx, set_title, set_title_pptx
-from src.tools.pdf_writer import apply_contrast_fixes_to_pdf, apply_pdf_fixes, repair_broken_uris_in_pdf, strip_struct_tree, update_existing_figure_alt_texts
+from src.tools.pdf_writer import (
+    apply_contrast_fixes_to_pdf,
+    apply_pdf_fixes,
+    apply_pdf_ua_metadata,
+    mark_untagged_content_as_artifact,
+    repair_broken_uris_in_pdf,
+    strip_struct_tree,
+    update_existing_figure_alt_texts,
+)
 from src.tools.links import set_link_text
 from src.tools.tables import mark_header_rows
 
@@ -330,6 +338,47 @@ def execute_pdf(
                         logger.info("  %r → %r", before[:80], after[:80])
             except Exception as exc:
                 logger.warning("URI repair pass failed: %s", exc)
+
+            # PDF/UA Track C — XMP pdfuaid:part=1, DisplayDocTitle,
+            # /Metadata key on catalog. Eliminates rules 5-1, 7.1-8,
+            # 7.1-10 across all docs at zero API cost. See spec
+            # docs/superpowers/specs/2026-04-07-pdf-ua-compliance-fixes-design.md
+            try:
+                meta_result = apply_pdf_ua_metadata(tagged_pdf_path)
+                if meta_result.success and meta_result.changes:
+                    logger.info(
+                        "PDF/UA metadata fixes applied to %s: %s",
+                        tagged_pdf_path, ", ".join(meta_result.changes),
+                    )
+                elif not meta_result.success:
+                    logger.warning(
+                        "PDF/UA metadata fixes failed: %s", meta_result.error
+                    )
+            except Exception as exc:
+                logger.warning("PDF/UA metadata pass failed: %s", exc)
+
+            # PDF/UA Track A — wrap depth-0 untagged content and
+            # convert orphan BDCs to /Artifact <</Type /Pagination>>.
+            # Reduces rule 7.1-3 failed checks by 50–92% on the
+            # benchmark depending on the source PDF's tagging quality.
+            try:
+                artifact_result = mark_untagged_content_as_artifact(tagged_pdf_path)
+                if artifact_result.success:
+                    if artifact_result.artifact_wrappers_inserted:
+                        logger.info(
+                            "Artifact-marked %d content region(s) "
+                            "across %d page(s) in %s",
+                            artifact_result.artifact_wrappers_inserted,
+                            artifact_result.pages_modified,
+                            tagged_pdf_path,
+                        )
+                else:
+                    logger.warning(
+                        "Artifact marking failed: %s",
+                        "; ".join(artifact_result.errors),
+                    )
+            except Exception as exc:
+                logger.warning("Artifact marking pass failed: %s", exc)
         else:
             # Fallback: use pdf_writer for Tier 1 (metadata + alt text)
             logger.warning(

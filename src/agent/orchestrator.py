@@ -446,51 +446,48 @@ def process(
                 parts.append(request.course_context.description)
             course_ctx = " — ".join(parts)
 
-        import concurrent.futures
         import os
 
         mistral_api_key = os.environ.get("MISTRAL_API_KEY")
+        primary_engine = None  # "mistral" or "hybrid" — which one feeds the pipeline
 
+        # ── Try Mistral first (primary) ─────────────────────────────
         if mistral_api_key:
-            # Run both OCR pipelines concurrently
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                hybrid_future = pool.submit(
-                    process_scanned_pages,
-                    pdf_path=doc_path,
-                    scanned_page_numbers=parse_result.scanned_page_numbers,
-                    course_context=course_ctx,
-                    on_progress=lambda detail: on_phase("ocr", detail) if on_phase else None,
-                )
-                mistral_future = pool.submit(
-                    process_scanned_pages_mistral,
+            try:
+                logger.info("OCR: trying Mistral (primary)")
+                mistral_try = process_scanned_pages_mistral(
                     pdf_path=Path(doc_path),
                     scanned_page_numbers=parse_result.scanned_page_numbers,
                 )
-
-                ocr_result = hybrid_future.result()
-
-                try:
-                    mistral_result = mistral_future.result()
-                    if mistral_result.success:
-                        logger.info(
-                            "Mistral OCR: %d paragraphs, %d tables from %d pages",
-                            len(mistral_result.paragraphs),
-                            len(mistral_result.tables),
-                            len(mistral_result.pages_processed),
-                        )
-                    else:
-                        logger.warning("Mistral OCR failed (non-fatal): %s", mistral_result.error)
-                        mistral_result = None
-                except Exception as e:
-                    logger.warning("Mistral OCR failed (non-fatal): %s", e)
+                if mistral_try.success and (mistral_try.paragraphs or mistral_try.tables):
+                    logger.info(
+                        "Mistral OCR: %d paragraphs, %d tables from %d pages",
+                        len(mistral_try.paragraphs),
+                        len(mistral_try.tables),
+                        len(mistral_try.pages_processed),
+                    )
+                    ocr_result = mistral_try
+                    mistral_result = mistral_try
+                    primary_engine = "mistral"
+                else:
+                    logger.warning(
+                        "Mistral OCR returned no content — falling back to hybrid pipeline",
+                    )
                     mistral_result = None
-        else:
+            except Exception as e:
+                logger.warning("Mistral OCR failed: %s — falling back to hybrid pipeline", e)
+                mistral_result = None
+
+        # ── Fall back to hybrid if Mistral failed or no API key ─────
+        if ocr_result is None:
+            logger.info("OCR: running hybrid pipeline (Tesseract + Gemini + Haiku)")
             ocr_result = process_scanned_pages(
                 pdf_path=doc_path,
                 scanned_page_numbers=parse_result.scanned_page_numbers,
                 course_context=course_ctx,
                 on_progress=lambda detail: on_phase("ocr", detail) if on_phase else None,
             )
+            primary_engine = "hybrid"
 
         if ocr_result.success and (ocr_result.paragraphs or ocr_result.tables):
             doc_model = _merge_ocr_into_model(
@@ -498,7 +495,8 @@ def process(
             )
             ocr_usage = list(ocr_result.api_usage)
             logger.info(
-                "OCR merged: %d paragraphs, %d tables, %d figures from %d pages",
+                "OCR merged (%s): %d paragraphs, %d tables, %d figures from %d pages",
+                primary_engine,
                 len(ocr_result.paragraphs), len(ocr_result.tables),
                 len(ocr_result.figures), len(ocr_result.pages_processed),
             )
@@ -758,8 +756,8 @@ def process(
             final_result,
             visual_qa_findings=visual_qa_findings,
             output_dir=output_dir,
-            hybrid_ocr_result=ocr_result if ocr_result else None,
-            mistral_ocr_result=mistral_result,
+            hybrid_ocr_result=None,  # No longer running comparison
+            mistral_ocr_result=None,
         )
         report_path.write_text(report_html)
         final_result = RemediationResult(

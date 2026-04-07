@@ -3,8 +3,35 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Hybrid OCR shipped, table quality + Mistral evaluation next
-- **Tests**: 872 passing
+- **Phase**: Mistral OCR primary, LaTeX pipeline fully functional
+- **Tests**: 921 passing
+
+## What Was Shipped (2026-04-06 session — Mistral OCR Primary)
+
+### OCR Switch: Mistral Primary, Hybrid Fallback
+- Mistral OCR 3 is now the primary scanned-page OCR engine
+- Hybrid pipeline (Tesseract + Gemini + Haiku) kept as fallback when Mistral fails or `MISTRAL_API_KEY` missing
+- **Side-by-side evaluation on Mayer paper (11 scanned pages):**
+  - Mistral: 169 paragraphs, 4 tables, **8 seconds**, ~$0.011
+  - Hybrid: 88 paragraphs (missed content), 5 tables (1 duplicate), ~8 min, ~$0.15
+  - Mistral wins on completeness, formatting (proper blockquotes, clean dashes, no hyphenation artifacts), heading levels, speed, cost
+- Content comparison details: Mistral caught 4 paragraphs hybrid dropped; hybrid had leaked table fragments in prose; hybrid split author line into 2 headings; hybrid had line-break hyphens ("psychol-ogy") that Mistral cleaned
+- **Overall pipeline time on Mayer: 3.3 min vs 14.6 min** (OCR is ~0.1% of the work now, Gemini comprehension dominates)
+- Removed parallel-comparison report section
+
+### LaTeX Pipeline Fully Functional
+- Fixed LaTeX routing: `.tex`/`.ltx`/`.zip` now go through `execute_pdf` path (not `execute()` which tried to open them as docx)
+- iText tagging skipped for LaTeX (no source PDF to tag); WeasyPrint generates PDF/UA output from accessible HTML
+- Skip re-parsing phase for LaTeX (no parser for HTML output)
+- Added `_LSTSET_NOISE` pattern to filter leaked `\lstdefinestyle` key-value blocks ("frame=single, rulecolor=...")
+- TikZ descriptions now render in HTML output via new `tikz-description` div with `role="img"` and `aria-label`
+- **All 5 test LaTeX docs pass end-to-end**: homework.tex (55 paras, 1 TikZ, 54 math), diffeq_laplace.tex, diffeq_power_series.tex, syllabus.tex, homework_template.tex
+- TikZ description quality: Mayer automaton got full structural description from Claude Haiku (5 states, 10 transitions, initial/accepting, layout)
+
+### Up Next
+1. **LaTeX .tex remediation output** — return fixed .tex source file (new output format)
+2. **Math Review section visual check** — built but needs confirmation it shows up well in actual reports
+3. **Review Mistral on non-academic docs** — we only validated on Mayer paper; test on diverse samples
 
 ## What Was Shipped (2026-04-06 session — Hybrid OCR Architecture)
 

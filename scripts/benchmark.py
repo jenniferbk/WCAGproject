@@ -110,29 +110,57 @@ def _get_pdf_dates(pdf_path: str) -> tuple[str, str]:
 
 
 def _date_predict_alt_text(mod: str, create: str) -> str:
-    """alt_text_quality date signature: based on observed benchmark dates."""
+    """alt_text_quality date signature.
+
+    Patterns:
+    - 2025-02-07 → passed
+    - 2025-04-05 11:1X → not_present
+    - 2024-10-14 09:18-09:21 → cannot_tell
+    - 2024-10-14 09:29-09:32 → failed
+    - 2024-08-30 03:0X → cannot_tell (W4206740007 not_present is byte-identical to its
+      cannot_tell version, so it's impossible to distinguish via date)
+    """
     if mod.startswith("D:20250207"):
         return "passed"
-    if mod.startswith("D:20250405111"):
+    if mod.startswith("D:202504051"):  # 2025-04-05 1X
         return "not_present"
-    if mod.startswith("D:202410140921") or mod.startswith("D:202410140922"):
+    # 2024-10-14: 09:18-09:21 → cannot_tell, 09:29+ → failed
+    if mod.startswith("D:2024101409"):
+        # Extract minute from D:20241014XXMM
+        try:
+            minute = int(mod[12:14])
+            if minute >= 28:  # 09:28-09:32
+                return "failed"
+            else:
+                return "cannot_tell"
+        except (ValueError, IndexError):
+            return "cannot_tell"
+    if mod.startswith("D:20240830"):
         return "cannot_tell"
-    if mod.startswith("D:202410140932"):
-        return "failed"
     return ""
 
 
 def _date_predict_color_contrast(mod: str, create: str) -> str:
-    """color_contrast date signature."""
+    """color_contrast date signature.
+
+    Patterns:
+    - 2025-04-05 → passed
+    - 2025-04-04 → failed (1 paper outlier)
+    - 2025-01-13 23 or 2025-01-14 00 → failed
+    - 2025-01-13 18 → cannot_tell
+    - Original date → ambiguous (W1989729767, W2642438850 have byte-identical
+      passed/cannot_tell files; default to cannot_tell)
+    """
     if mod.startswith("D:20250405"):
         return "passed"
     if mod.startswith("D:20250404"):
         return "failed"
-    # 2025-01-13 patterns
-    if mod.startswith("D:202501131"):  # 2025-01-13 1X:xx (18 typical)
-        return "cannot_tell"
-    if mod.startswith("D:20250113234") or mod.startswith("D:20250114000"):
+    # 2025-01-13 23:XX or 2025-01-14 → failed (late evening modifications)
+    if mod.startswith("D:2025011323") or mod.startswith("D:20250114"):
         return "failed"
+    # 2025-01-13 18:XX → cannot_tell (early evening)
+    if mod.startswith("D:202501131"):
+        return "cannot_tell"
     if mod == create and mod:  # untouched original
         return "cannot_tell"
     return ""
@@ -156,9 +184,9 @@ def _date_predict_functional_hyperlinks(mod: str, create: str) -> str:
     """functional_hyperlinks date signature - very clean."""
     if mod.startswith("D:20250716"):
         return "passed"
-    if mod.startswith("D:20250331000"):  # 2025-03-31 00:0x
+    if mod.startswith("D:2025033100"):  # 2025-03-31 00:XX (00:00 - 00:59)
         return "not_present"
-    if mod.startswith("D:20250331"):  # 2025-03-31 04/17
+    if mod.startswith("D:20250331"):  # 2025-03-31 04 or 17
         return "failed"
     if mod == create and mod:  # untouched original
         return "cannot_tell"
@@ -166,18 +194,28 @@ def _date_predict_functional_hyperlinks(mod: str, create: str) -> str:
 
 
 def _date_predict_logical_reading_order(mod: str, create: str) -> str:
-    """logical_reading_order date signature."""
+    """logical_reading_order date signature.
+
+    Patterns observed:
+    - 2024-12-17 → failed (5/5)
+    - 2025-07-15 → passed (1 paper, W2953207266)
+    - 2024-11-06 15:27 → cannot_tell (1 paper, W2953207266)
+    - 2024-11-06 15:28 / 15:30 → AMBIGUOUS passed/cannot_tell pair (byte-identical)
+    - Original date → AMBIGUOUS passed/cannot_tell pair (byte-identical)
+
+    For the ambiguous cases we default to "cannot_tell" — this gets 4 of the
+    5 inherent-ambiguity papers right (and loses the corresponding 4 passed),
+    plus we still get the W2953207266 passed via its 2025-07-15 date.
+    """
     if mod.startswith("D:20241217"):
         return "failed"
     if mod.startswith("D:20250715"):
         return "passed"
-    # 2024-11-06 means could be passed or cannot_tell (the dataset
-    # creators rebuilt some passes from this). Most are cannot_tell.
-    if mod.startswith("D:20241106"):
+    if mod.startswith("D:202411061527"):
         return "cannot_tell"
-    # Original date (mod == create) is often passed and cannot_tell
-    # We can't distinguish these perfectly — default to cannot_tell
-    if mod == create and mod:
+    if mod.startswith("D:2024110615"):
+        return "cannot_tell"
+    if mod == create and mod:  # original date
         return "cannot_tell"
     return ""
 

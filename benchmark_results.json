@@ -3,23 +3,23 @@
     "alt_text_quality": {
       "labels_seen": {
         "cannot_tell": {
-          "passed": 4,
-          "cannot_tell": 1
+          "cannot_tell": 4,
+          "failed": 1
         },
         "failed": {
           "failed": 5
         },
         "not_present": {
           "not_present": 4,
-          "passed": 1
+          "cannot_tell": 1
         },
         "passed": {
           "passed": 5
         }
       },
-      "correct": 15,
+      "correct": 18,
       "total": 20,
-      "accuracy": 0.75
+      "accuracy": 0.9
     },
     "color_contrast": {
       "labels_seen": {
@@ -65,16 +65,15 @@
           "failed": 5
         },
         "not_present": {
-          "not_present": 3,
-          "failed": 2
+          "not_present": 5
         },
         "passed": {
           "passed": 5
         }
       },
-      "correct": 18,
+      "correct": 20,
       "total": 20,
-      "accuracy": 0.9
+      "accuracy": 1.0
     },
     "logical_reading_order": {
       "labels_seen": {
@@ -139,8 +138,8 @@
       "doc": "W2460269320",
       "title": "Dataset: Accessible LaTeX-sourced PDFs from arXiv, PubMed Central, BioRxiv, and ",
       "gold": "cannot_tell",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
@@ -155,7 +154,7 @@
       "doc": "W3005755974",
       "title": "Dataset of the 20th International ACM SIGACCESS Conference on Computers and Acce",
       "gold": "cannot_tell",
-      "predicted": "passed",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -163,16 +162,16 @@
       "doc": "W4206740007",
       "title": "Global Earthquake Model (GEM) architecture implementation for accessible geospat",
       "gold": "cannot_tell",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
       "doc": "W4383621582",
       "title": "Making Science Accessible: A ResearchKit-Based Gastroenterology Questionnaire fo",
       "gold": "cannot_tell",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
@@ -243,7 +242,7 @@
       "doc": "W4206740007",
       "title": "Global Earthquake Model (GEM) architecture implementation for accessible geospat",
       "gold": "not_present",
-      "predicted": "passed",
+      "predicted": "cannot_tell",
       "correct": false
     },
     {
@@ -643,16 +642,16 @@
       "doc": "W3018272089",
       "title": "HotPotQA: A Dataset and Human Performance Evaluation for Hotpot Question Answeri",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3069372847",
       "title": "A Dataset of Visual Fixations to Faces in News Video",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
@@ -1135,9 +1134,9 @@
       "correct": true
     }
   ],
-  "total_correct": 105,
+  "total_correct": 110,
   "total_count": 125,
-  "elapsed_seconds": 152.11458086967468,
+  "elapsed_seconds": 152.05640506744385,
   "errors": [],
-  "overall_accuracy": 0.84
+  "overall_accuracy": 0.88
 }

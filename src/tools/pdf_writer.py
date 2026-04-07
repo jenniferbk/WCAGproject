@@ -1923,3 +1923,146 @@ def _find_untagged_content_runs(tokens: list[Token]) -> list[tuple[int, int]]:
 
     _close_run()
     return runs
+
+
+@dataclass
+class ArtifactMarkingResult:
+    """Result of mark_untagged_content_as_artifact()."""
+    success: bool
+    pages_modified: int = 0
+    artifact_wrappers_inserted: int = 0
+    pages_skipped: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def _apply_artifact_wrappers(
+    tokens: list[Token],
+    runs: list[tuple[int, int]],
+) -> bytes:
+    """Reassemble the token list with /Artifact BDC/EMC wrappers
+    inserted around each run.
+
+    Simpler in_run flag implementation: walk the original token list
+    once, emit BDC immediately before entering a run start, emit EMC
+    immediately after the run end. Single sweep, no index gymnastics.
+    """
+    if not runs:
+        return _reassemble_stream(tokens)
+
+    starts = {start for start, _ in runs}
+    ends = {end for _, end in runs}
+
+    bdc_open = Token(value="/Artifact BDC\n", type="operator")
+    emc_close = Token(value="\nEMC", type="operator")
+
+    out: list[Token] = []
+    for i, t in enumerate(tokens):
+        if i in starts:
+            out.append(bdc_open)
+        out.append(t)
+        if i in ends:
+            out.append(emc_close)
+
+    return _reassemble_stream(out)
+
+
+def mark_untagged_content_as_artifact(
+    pdf_path: "str | Path",
+) -> ArtifactMarkingResult:
+    """Walk the PDF's content streams and wrap depth-0 untagged content
+    in /Artifact BDC / EMC markers. Satisfies veraPDF rule 7.1-3
+    ("Content shall be marked as Artifact or tagged as real content")
+    for every content item the walker can reach.
+
+    Does not recurse into form XObjects referenced via Do — that's a
+    known v1 limitation (see spec §"Out of scope (v1 limits)").
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place.
+
+    Returns:
+        ArtifactMarkingResult with counts and per-page errors.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return ArtifactMarkingResult(
+            success=False, errors=[f"File not found: {path}"]
+        )
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return ArtifactMarkingResult(
+            success=False, errors=[f"Open failed: {exc}"]
+        )
+
+    result = ArtifactMarkingResult(success=True)
+    try:
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            try:
+                stream_bytes = page.read_contents()
+            except Exception as exc:
+                result.errors.append(
+                    f"page {page_idx}: read_contents failed: {exc}"
+                )
+                result.pages_skipped += 1
+                continue
+
+            if not stream_bytes:
+                result.pages_skipped += 1
+                continue
+
+            tokens = _tokenize_content_stream(stream_bytes)
+            runs = _find_untagged_content_runs(tokens)
+
+            if not runs:
+                result.pages_skipped += 1
+                continue
+
+            new_stream = _apply_artifact_wrappers(tokens, runs)
+
+            # Find the xref of the page's /Contents stream and rewrite it.
+            # If /Contents is an array we collapse into the first stream
+            # and clear the rest.
+            contents_ref = doc.xref_get_key(page.xref, "Contents")
+            if contents_ref[0] == "xref":
+                xref = int(contents_ref[1].split()[0])
+                doc.update_stream(xref, new_stream)
+            elif contents_ref[0] == "array":
+                refs = [
+                    int(piece.split()[0])
+                    for piece in contents_ref[1].strip("[]").split("R")
+                    if piece.strip()
+                ]
+                if not refs:
+                    result.errors.append(
+                        f"page {page_idx}: empty /Contents array"
+                    )
+                    result.pages_skipped += 1
+                    continue
+                doc.update_stream(refs[0], new_stream)
+                for xref_clear in refs[1:]:
+                    doc.update_stream(xref_clear, b"")
+            else:
+                result.errors.append(
+                    f"page {page_idx}: unexpected /Contents type "
+                    f"{contents_ref[0]}"
+                )
+                result.pages_skipped += 1
+                continue
+
+            result.pages_modified += 1
+            result.artifact_wrappers_inserted += len(runs)
+
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        result.success = False
+        result.errors.append(f"mark_untagged_content_as_artifact: {exc}")
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return result

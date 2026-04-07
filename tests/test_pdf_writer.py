@@ -883,3 +883,82 @@ class TestFindUntaggedRuns:
         tokens = self._tokenize("/Fm0 Do\n")
         runs = _find_untagged_content_runs(tokens)
         assert len(runs) == 1
+
+
+class TestMarkUntaggedContent:
+    """End-to-end tests for mark_untagged_content_as_artifact()."""
+
+    def _pdf_with_untagged_footer(self, tmp_path) -> Path:
+        """Create a PDF whose content stream has a BDC-tagged body and
+        an untagged footer line."""
+        import fitz
+        import re as _re
+        doc = fitz.open()
+        page = doc.new_page(width=300, height=400)
+        page.insert_text((50, 50), "Body text")
+        page.insert_text((50, 380), "Page 1")  # untagged footer
+        out = tmp_path / "with_footer.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        # Post-process: wrap the first BT..ET in /P BDC/EMC so the body
+        # is "tagged" and the footer is "untagged" at depth 0.
+        doc = fitz.open(str(out))
+        p = doc[0]
+        stream = p.read_contents()
+        m = _re.search(rb"BT\b.*?ET", stream, flags=_re.DOTALL)
+        if not m:
+            doc.close()
+            raise RuntimeError("Test fixture: no BT..ET in generated content stream")
+        wrapped = (
+            stream[:m.start()]
+            + b"/P << /MCID 0 >> BDC\n"
+            + m.group(0)
+            + b"\nEMC\n"
+            + stream[m.end():]
+        )
+        contents_ref = doc.xref_get_key(p.xref, "Contents")
+        if contents_ref[0] == "xref":
+            xref = int(contents_ref[1].split()[0])
+        elif contents_ref[0] == "array":
+            xref = int(contents_ref[1].strip("[]").split()[0])
+        else:
+            doc.close()
+            raise RuntimeError(f"Unexpected /Contents type: {contents_ref}")
+        doc.update_stream(xref, wrapped)
+        doc.save(str(out), incremental=True, encryption=0)
+        doc.close()
+        return out
+
+    def test_wraps_untagged_footer(self, tmp_path):
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        import fitz
+        pdf = self._pdf_with_untagged_footer(tmp_path)
+        result = mark_untagged_content_as_artifact(pdf)
+        assert result.success
+        assert result.artifact_wrappers_inserted >= 1
+        doc = fitz.open(str(pdf))
+        content = doc[0].read_contents()
+        doc.close()
+        assert b"/Artifact BDC" in content
+
+    def test_empty_pdf_no_op(self, tmp_path):
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        import fitz
+        doc = fitz.open()
+        doc.new_page()  # blank page, no content
+        out = tmp_path / "empty.pdf"
+        doc.save(str(out))
+        doc.close()
+        result = mark_untagged_content_as_artifact(out)
+        assert result.success
+        assert result.artifact_wrappers_inserted == 0
+
+    def test_idempotent(self, tmp_path):
+        """Running twice inserts zero wrappers on the second call."""
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        pdf = self._pdf_with_untagged_footer(tmp_path)
+        first = mark_untagged_content_as_artifact(pdf)
+        second = mark_untagged_content_as_artifact(pdf)
+        assert first.success and second.success
+        assert second.artifact_wrappers_inserted == 0

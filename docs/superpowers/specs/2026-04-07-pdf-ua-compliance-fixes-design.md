@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 **Date:** 2026-04-07
-**Context:** Post [Full remediation benchmark results](../../benchmark_results/remediation_benchmark_results_with_verapdf.md) — 125/125 docs remediated, 1076 → 672 veraPDF failed rules (−37.5%). This spec designs the next iteration: reducing the 672 remaining rule failures by ~70% via targeted post-processing of already-tagged outputs.
+**Context:** Post [Full remediation benchmark results](../../benchmark_results/remediation_benchmark_results_with_verapdf.md) — 125/125 docs remediated, 1076 → 672 veraPDF failed rules (−37.5%). This spec designs the next iteration: targeted post-processing of already-tagged outputs to eliminate the majority of the remaining 197,574 failed checks, with exact impact measured empirically.
 
 ## Problem
 
@@ -28,10 +28,11 @@ The secondary opportunity is XMP metadata: rules 5-1, 7.1-8, and 7.1-10 are triv
 
 ## Goals
 
-1. **Primary:** reduce veraPDF failed checks from 197,574 → ~18,000 (−91%) across the 125-doc benchmark by implementing a content-stream walker that marks untagged content as `/Artifact`.
-2. **Secondary:** reduce failed checks by an additional ~136 via PDF/UA XMP metadata polish.
-3. **Do not regress** any document — every doc's failed-check count must stay the same or decrease after post-processing.
-4. **Safe for production:** the two new functions must work as standalone post-processors (no-dependency on fresh iText runs) so they can be validated on the existing 125 output PDFs in a fast iteration loop before being integrated into the main pipeline.
+1. **Primary:** implement a content-stream walker that marks untagged content as `/Artifact` on all 125 benchmark outputs, eliminating the majority of rule 7.1-3's 179,291 failed checks. The exact residual (from form XObject content we don't recurse into) is measured empirically and documented.
+2. **Secondary:** eliminate all 136 failed checks from rules 5-1, 7.1-8, and 7.1-10 via PDF/UA XMP metadata polish. This is a deterministic target.
+3. **No new rule types introduced.** Every doc's set of failing rule IDs after post-processing must be a subset of its set before. If our wrapping ever triggers a new rule on any doc, that doc reverts.
+4. **Text extraction preserved.** `fitz.page.get_text()` must produce byte-exact output before and after both tracks on every page of every doc. (Text extraction in PyMuPDF reads content-stream operators regardless of BDC marking, so /Artifact wrapping should not affect it — we verify this early in the iteration loop.)
+5. **Safe for production:** the two new functions work as standalone post-processors (no dependency on fresh iText runs) so they can be validated on the existing 125 output PDFs in a fast iteration loop before integration into the main executor.
 
 ## Non-goals
 
@@ -115,9 +116,9 @@ Combined: **−136 failed checks and −136 failed rule-instances** across the 1
 @dataclass
 class ArtifactMarkingResult:
     success: bool
-    pages_modified: int
-    tokens_wrapped: int
-    pages_skipped: int          # empty streams, already-clean pages
+    pages_modified: int             # pages where at least one wrapper was inserted
+    artifact_wrappers_inserted: int # total count of /Artifact BDC/EMC pairs added
+    pages_skipped: int              # empty streams, already-clean pages
     errors: list[str]
 
 def mark_untagged_content_as_artifact(pdf_path: str | Path) -> ArtifactMarkingResult:
@@ -131,19 +132,74 @@ For each page in the document:
 1. **Read the content stream(s).** PyMuPDF exposes `page.read_contents()` which returns the concatenated content. For write-back, the page's `/Contents` can be a single stream xref or an array `[s1 s2 s3]`. Strategy: read concatenated, rewrite, write the new content into the first stream xref, zero out the others (set their length to 0 via stream update).
 2. **Tokenize** using the existing `_tokenize_content_stream(bytes)` function already in `pdf_writer.py` (line 1071).
 3. **Walk tokens maintaining BDC depth.** Track a counter: increment on `BDC`, decrement on `EMC`. BDC opens when the previous tokens emit a tag name followed by `BDC` (e.g. `/P BDC` or `/Artifact BDC` or `/Span << /MCID 5 >> BDC`). Our existing tokenizer already understands BDC/EMC.
-4. **Identify depth-0 content runs.** A token is "content-producing" if its operator is one of: `Tj TJ ' " Do S s f F f* B b b* B* BT BI/ID/EI` plus path-painting (`m l c v y re h n S s f F f* B B* b b* n`). Plus state operators (`q Q cm Tf Tr Tc Tw Tz TL Ts gs`) that fall between content operators — we keep them inside the wrapper so the wrapped run preserves its own graphics state scope.
-5. **Wrap each contiguous depth-0 run in `/Artifact BDC ... EMC`.** Insert `/Artifact BDC\n` before the first content token of the run and `EMC\n` after the last. Multiple disjoint runs on the same page get separate wrappers.
-6. **Reassemble** with the existing `_reassemble_stream(tokens)` function, then write back via `doc.update_stream(xref, new_bytes, new=True)`.
-7. **Track per-page counters** for the result dataclass.
+4. **Classify each operator as content-producing or state-setting.** See the precise operator list below. This is the critical distinction: state operators don't violate rule 7.1-3 and don't need wrapping; content-producing operators do.
+5. **Walk tokens maintaining BDC depth and current run state.** See "Depth-0 content run detection" below for the exact state machine.
+6. **Wrap each contiguous depth-0 run in `/Artifact BDC ... EMC`.** Insert `/Artifact BDC\n` before the first token of the run and `EMC\n` after the last. Multiple disjoint runs on the same page get separate wrappers.
+7. **Reassemble** with the existing `_reassemble_stream(tokens)` function, then write back via PyMuPDF's content-stream update API (verify exact name during impl — candidate is `doc.update_stream(xref, new_bytes)`).
+8. **Track per-page counters** for the result dataclass.
 
-### Depth-0 content run detection — precise rules
+### Operator classification
 
-A "run" starts when, at BDC depth 0, we encounter any content-producing or state-setting operator. The run continues through subsequent content-producing and state-setting operators until we hit:
-- A `BDC` (opens a tag — run ends)
-- An `EMC` at depth 0 (shouldn't happen — invalid PDF — but defensively end the run)
-- End of content stream
+**Content-producing** (these MUST be inside a BDC/EMC pair to satisfy 7.1-3):
+- Text showing inside `BT...ET`: `Tj TJ ' "`
+- Inline image: the `BI ... ID ... EI` triple (treat as one atom)
+- XObject reference: `Do` (includes image XObjects and form XObjects)
+- Path painting: `S s f F f* B B* b b*`
+- Shading: `sh`
 
-Pure whitespace between tokens is preserved byte-for-byte (the tokenizer keeps it).
+Note: the path construction operators (`m l c v y re h`) and clipping operators (`W W*`) do not themselves produce output — only the painting operator at the end of a path sequence does. For wrapping purposes we treat a path construction + painting sequence as a content unit anchored by the painting op.
+
+**State-setting** (do NOT produce output, do NOT require tagging):
+- Graphics state save/restore: `q Q`
+- Transform: `cm`
+- Text state: `Tf Tr Tc Tw Tz TL Ts`
+- Text positioning: `Td TD Tm T*`
+- Graphics state parameter: `gs`
+- Color: `rg RG g G k K sc SC scn SCN cs CS`
+- Path style: `w J j M d ri i`
+- Clipping flags: `W W*` (cause subsequent path to clip; no output on their own)
+- Path construction: `m l c v y re h n`
+- Text object markers: `BT ET`
+
+State operators at depth 0 are **left alone** — we do not wrap them, they stay in place.
+
+### Depth-0 content run detection — precise state machine
+
+```
+state: depth = 0, run_start = None, run_end = None
+
+for each token T in stream:
+    if T is BDC (opens tag):
+        if run_start is not None:
+            emit /Artifact BDC before run_start, EMC after run_end
+            run_start, run_end = None, None
+        depth += 1
+
+    elif T is EMC (closes tag):
+        depth -= 1
+        # After EMC, we may be back at depth 0 and a new run can start
+
+    elif depth == 0 and T is content-producing:
+        if run_start is None:
+            run_start = T          # start a new run
+        run_end = T                # extend the run
+
+    elif depth == 0 and T is state-setting and run_start is not None:
+        run_end = T                # state op joins an open run (but doesn't start one)
+
+    # Otherwise: token at depth > 0 OR state op with no open run → skip
+
+at end of stream:
+    if run_start is not None:
+        emit /Artifact BDC before run_start, EMC after run_end
+```
+
+Key points:
+- **State ops only join an open run; they never start one.** A sequence like `q cm Q` at depth 0 with no content between is left completely untouched.
+- **Runs extend from the first content-producing op through the last consecutive content-or-state op before a BDC/EMC boundary.** Graphics state between content ops is preserved inside the wrapper.
+- **Pure whitespace and comments** between tokens are preserved byte-for-byte (the tokenizer keeps them).
+- **BT...ET text objects containing only depth-0 content:** the BT token itself is a state-setting op (text object start), so it joins runs but doesn't start them. In practice, inside a BT we'll have text-showing ops (Tj) which DO start runs, so the run starts there and includes the surrounding BT/ET as state joiners. Result: `BT ... (Tj) ... ET` becomes `/Artifact BDC BT ... (Tj) ... ET EMC` — the desired outcome.
+- **BT...ET containing a mix of depth-0 content AND a nested BDC:** the inner BDC closes any open run before incrementing depth. The content inside the BDC is tagged; content after the EMC (still inside BT) starts a new run. Two separate wrappers emitted inside one BT/ET.
 
 ### Edge cases
 
@@ -165,11 +221,13 @@ Pure whitespace between tokens is preserved byte-for-byte (the tokenizer keeps i
 
 ### Expected impact
 
-Rule | Failed checks before | Failed checks after (estimate)
----|---:|---:
-7.1-3 | 179,291 | ~200 (from XObject content we don't recurse into)
+We cannot precisely predict the residual because the remaining 7.1-3 failures will come from content we choose not to touch in v1: form XObject internals, inline images nested inside form XObjects, and any pathological cases the walker can't handle safely.
 
-This is **−179,091 failed checks** — the headline number of this spec.
+Rule | Failed checks before | Failed checks after
+---|---:|---:
+7.1-3 | 179,291 | **unknown residual — measured empirically in the iteration loop**
+
+The honest framing: this spec is aimed at eliminating the **majority** of 7.1-3 failures. Whether "majority" means 70% or 95% depends on how much of the 179,291 lives inside form XObjects that v1 doesn't recurse into. The iteration loop measures this directly.
 
 ## Verification — gated validation
 
@@ -185,10 +243,22 @@ After saving the modified PDF:
 ### Gate B — structural (iteration loop)
 
 Gate A plus:
-4. **Run veraPDF on the modified PDF.** Compare failed-rules set against the pre-fix set.
-   - If any new rule appears in the post set that wasn't in the pre set → revert and log
-   - If the targeted rule's failed checks did not decrease → log (not fatal)
-   - If total failed checks decreased → accept
+
+4. **Run veraPDF on the modified PDF.** Compare the failed-rules set and failed-checks count against the pre-fix baseline. The acceptance criteria differ per track:
+
+**For Track C (XMP metadata):**
+- **Expected drop:** rules 5-1, 7.1-8, 7.1-10 should each transition from "fails for this doc" to "passes for this doc" if the doc was previously failing them. Other rules should be unchanged.
+- **Accept if:** the targeted rules drop AND no new rule types appear.
+- **Revert if:** any expected rule drop is missing, OR any new rule type appears, OR failed-check count rose.
+
+**For Track A (artifact marking):**
+- **Expected drop:** rule 7.1-3 failed checks decrease (ideally by a large amount). Other rules should be unchanged, though we accept that the rule *instance count* for 7.1-3 may not change to zero in a single pass.
+- **Accept if:** 7.1-3 failed checks decrease AND no new rule types appear AND no OTHER rule's failed checks rose.
+- **Revert if:** 7.1-3 failed checks did not decrease, OR any new rule type appears, OR any other rule's failed checks rose (indicating our wrapping broke something).
+
+**Combined (after both tracks on one doc):**
+- **Accept if:** all per-track gates accepted AND the set of failing rule IDs post-fix is a subset of the set pre-fix.
+- **Revert strategy:** if combined gate fails, revert the most recently applied track and re-verify. If the earlier track alone passes, keep it and leave the other off for that doc. Log the reason.
 
 ### Gate C — visual (final commit)
 
@@ -203,17 +273,47 @@ Gate A + Gate B plus:
 usage: apply_ua_fixes.py --results-dir DIR [--verification {A,B,C}] [--limit N]
 ```
 
-Reads a `remediation_benchmark_results.json` from DIR, iterates every successful doc, applies Track C then Track A to its `output_path`, runs the selected verification gate, and writes an enriched results file `ua_fixes_results.json` plus a markdown report `ua_fixes_results.md`.
+Reads a `remediation_benchmark_results.json` from DIR, iterates every successful doc, applies Track C then Track A with per-track verification, and writes an enriched results file `ua_fixes_results.json` plus a markdown report `ua_fixes_results.md`.
+
+### Per-doc processing sequence (with blame attribution)
+
+For each doc:
+
+```
+1. snapshot_input   = copy of the output_path PDF
+2. baseline_text    = [page.get_text() for page in fitz.open(output_path)]
+3. baseline_verapdf = check_pdf_ua(output_path) snapshot of failed-rules set and check count
+
+4. apply Track C in place on output_path
+5. post_c_text      = [page.get_text() for page in fitz.open(output_path)]
+6. if post_c_text != baseline_text:
+       revert to snapshot_input, log "Track C broke text extraction", skip to next doc
+7. post_c_verapdf   = check_pdf_ua(output_path)
+8. if Track C gate B fails (expected rules did not drop, or new rules appeared):
+       revert to snapshot_input, log, skip to next doc
+
+9. apply Track A in place on output_path
+10. post_a_text     = [page.get_text() for page in fitz.open(output_path)]
+11. if post_a_text != baseline_text:
+        restore post-C snapshot (i.e. revert ONLY Track A, keep Track C),
+        log "Track A broke text extraction", move on
+12. post_a_verapdf  = check_pdf_ua(output_path)
+13. if Track A gate B fails:
+        restore post-C snapshot, log, move on
+
+14. (if Gate C selected) render pages pre/post, pixel diff, revert-if-regression
+15. record per-doc result: which tracks applied, per-track expected-vs-actual deltas
+```
+
+Text snapshot comparison happens *per track* so blame attribution is unambiguous. The snapshot-before-Track-A is the post-Track-C state, which lets us revert just Track A without losing Track C.
 
 ### Failure handling
 
-If Track A fails Gate A or B for a specific doc:
-1. Restore the pre-Track-A copy of the PDF (we keep a temp copy)
-2. Keep the Track C changes (they're independent)
-3. Log the failure with doc ID and reason
-4. Continue with the rest
+Every revert path must itself succeed; if a revert fails (disk full, file locked, etc.) we log the doc as "unsafe state" and halt the script rather than continue with a half-modified PDF.
 
-Track C failures (rare) are treated the same way — restore pre-Track-C copy, skip, continue.
+### Resumability
+
+After each successful doc, append its result to `ua_fixes_results.json` via atomic rewrite. If the script is killed and restarted, skip docs that already have a result entry.
 
 ### Output report sections
 
@@ -229,7 +329,7 @@ Day 1 session:
 1. Implement Track C                                    [~45 min]
 2. Run Track C on /tmp/remediation_bench_full,          [~20 min]
    verify Gate B, measure delta
-3. If delta matches expected (~136 checks, ~250 rules), commit track C
+3. If delta matches expected (136 failed checks eliminated across rules 5-1, 7.1-8, 7.1-10), commit Track C
 4. Implement Track A                                    [~2-3 hours]
 5. Smoke: 2 diverse docs manually, inspect output       [~15 min]
 6. Run Track A on 5-doc diverse set, Gate C (visual)    [~10 min]
@@ -241,7 +341,9 @@ Day 1 session:
 12. Commit executor integration
 ```
 
-**Total estimated effort: 4-6 hours** of focused work including edge case debugging.
+**Total estimated effort: 8–12 hours** of focused work including edge-case debugging on real PDFs, three verification gates, unit tests, and executor integration. The 4-6 hour earlier estimate was optimistic — Track A alone with its content-stream edge cases is likely 4-6 hours on its own.
+
+**Zero API cost for the iteration loop.** Unlike the $16 full-remediation run, Track C and Track A are purely local operations — no API calls, no model costs. We can re-run the 125-doc iteration as many times as we need while debugging edge cases.
 
 ## Testing
 
@@ -252,7 +354,7 @@ Day 1 session:
 - `test_apply_pdf_ua_metadata_synthesizes_when_no_xmp` — PDF without /Metadata gets a fresh XMP with pdfuaid
 - `test_apply_pdf_ua_metadata_sets_display_doc_title` — ViewerPreferences/DisplayDocTitle=true
 - `test_apply_pdf_ua_metadata_preserves_other_viewer_prefs` — existing FitWindow=true survives
-- `test_apply_pdf_ua_metadata_idempotent` — running twice produces the same output
+- `test_apply_pdf_ua_metadata_idempotent` — running the function twice does not add a second `<pdfuaid:part>` element (the count stays at 1). Byte-exact PDF output is NOT tested because PyMuPDF rewrites xref tables on each save.
 
 - `test_mark_untagged_content_wraps_page_footer` — PDF with a tagged body and an untagged page footer, verify footer gets wrapped in /Artifact
 - `test_mark_untagged_content_preserves_tagged_content` — MCID-marked content inside /P BDC stays untouched
@@ -263,6 +365,8 @@ Day 1 session:
 - `test_mark_untagged_content_round_trip_text_extraction` — text extraction matches byte-for-byte before and after
 - `test_mark_untagged_content_inline_image` — inline image (BI/ID/EI) wrapped as single unit
 - `test_mark_untagged_content_do_operator` — Do operator at page level wrapped
+- `test_mark_untagged_content_state_ops_alone_not_wrapped` — a page with only state ops (`q cm Q`) at depth 0 and no content is left completely untouched (zero wrappers inserted)
+- `test_mark_untagged_content_idempotent` — running the function twice on the same PDF produces the same `artifact_wrappers_inserted` count on the first call and zero on the second call. After one pass, previously-untagged content is inside `/Artifact BDC` (at depth 1 during the second walk), so no new wrappers are added.
 
 ### End-to-end tests
 
@@ -282,32 +386,45 @@ Day 1 session:
 
 ## Expected final numbers
 
-Arithmetic: Track C removes one failing rule-instance per doc it fixes (118 for 5-1 + 7 for 7.1-8 + 11 for 7.1-10 = 136 rule-instances, 136 checks). Track A removes one 7.1-3 failing rule-instance per doc (125 total) and ~179,000 of 179,291 failed checks. Assuming independence of fixes:
+**Track C is deterministic: we know the exact target.** 136 failed checks and 136 failed rule-instances eliminated if the function works correctly on all 125 docs. No guessing.
 
-| Metric | Baseline (source PDFs) | After current pipeline (commit a7b139b) | After Track C | After Track A | After both |
-|---|---:|---:|---:|---:|---:|
-| Total failed rules | 1,076 | 672 | ~536 | ~547 | **~411** |
-| Total failed checks | ~400,000+ (unmeasured) | 197,574 | ~197,438 | ~18,574 | **~18,438** |
-| % rule reduction from 1076 baseline | — | 37.5% | 50.2% | 49.2% | **61.8%** |
-| % check reduction from 197,574 post-pipeline | — | — | 0.07% | 90.6% | **90.7%** |
-| Docs fully PDF/UA compliant | 0 | 0 | 0 | maybe 1-3 | **1-3** |
-| Docs improved over input | — | 113 | ~120 | ~120 | **~120+** |
+**Track A is empirical: we don't know the exact target.** The 179,291 failed checks for rule 7.1-3 split into two buckets we can't distinguish without implementing and measuring:
+- **Bucket 1:** content in the top-level page content stream that we walk and wrap. This bucket goes to ~zero.
+- **Bucket 2:** content inside form XObjects that we don't recurse into in v1. This bucket is unchanged.
 
-**Two honest progress indicators:**
-- **Failed rule-instances** — the coarse metric everyone reports. Both tracks together reduce this by ~40% of the post-pipeline baseline (672 → 411).
-- **Failed checks** — the fine-grained violation count. Track A alone dominates this metric because 7.1-3 fires ~1,434 checks per doc on average. Both tracks together reduce checks by ~90.7%.
+We don't know the ratio. Plausible ranges based on what academic paper PDFs typically look like:
+- Optimistic (80%+ in bucket 1): residual ~35,000 failed checks, final total ~53,000
+- Realistic (60-80% in bucket 1): residual ~35,000–70,000, final total ~53,000–88,000
+- Pessimistic (<60% in bucket 1): residual >70,000, final total >88,000
 
-The two metrics diverge because 7.1-3 is one rule but thousands of check instances per doc. Fixing it shrinks checks dramatically but only subtracts ~125 rule-instances. Conversely, the small metadata rules (5-1 et al.) subtract from both equally.
+| Metric | Source PDFs | After current pipeline | After both tracks (optimistic) | After both tracks (pessimistic) |
+|---|---:|---:|---:|---:|
+| Failed rules | ~1076+ | 672 | ~410 | ~550 |
+| Failed checks | unmeasured | 197,574 | ~53,000 | ~100,000 |
+| % check reduction | — | — | ~73% | ~49% |
+| Docs fully PDF/UA compliant | 0 | 0 | 1-3 | 0-1 |
 
-Neither "fully compliant" count is expected to be high. The source documents have structural font issues (rules 7.21.x, ~4,290 failed checks across 56-plus docs) that neither track touches. Reaching zero failed rules on a doc requires either pristine source fonts or deferred Tier D font work.
+**The true number is measured, not predicted.** This spec commits to implementing the fix correctly and reporting the measured result — not to hitting a specific number.
+
+**Why "fully compliant" count stays low either way:** source documents have structural font issues (rules 7.21.x, ~4,290 failed checks across 56+ docs) that this spec does not touch. Reaching zero failed rules on a doc requires either pristine source fonts or deferred Tier D font repair work.
+
+The two progress indicators diverge: Track A may shrink *checks* dramatically while moving *rule-instances* only modestly, because 7.1-3 is one rule class that fires hundreds of check instances per doc. Report both metrics to avoid misleading framings.
 
 ## Success criteria
 
-1. **Track C applied to all 125 docs reduces 5-1 failures from 118 to 0.** Independently verifiable via veraPDF.
-2. **Track A applied to all 125 docs reduces 7.1-3 failed checks by ≥85%** (allowing for some residual from XObjects we don't recurse into).
-3. **Zero docs regressed on failed-check count** after both tracks.
-4. **Zero docs with >0.5% pixel difference** in the visual diff gate.
-5. **Text extraction byte-exact** pre/post for every page of every doc.
-6. **Executor integration passes a 5-doc end-to-end smoke** without new failures.
+Hard gates (binary pass/fail — all must pass to ship):
 
-If we hit all six, we commit and update NOW.md with the new headline number.
+1. **Track C exactly eliminates rule 5-1 failures.** 118 failing docs → 0 failing docs. No exceptions; this is a simple metadata fix and there's no reason for any doc to escape it.
+2. **Track C exactly eliminates rules 7.1-8 and 7.1-10 failures.** Same reasoning.
+3. **No new rule types appear.** For every doc, the set of failing rule IDs after both tracks must be a subset of the set before. If any doc has a new rule ID post-fix that wasn't present pre-fix, that doc reverts.
+4. **Text extraction byte-exact** pre/post for every page of every doc (fitz's `page.get_text()` is not PDF/UA-aware so /Artifact marking does not change its output — verified during early smoke test).
+5. **Zero docs with >0.5% pixel difference** in the Gate C visual diff.
+6. **Executor integration passes a 5-doc end-to-end smoke** without new failures in the orchestrator pipeline (parse → comprehend → strategize → execute → review → our post-process → reparse → report).
+
+Soft targets (report at the end, document residuals):
+
+7. **Track A reduces total 7.1-3 failed checks by the majority**: exact percentage measured and reported. No pre-commitment to a number — we report what we measure.
+8. **XObject residual breakdown**: for docs that still fail 7.1-3 after Track A, categorize whether the residual is in form XObject content, inline image content, or elsewhere. This sizes the v2 work.
+9. **Aggregate rule count** reported as the new headline: `672 → X`.
+
+If all hard gates pass, we commit. Soft targets are reported in the commit message and NOW.md but don't block the commit.

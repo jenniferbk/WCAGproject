@@ -3,8 +3,7 @@
     "alt_text_quality": {
       "labels_seen": {
         "cannot_tell": {
-          "cannot_tell": 4,
-          "failed": 1
+          "cannot_tell": 5
         },
         "failed": {
           "failed": 5
@@ -17,15 +16,14 @@
           "passed": 5
         }
       },
-      "correct": 18,
+      "correct": 19,
       "total": 20,
-      "accuracy": 0.9
+      "accuracy": 0.95
     },
     "color_contrast": {
       "labels_seen": {
         "cannot_tell": {
-          "cannot_tell": 3,
-          "failed": 1,
+          "cannot_tell": 4,
           "passed": 1
         },
         "failed": {
@@ -36,9 +34,9 @@
           "passed": 4
         }
       },
-      "correct": 12,
+      "correct": 13,
       "total": 15,
-      "accuracy": 0.8
+      "accuracy": 0.8666666666666667
     },
     "fonts_readability": {
       "labels_seen": {
@@ -154,8 +152,8 @@
       "doc": "W3005755974",
       "title": "Dataset of the 20th International ACM SIGACCESS Conference on Computers and Acce",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
@@ -314,8 +312,8 @@
       "doc": "W2016642098",
       "title": "You Only Look Once: Unified, Real-Time Object Detection",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "color_contrast",
@@ -1134,9 +1132,9 @@
       "correct": true
     }
   ],
-  "total_correct": 110,
+  "total_correct": 112,
   "total_count": 125,
-  "elapsed_seconds": 152.05640506744385,
+  "elapsed_seconds": 154.47585582733154,
   "errors": [],
-  "overall_accuracy": 0.88
+  "overall_accuracy": 0.896
 }

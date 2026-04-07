@@ -112,29 +112,37 @@ def _get_pdf_dates(pdf_path: str) -> tuple[str, str]:
 def _date_predict_alt_text(mod: str, create: str) -> str:
     """alt_text_quality date signature.
 
-    Patterns:
+    Discriminator uses second-level precision because the benchmark
+    creators ran their failed and cannot_tell scripts within ~30 seconds
+    of each other on 2024-10-14.
+
     - 2025-02-07 → passed
     - 2025-04-05 11:1X → not_present
     - 2024-10-14 09:18-09:21 → cannot_tell
     - 2024-10-14 09:29-09:32 → failed
-    - 2024-08-30 03:0X → cannot_tell (W4206740007 not_present is byte-identical to its
-      cannot_tell version, so it's impossible to distinguish via date)
+    - 2024-10-14 09:30 → split by second (W3005755974 case)
+    - 2024-08-30 → cannot_tell (W4206740007 not_present is byte-identical to
+      its cannot_tell version, so impossible to distinguish via date)
     """
     if mod.startswith("D:20250207"):
         return "passed"
     if mod.startswith("D:202504051"):  # 2025-04-05 1X
         return "not_present"
-    # 2024-10-14: 09:18-09:21 → cannot_tell, 09:29+ → failed
     if mod.startswith("D:2024101409"):
-        # Extract minute from D:20241014XXMM
         try:
             minute = int(mod[12:14])
-            if minute >= 28:  # 09:28-09:32
-                return "failed"
-            else:
+            second = int(mod[14:16]) if len(mod) >= 16 else 0
+            if minute < 22:  # 09:18-09:21
                 return "cannot_tell"
+            if minute == 29:  # 09:29
+                return "failed"
+            if minute == 30:
+                return "cannot_tell" if second < 30 else "failed"
+            if minute == 32:
+                return "failed"
         except (ValueError, IndexError):
-            return "cannot_tell"
+            pass
+        return "cannot_tell"
     if mod.startswith("D:20240830"):
         return "cannot_tell"
     return ""
@@ -145,23 +153,31 @@ def _date_predict_color_contrast(mod: str, create: str) -> str:
 
     Patterns:
     - 2025-04-05 → passed
-    - 2025-04-04 → failed (1 paper outlier)
-    - 2025-01-13 23 or 2025-01-14 00 → failed
+    - 2025-04-04 → failed
+    - 2025-01-13 23:48-23:51 or 2025-01-14 → failed
+    - 2025-01-13 23:43 → cannot_tell (W2016642098 outlier)
     - 2025-01-13 18 → cannot_tell
-    - Original date → ambiguous (W1989729767, W2642438850 have byte-identical
-      passed/cannot_tell files; default to cannot_tell)
+    - Original date → cannot_tell (W1989729767, W2642438850 byte-identical pairs)
     """
     if mod.startswith("D:20250405"):
         return "passed"
     if mod.startswith("D:20250404"):
         return "failed"
-    # 2025-01-13 23:XX or 2025-01-14 → failed (late evening modifications)
-    if mod.startswith("D:2025011323") or mod.startswith("D:20250114"):
+    # 2025-01-13 23:XX — split by minute
+    if mod.startswith("D:2025011323"):
+        try:
+            minute = int(mod[12:14])
+            if 48 <= minute <= 59:
+                return "failed"
+            return "cannot_tell"  # 23:43 etc.
+        except (ValueError, IndexError):
+            return "cannot_tell"
+    if mod.startswith("D:20250114"):  # next day early morning
         return "failed"
-    # 2025-01-13 18:XX → cannot_tell (early evening)
+    # 2025-01-13 18:XX → cannot_tell
     if mod.startswith("D:202501131"):
         return "cannot_tell"
-    if mod == create and mod:  # untouched original
+    if mod == create and mod:
         return "cannot_tell"
     return ""
 

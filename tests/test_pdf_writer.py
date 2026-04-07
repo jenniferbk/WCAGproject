@@ -700,3 +700,70 @@ class TestPdfUaMetadata:
         xmp = doc.get_xml_metadata() or ""
         doc.close()
         assert "Test Title" in xmp
+
+    def test_apply_sets_display_doc_title(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        apply_pdf_ua_metadata(pdf)
+        doc = fitz.open(str(pdf))
+        vp = doc.xref_get_key(doc.pdf_catalog(), "ViewerPreferences")
+        doc.close()
+        assert vp[0] == "dict"
+        assert "DisplayDocTitle" in vp[1]
+        assert "true" in vp[1]
+
+    def test_apply_preserves_other_viewer_prefs(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        # Pre-populate ViewerPreferences with a non-DisplayDocTitle entry
+        doc = fitz.open(str(pdf))
+        doc.xref_set_key(
+            doc.pdf_catalog(),
+            "ViewerPreferences",
+            "<< /FitWindow true >>",
+        )
+        doc.save(str(pdf), incremental=True, encryption=0)
+        doc.close()
+
+        apply_pdf_ua_metadata(pdf)
+
+        doc = fitz.open(str(pdf))
+        vp = doc.xref_get_key(doc.pdf_catalog(), "ViewerPreferences")
+        doc.close()
+        assert "FitWindow" in vp[1]
+        assert "DisplayDocTitle" in vp[1]
+
+    def test_apply_is_idempotent(self, tmp_path):
+        """Running twice must not add a second pdfuaid:part element."""
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        import re as _re
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        apply_pdf_ua_metadata(pdf)
+        apply_pdf_ua_metadata(pdf)
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        # Exactly one part element with value 1, regardless of prefix
+        matches = _re.findall(
+            r"<[A-Za-z_][\w-]*:part(?:\s[^>]*)?>1</[A-Za-z_][\w-]*:part>", xmp
+        )
+        assert len(matches) == 1
+
+    def test_apply_synthesizes_xmp_for_bare_pdf(self, tmp_path):
+        """A PDF with no /Metadata stream gets a fresh XMP with pdfuaid."""
+        import re as _re
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=False)
+        result = apply_pdf_ua_metadata(pdf)
+        assert result.success
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        assert "http://www.aiim.org/pdfua/ns/id/" in xmp
+        assert _re.search(
+            r"<[A-Za-z_][\w-]*:part(?:\s[^>]*)?>1</[A-Za-z_][\w-]*:part>", xmp
+        )

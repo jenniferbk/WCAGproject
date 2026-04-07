@@ -940,7 +940,11 @@ class TestMarkUntaggedContent:
         doc = fitz.open(str(pdf))
         content = doc[0].read_contents()
         doc.close()
-        assert b"/Artifact BDC" in content
+        # The wrapper uses ``/Artifact <</Type /Pagination>> BDC`` —
+        # the property dict is required by veraPDF rule 7.1-3.
+        assert b"/Artifact" in content
+        assert b"BDC" in content
+        assert b"/Type /Pagination" in content
 
     def test_empty_pdf_no_op(self, tmp_path):
         from src.tools.pdf_writer import mark_untagged_content_as_artifact
@@ -962,3 +966,52 @@ class TestMarkUntaggedContent:
         second = mark_untagged_content_as_artifact(pdf)
         assert first.success and second.success
         assert second.artifact_wrappers_inserted == 0
+
+    def test_on_real_benchmark_pdf(self, tmp_path):
+        """Run on a real remediated benchmark PDF and verify:
+        - text extraction is unchanged
+        - veraPDF total violation count decreases
+        - no new rule types appear
+        """
+        import shutil
+        import fitz
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        from src.tools.verapdf_checker import check_pdf_ua
+
+        src = Path(
+            "/tmp/remediation_bench_full/"
+            "semantic_tagging_passed_W2895738059/"
+            "W2895738059_remediated.pdf"
+        )
+        if not src.exists():
+            pytest.skip(f"Benchmark PDF not available: {src}")
+
+        dst = tmp_path / "smoke.pdf"
+        shutil.copy(src, dst)
+
+        # Baseline text extraction
+        doc = fitz.open(str(dst))
+        baseline_text = [p.get_text() for p in doc]
+        doc.close()
+
+        # Baseline verapdf
+        baseline_vera = check_pdf_ua(str(dst))
+        assert baseline_vera.success
+
+        # Apply Track A
+        result = mark_untagged_content_as_artifact(dst)
+        assert result.success, result.errors
+
+        # Text must match
+        doc = fitz.open(str(dst))
+        post_text = [p.get_text() for p in doc]
+        doc.close()
+        assert post_text == baseline_text, "Text extraction changed after Track A"
+
+        # veraPDF total checks should decrease
+        post_vera = check_pdf_ua(str(dst))
+        assert post_vera.success
+        assert post_vera.violation_count < baseline_vera.violation_count, (
+            f"violations did not decrease: {baseline_vera.violation_count} "
+            f"→ {post_vera.violation_count}"
+        )

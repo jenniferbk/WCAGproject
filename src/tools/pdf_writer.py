@@ -1922,7 +1922,50 @@ def _find_untagged_content_runs(tokens: list[Token]) -> list[tuple[int, int]]:
                 run_end = i
 
     _close_run()
-    return runs
+    return _expand_run_starts_backward(tokens, runs)
+
+
+def _expand_run_starts_backward(
+    tokens: list[Token],
+    runs: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Extend each run's start backward to include operand and state
+    tokens that belong to the content operator.
+
+    Critical fix: a content-producing operator like ``Do`` consumes a
+    name operand pushed onto the operand stack just before it
+    (``/Fm0 Do``). If the run starts AT ``Do`` and the wrapper inserts
+    ``/Artifact BDC`` immediately before, the result is
+    ``/Fm0 /Artifact BDC Do EMC`` — which separates the operand from
+    its operator and produces a malformed PDF (the BDC has no dict and
+    Do has no name operand on the stack).
+
+    The fix is to extend the run start backward through operand tokens
+    (numbers, strings, names, dicts, whitespace) and through
+    state-setting operators, stopping at BDC/EMC, end of stream, or any
+    other content-producing operator that isn't already in the run.
+    """
+    expanded: list[tuple[int, int]] = []
+    for start, end in runs:
+        new_start = start
+        for j in range(start - 1, -1, -1):
+            t = tokens[j]
+            if t.type == "operator":
+                if t.value in ("BDC", "BMC", "EMC"):
+                    break
+                if _is_state_setting_op(t.value):
+                    new_start = j
+                    continue
+                if t.value == "BT":
+                    new_start = j
+                    continue
+                # Any other operator (content-producing, unknown) — stop
+                break
+            # Non-operator token (operand, whitespace, name, dict, number,
+            # string, comment) — sweep into the run.
+            new_start = j
+        expanded.append((new_start, end))
+    return expanded
 
 
 @dataclass
@@ -1952,7 +1995,15 @@ def _apply_artifact_wrappers(
     starts = {start for start, _ in runs}
     ends = {end for _, end in runs}
 
-    bdc_open = Token(value="/Artifact BDC\n", type="operator")
+    # veraPDF rule 7.1-3 requires the artifact marker to carry a
+    # property dict — bare ``/Artifact BDC`` is silently ignored. The
+    # ``Pagination`` artifact subtype is the standard for page furniture
+    # (headers, footers, page numbers, decorative content) per
+    # ISO 32000-1:2008 §14.8.2.2 and matches what Acrobat emits.
+    bdc_open = Token(
+        value="/Artifact <</Type /Pagination>> BDC\n",
+        type="operator",
+    )
     emc_close = Token(value="\nEMC", type="operator")
 
     out: list[Token] = []
@@ -1997,6 +2048,13 @@ def mark_untagged_content_as_artifact(
         )
 
     result = ArtifactMarkingResult(success=True)
+
+    # Collect MCIDs referenced by the struct tree once, up front. The
+    # walker will use this to detect orphan BDCs (marked content with
+    # an MCID that no struct element references — typically left over
+    # from a previous tagging pass that was stripped before re-tagging).
+    referenced_mcids = _collect_struct_tree_mcids(doc)
+
     try:
         for page_idx in range(len(doc)):
             page = doc[page_idx]
@@ -2014,9 +2072,17 @@ def mark_untagged_content_as_artifact(
                 continue
 
             tokens = _tokenize_content_stream(stream_bytes)
+            # Convert orphan BDC openings (`/Tag <<MCID N>> BDC` where N
+            # is not in the struct tree) to `/Artifact BDC` first. This
+            # mutates the tokens list in place.
+            orphan_indices = _find_orphan_bdc_openings(tokens, referenced_mcids)
+            orphans_converted = _convert_orphan_bdc_to_artifact(
+                tokens, orphan_indices
+            )
+
             runs = _find_untagged_content_runs(tokens)
 
-            if not runs:
+            if not runs and not orphans_converted:
                 result.pages_skipped += 1
                 continue
 
@@ -2053,7 +2119,7 @@ def mark_untagged_content_as_artifact(
                 continue
 
             result.pages_modified += 1
-            result.artifact_wrappers_inserted += len(runs)
+            result.artifact_wrappers_inserted += len(runs) + orphans_converted
 
         doc.save(str(path), incremental=True, encryption=0)
     except Exception as exc:
@@ -2066,3 +2132,144 @@ def mark_untagged_content_as_artifact(
             pass
 
     return result
+
+
+def _collect_struct_tree_mcids(doc: "fitz.Document") -> set[int]:
+    """Walk the StructTreeRoot and return every MCID referenced.
+
+    PDF struct elements reference content via either:
+      - ``/K N`` where N is an integer MCID directly
+      - ``/K [N1 N2 ...]`` array of integer MCIDs
+      - ``/K [<</Type /MCR /MCID N>> ...]`` array of MCR dicts
+      - ``/K << /Type /MCR /MCID N >>`` single MCR dict
+
+    Returns the union of all MCIDs found across all struct elements.
+    Used by Track A to detect orphan BDCs in the content stream that
+    were left over from a previous tagging pass and aren't referenced
+    by the current struct tree.
+    """
+    cat = doc.pdf_catalog()
+    st = doc.xref_get_key(cat, "StructTreeRoot")
+    if st[0] != "xref":
+        return set()
+    try:
+        root = int(st[1].split()[0])
+    except (ValueError, IndexError):
+        return set()
+
+    seen: set[int] = set()
+    mcids: set[int] = set()
+
+    def _walk(xref: int, depth: int = 0) -> None:
+        if xref in seen or depth > 400:
+            return
+        seen.add(xref)
+        try:
+            obj = doc.xref_object(xref) or ""
+        except Exception:
+            return
+        # Direct integer kid: /K 5  (must not be followed by `0 R` which
+        # would make it an indirect reference instead)
+        for m in re.finditer(r"/K\s+(\d+)\b(?!\s+0\s+R)", obj):
+            mcids.add(int(m.group(1)))
+        # /K [3 5 7] integer array
+        for arr in re.finditer(r"/K\s*\[([^\]]*)\]", obj):
+            for n in re.finditer(r"\b(\d+)\b(?!\s+0\s+R)", arr.group(1)):
+                try:
+                    mcids.add(int(n.group(1)))
+                except ValueError:
+                    pass
+        # MCR dict form: /MCID N anywhere in the obj
+        for m in re.finditer(r"/MCID\s+(\d+)", obj):
+            mcids.add(int(m.group(1)))
+        # Recurse via N 0 R refs
+        for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+            _walk(int(m.group(1)), depth + 1)
+
+    _walk(root)
+    return mcids
+
+
+def _find_orphan_bdc_openings(
+    tokens: list[Token],
+    referenced_mcids: set[int],
+) -> list[int]:
+    """Find indices of orphan BDC opening operators.
+
+    An "orphan BDC" is a marked-content begin operator (BDC) whose
+    MCID is not referenced by any struct tree element. The opening
+    typically looks like ``/SomeTag <</MCID 673>> BDC`` in the token
+    stream — three tokens: a name, a dict, and the BDC operator.
+
+    Returns a list of token indices where each index points at the
+    BDC operator token of an orphan opening. The caller can then
+    replace the preceding name+dict tokens with ``/Artifact``.
+    """
+    orphans: list[int] = []
+    for i, token in enumerate(tokens):
+        if token.type != "operator" or token.value != "BDC":
+            continue
+        # Look back for the most recent dict and name tokens
+        dict_idx = None
+        name_idx = None
+        for j in range(i - 1, max(-1, i - 10), -1):
+            if tokens[j].type == "dict" and dict_idx is None:
+                dict_idx = j
+            elif tokens[j].type == "name" and name_idx is None:
+                name_idx = j
+                break
+            elif tokens[j].type == "operator":
+                # Hit another operator before finding the name — give up
+                break
+        if dict_idx is None or name_idx is None:
+            continue
+        # Extract MCID from the dict
+        m = re.search(r"/MCID\s+(\d+)", tokens[dict_idx].value)
+        if not m:
+            continue
+        mcid = int(m.group(1))
+        if mcid in referenced_mcids:
+            continue  # legitimately tagged
+        orphans.append(i)
+    return orphans
+
+
+def _convert_orphan_bdc_to_artifact(
+    tokens: list[Token],
+    orphan_bdc_indices: list[int],
+) -> int:
+    """Mutate ``tokens`` in place: replace orphan BDC openings with
+    ``/Artifact BDC``. Returns the count of conversions.
+
+    For each orphan BDC index, finds the preceding name and dict
+    tokens (which together form the ``/Tag <<...>> BDC`` opening) and
+    replaces the name token's value with ``/Artifact``, the dict
+    token's value with empty string. The BDC token itself is left
+    alone.
+    """
+    converted = 0
+    orphan_set = set(orphan_bdc_indices)
+    for i in orphan_set:
+        # Find the same name+dict that _find_orphan_bdc_openings found
+        dict_idx = None
+        name_idx = None
+        for j in range(i - 1, max(-1, i - 10), -1):
+            if tokens[j].type == "dict" and dict_idx is None:
+                dict_idx = j
+            elif tokens[j].type == "name" and name_idx is None:
+                name_idx = j
+                break
+            elif tokens[j].type == "operator":
+                break
+        if dict_idx is None or name_idx is None:
+            continue
+        tokens[name_idx] = Token(value="/Artifact", type="name")
+        # Replace the original property dict with a Pagination artifact
+        # type dict — veraPDF requires this for rule 7.1-3 to recognise
+        # the wrapper as a valid artifact marker. See ISO 32000-1:2008
+        # §14.8.2.2.
+        tokens[dict_idx] = Token(
+            value="<</Type /Pagination>>", type="dict"
+        )
+        converted += 1
+    return converted

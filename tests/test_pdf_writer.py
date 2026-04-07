@@ -671,3 +671,32 @@ class TestPdfUaMetadata:
         doc.close()
         assert b"rdf:RDF" in xmp_bytes
         assert b"rdf:Description" in xmp_bytes
+
+    def test_apply_adds_pdfuaid_part(self, tmp_path):
+        import re as _re
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        result = apply_pdf_ua_metadata(pdf)
+        assert result.success
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        # The pdfuaid namespace URI must be present (prefix may vary
+        # depending on serializer behaviour).
+        assert "http://www.aiim.org/pdfua/ns/id/" in xmp
+        # And a `<...:part ...>1</...:part>` element with value 1 must
+        # exist using whatever prefix is bound to that namespace.
+        assert _re.search(
+            r"<[A-Za-z_][\w-]*:part(?:\s[^>]*)?>1</[A-Za-z_][\w-]*:part>", xmp
+        )
+
+    def test_apply_preserves_existing_dc_title(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        apply_pdf_ua_metadata(pdf)
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        assert "Test Title" in xmp

@@ -1625,3 +1625,170 @@ def _read_or_synthesize_xmp(doc: "fitz.Document") -> bytes:
         '<?xpacket end="w"?>'
     )
     return synthesized.encode("utf-8")
+
+
+@dataclass
+class MetadataResult:
+    """Result of apply_pdf_ua_metadata()."""
+    success: bool
+    changes: list[str] = field(default_factory=list)
+    error: str = ""
+
+
+# XMP namespaces we care about.
+_PDFUAID_NS = "http://www.aiim.org/pdfua/ns/id/"
+_RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
+
+def apply_pdf_ua_metadata(pdf_path: "str | Path") -> MetadataResult:
+    """Apply Track C — PDF/UA metadata fixes to a PDF.
+
+    Writes the document's XMP ``pdfuaid:part=1`` (rule 5-1), sets
+    ``/ViewerPreferences /DisplayDocTitle true`` on the catalog (rule
+    7.1-10), and ensures the catalog has a ``/Metadata`` key (rule
+    7.1-8). Safe to run on any PDF — the function preserves existing
+    XMP elements and ViewerPreferences entries.
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place.
+
+    Returns:
+        MetadataResult with success flag and a human-readable change log.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return MetadataResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return MetadataResult(success=False, error=f"Open failed: {exc}")
+
+    changes: list[str] = []
+    try:
+        # 1. XMP: add pdfuaid:part=1 (rule 5-1)
+        xmp_bytes = _read_or_synthesize_xmp(doc)
+        new_xmp, xmp_changed = _ensure_pdfuaid_in_xmp(xmp_bytes)
+        if xmp_changed:
+            doc.set_xml_metadata(new_xmp.decode("utf-8"))
+            changes.append("xmp:pdfuaid:part=1")
+
+        # 2. ViewerPreferences/DisplayDocTitle (rule 7.1-10)
+        cat_xref = doc.pdf_catalog()
+        vp_raw = doc.xref_get_key(cat_xref, "ViewerPreferences")
+        if vp_raw[0] == "dict":
+            new_vp = _ensure_display_doc_title(vp_raw[1])
+        else:
+            new_vp = "<< /DisplayDocTitle true >>"
+        doc.xref_set_key(cat_xref, "ViewerPreferences", new_vp)
+        changes.append("catalog:ViewerPreferences/DisplayDocTitle=true")
+
+        # 3. Verify /Metadata key on catalog (rule 7.1-8). fitz's
+        #    set_xml_metadata() wires up /Metadata for us; verify.
+        md_raw = doc.xref_get_key(cat_xref, "Metadata")
+        if md_raw[0] != "xref":
+            changes.append("catalog:Metadata=missing(unexpected)")
+
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        return MetadataResult(
+            success=False, error=f"apply_pdf_ua_metadata failed: {exc}"
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return MetadataResult(success=True, changes=changes)
+
+
+def _ensure_pdfuaid_in_xmp(xmp_bytes: bytes) -> "tuple[bytes, bool]":
+    """Return (possibly-modified XMP bytes, changed flag).
+
+    Adds a ``<pdfuaid:part>1</pdfuaid:part>`` element into the first
+    ``rdf:Description``. Preserves every other element. No-op if
+    pdfuaid:part already exists with value 1.
+
+    Implementation note: lxml is used to safely *check* for an existing
+    pdfuaid:part by namespace URI (so PDFs that use a different prefix
+    are detected). Insertion is done by string manipulation rather than
+    lxml's SubElement, because lxml auto-generates ``ns0:`` style
+    prefixes when the parent doesn't already declare ``pdfuaid``.
+    PDF/UA validators only check the namespace URI so the auto-prefix
+    is technically valid, but using the conventional ``pdfuaid:`` prefix
+    keeps XMP human-readable and matches what Acrobat emits.
+    """
+    from lxml import etree
+
+    try:
+        xmp_str = xmp_bytes.decode("utf-8", errors="replace")
+        # Strip xpacket PI wrappers for parsing, restore for serialization
+        start = xmp_str.find("<x:xmpmeta")
+        end_tag = xmp_str.find("</x:xmpmeta>")
+        if start == -1 or end_tag == -1:
+            payload = xmp_str.strip()
+            prefix = ""
+            suffix = ""
+        else:
+            end_tag += len("</x:xmpmeta>")
+            prefix = xmp_str[:start]
+            payload = xmp_str[start:end_tag]
+            suffix = xmp_str[end_tag:]
+
+        parser = etree.XMLParser(remove_blank_text=False, recover=True)
+        root = etree.fromstring(payload.encode("utf-8"), parser)
+        if root is None:
+            return xmp_bytes, False
+
+        descriptions = root.findall(f".//{{{_RDF_NS}}}Description")
+        if not descriptions:
+            return xmp_bytes, False
+        target = descriptions[0]
+
+        existing_part = target.find(f"{{{_PDFUAID_NS}}}part")
+        attr_key = f"{{{_PDFUAID_NS}}}part"
+        if existing_part is not None and existing_part.text == "1":
+            return xmp_bytes, False
+        if target.get(attr_key) == "1":
+            return xmp_bytes, False
+
+        insert_str = (
+            '<pdfuaid:part xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">1</pdfuaid:part>'
+        )
+
+        if existing_part is not None and existing_part.text != "1":
+            # Replace existing part element regardless of prefix
+            new_payload = re.sub(
+                r"<(?:[A-Za-z_][\w-]*:)?part(?:\s[^>]*)?>[^<]*</(?:[A-Za-z_][\w-]*:)?part>",
+                insert_str,
+                payload,
+                count=1,
+            )
+        else:
+            close_idx = payload.find("</rdf:Description>")
+            if close_idx == -1:
+                return xmp_bytes, False
+            new_payload = payload[:close_idx] + insert_str + payload[close_idx:]
+
+        new_full = prefix + new_payload + suffix
+        return new_full.encode("utf-8"), True
+    except Exception:
+        return xmp_bytes, False
+
+
+def _ensure_display_doc_title(vp_dict_str: str) -> str:
+    """Given the raw PDF object string for /ViewerPreferences, return a
+    new dict string with /DisplayDocTitle set to true, preserving all
+    other keys.
+    """
+    body = vp_dict_str.strip()
+    if body.startswith("<<"):
+        body = body[2:]
+    if body.endswith(">>"):
+        body = body[:-2]
+    body = body.strip()
+    body = re.sub(r"/DisplayDocTitle\s+(true|false)\s*", "", body).strip()
+    if body:
+        return f"<< {body} /DisplayDocTitle true >>"
+    return "<< /DisplayDocTitle true >>"

@@ -2,14 +2,14 @@
 
 Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessibility-Benchmark)
 
-**Overall accuracy: 59.17%** (71/120 correct)
-**Elapsed: 257.6s**
+**Overall accuracy: 63.33%** (76/120 correct)
+**Elapsed: 273.2s**
 
 ## Comparison to Published Baselines
 
 | System | Overall Accuracy |
 |--------|-----------------|
-| **A11y Remediate (this tool)** | **59.17%** |
+| **A11y Remediate (this tool)** | **63.33%** |
 | GPT-4-Turbo | 85.00% |
 | GPT-4o-Vision | 81.00% |
 | Gemini-1.5 | 75.00% |
@@ -23,7 +23,7 @@ Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessi
 | alt_text_quality | 11 | 15 | 73.33% |
 | color_contrast | 9 | 15 | 60.00% |
 | fonts_readability | 9 | 15 | 60.00% |
-| functional_hyperlinks | 10 | 20 | 50.00% |
+| functional_hyperlinks | 15 | 20 | 75.00% |
 | logical_reading_order | 8 | 15 | 53.33% |
 | semantic_tagging | 13 | 20 | 65.00% |
 | table_structure | 11 | 20 | 55.00% |
@@ -64,7 +64,7 @@ Rows = ground truth, columns = predicted
 | cannot_tell | 0 | 5 | 0 | 0 |
 | failed | 0 | 5 | 0 | 0 |
 | not_present | 0 | 0 | 5 | 0 |
-| passed | 0 | 5 | 0 | 0 |
+| passed | 0 | 0 | 0 | 5 |
 
 ### logical_reading_order
 

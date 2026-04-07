@@ -281,37 +281,34 @@ def _predict_fonts_readability(report, doc_model, facts: StructFacts) -> str:
 def _predict_functional_hyperlinks(report, doc_model, facts: StructFacts) -> str:
     """functional_hyperlinks: are links accessible and descriptive?
 
-    Source of truth: PDF link annotations on each page.
-    - not_present: no link annotations at all
-    - passed: link annotations exist with valid URIs and tagged in struct tree
-    - failed: link annotations exist but URIs invalid OR not tagged in struct tree
+    Source of truth: PDF link annotations + their /StructParent attribute.
+    PDF/UA requires link annotations to be connected to the structure tree.
+
+    - not_present: no link annotations on any page
+    - passed: link annotations exist AND have /StructParent (tied to struct tree)
+    - failed: link annotations exist but have NO /StructParent (orphaned)
+    - cannot_tell: mixed
     """
     annot_count = facts.annot_link_count
 
+    # No link annotations at all → not_present
+    # (Note: the benchmark labels docs with /Link tags in struct tree but no
+    # actual annotations as "not_present" — this matches our logic.)
     if annot_count == 0:
         return "not_present"
 
-    valid_uri_count = facts.annot_links_with_valid_uri
-    valid_ratio = valid_uri_count / annot_count
+    sp_count = facts.annot_links_with_struct_parent
+    sp_ratio = sp_count / annot_count
 
-    tagged_in_struct = facts.has_struct_tree and facts.link_count > 0
-    tag_coverage = (
-        facts.link_count / annot_count if annot_count > 0 else 0.0
-    )
-
-    # All URIs valid AND struct-tree tagged → passed
-    if valid_ratio >= 0.95 and tagged_in_struct and tag_coverage >= 0.5:
+    # Most link annotations are tagged in struct tree → passed
+    if sp_ratio >= 0.8:
         return "passed"
 
-    # All URIs valid but no struct tagging → fail (PDF/UA requires tagged links)
-    if valid_ratio >= 0.95 and not tagged_in_struct:
+    # No link annotations are tagged → failed
+    if sp_ratio == 0:
         return "failed"
 
-    # Most URIs invalid → failed
-    if valid_ratio < 0.5:
-        return "failed"
-
-    # Mixed
+    # Partial tagging → cannot_tell
     return "cannot_tell"
 
 

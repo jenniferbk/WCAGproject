@@ -69,12 +69,12 @@
           "not_present": 5
         },
         "passed": {
-          "failed": 5
+          "passed": 5
         }
       },
-      "correct": 10,
+      "correct": 15,
       "total": 20,
-      "accuracy": 0.5
+      "accuracy": 0.75
     },
     "logical_reading_order": {
       "labels_seen": {
@@ -628,40 +628,40 @@
       "doc": "W2893185172",
       "title": "Gismo: A Toolkit for Navigating Geographic Visualization Storytelling",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W2991007371",
       "title": "A Dataset for Automatic Document-Level Sentiment Analysis",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3005911753",
       "title": "Corpus of Japanese Sign Language Storytelling Videos",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3018272089",
       "title": "HotPotQA: A Dataset and Human Performance Evaluation for Hotpot Question Answeri",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3069372847",
       "title": "A Dataset of Visual Fixations to Faces in News Video",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "logical_reading_order",
@@ -1104,9 +1104,9 @@
       "correct": true
     }
   ],
-  "total_correct": 71,
+  "total_correct": 76,
   "total_count": 120,
-  "elapsed_seconds": 257.63839888572693,
+  "elapsed_seconds": 273.15262818336487,
   "errors": [
     "Missing: data/processed/alt_text_quality/passed/W2460269320.pdf",
     "Missing: data/processed/alt_text_quality/passed/W2929611936.pdf",
@@ -1114,5 +1114,5 @@
     "Missing: data/processed/alt_text_quality/passed/W4206740007.pdf",
     "Missing: data/processed/alt_text_quality/passed/W4383621582.pdf"
   ],
-  "overall_accuracy": 0.5916666666666667
+  "overall_accuracy": 0.6333333333333333
 }

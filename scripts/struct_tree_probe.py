@@ -48,6 +48,7 @@ class StructFacts:
     annot_link_count: int = 0
     annot_links_with_valid_uri: int = 0
     annot_links_with_alt: int = 0  # link annotations with /Contents
+    annot_links_with_struct_parent: int = 0  # link annotations tied to struct tree
     error: str = ""
 
     @property
@@ -202,6 +203,17 @@ def probe_struct_tree(pdf_path: str) -> StructFacts:
                     uri = link.get("uri", "") or link.get("URI", "")
                     if uri and (uri.startswith("http") or uri.startswith("mailto:")):
                         facts.annot_links_with_valid_uri += 1
+                    # Check raw object for /StructParent (links tagged to struct tree)
+                    xref = link.get("xref")
+                    if xref:
+                        try:
+                            obj_text = doc.xref_object(xref) or ""
+                            if "/StructParent" in obj_text:
+                                facts.annot_links_with_struct_parent += 1
+                            if "/Contents" in obj_text or "/Alt" in obj_text:
+                                facts.annot_links_with_alt += 1
+                        except Exception:
+                            pass
         except Exception:
             pass
         doc.close()

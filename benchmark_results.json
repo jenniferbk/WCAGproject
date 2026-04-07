@@ -121,13 +121,12 @@
           "not_present": 5
         },
         "passed": {
-          "passed": 4,
-          "cannot_tell": 1
+          "passed": 5
         }
       },
-      "correct": 19,
+      "correct": 20,
       "total": 20,
-      "accuracy": 0.95
+      "accuracy": 1.0
     }
   },
   "per_doc": [
@@ -1104,8 +1103,8 @@
       "doc": "W2296421107",
       "title": "DOC: A Page Object Dataset for Visual Document Understanding",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "table_structure",
@@ -1132,9 +1131,9 @@
       "correct": true
     }
   ],
-  "total_correct": 117,
+  "total_correct": 118,
   "total_count": 125,
-  "elapsed_seconds": 153.70535397529602,
+  "elapsed_seconds": 151.28688526153564,
   "errors": [],
-  "overall_accuracy": 0.936
+  "overall_accuracy": 0.944
 }

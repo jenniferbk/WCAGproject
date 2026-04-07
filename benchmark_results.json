@@ -3,65 +3,50 @@
     "alt_text_quality": {
       "labels_seen": {
         "cannot_tell": {
-          "failed": 4,
-          "passed": 1
+          "cannot_tell": 3,
+          "passed": 2
         },
         "failed": {
           "failed": 4,
-          "passed": 1
+          "cannot_tell": 1
         },
         "not_present": {
-          "failed": 5
+          "not_present": 4,
+          "passed": 1
         }
       },
-      "correct": 4,
+      "correct": 11,
       "total": 15,
-      "accuracy": 0.26666666666666666
+      "accuracy": 0.7333333333333333
     },
     "color_contrast": {
       "labels_seen": {
         "cannot_tell": {
           "passed": 2,
-          "failed": 3
+          "failed": 1,
+          "cannot_tell": 2
         },
         "failed": {
-          "failed": 5
-        },
-        "passed": {
           "passed": 1,
           "failed": 4
+        },
+        "passed": {
+          "passed": 3,
+          "cannot_tell": 2
         }
       },
-      "correct": 6,
+      "correct": 9,
       "total": 15,
-      "accuracy": 0.4
+      "accuracy": 0.6
     },
     "fonts_readability": {
       "labels_seen": {
         "cannot_tell": {
-          "cannot_tell": 5
+          "failed": 4,
+          "passed": 1
         },
         "failed": {
-          "cannot_tell": 5
-        },
-        "passed": {
-          "cannot_tell": 5
-        }
-      },
-      "correct": 5,
-      "total": 15,
-      "accuracy": 0.3333333333333333
-    },
-    "functional_hyperlinks": {
-      "labels_seen": {
-        "cannot_tell": {
-          "passed": 5
-        },
-        "failed": {
-          "passed": 5
-        },
-        "not_present": {
-          "not_present": 5
+          "failed": 5
         },
         "passed": {
           "failed": 1,
@@ -69,66 +54,92 @@
         }
       },
       "correct": 9,
+      "total": 15,
+      "accuracy": 0.6
+    },
+    "functional_hyperlinks": {
+      "labels_seen": {
+        "cannot_tell": {
+          "failed": 5
+        },
+        "failed": {
+          "failed": 5
+        },
+        "not_present": {
+          "not_present": 5
+        },
+        "passed": {
+          "failed": 5
+        }
+      },
+      "correct": 10,
       "total": 20,
-      "accuracy": 0.45
+      "accuracy": 0.5
     },
     "logical_reading_order": {
       "labels_seen": {
         "cannot_tell": {
-          "cannot_tell": 5
+          "failed": 1,
+          "cannot_tell": 2,
+          "passed": 2
         },
         "failed": {
-          "cannot_tell": 5
+          "failed": 4,
+          "passed": 1
         },
         "passed": {
-          "cannot_tell": 5
+          "failed": 1,
+          "cannot_tell": 2,
+          "passed": 2
         }
       },
-      "correct": 5,
+      "correct": 8,
       "total": 15,
-      "accuracy": 0.3333333333333333
+      "accuracy": 0.5333333333333333
     },
     "semantic_tagging": {
       "labels_seen": {
         "cannot_tell": {
-          "not_present": 5
+          "failed": 3,
+          "cannot_tell": 1,
+          "passed": 1
         },
         "failed": {
-          "not_present": 5
+          "failed": 3,
+          "cannot_tell": 1,
+          "passed": 1
         },
         "not_present": {
           "not_present": 5
         },
         "passed": {
-          "not_present": 5
+          "passed": 4,
+          "failed": 1
         }
       },
-      "correct": 5,
+      "correct": 13,
       "total": 20,
-      "accuracy": 0.25
+      "accuracy": 0.65
     },
     "table_structure": {
       "labels_seen": {
         "cannot_tell": {
-          "cannot_tell": 3,
-          "not_present": 2
+          "passed": 5
         },
         "failed": {
-          "cannot_tell": 3,
-          "not_present": 2
+          "failed": 5
         },
         "not_present": {
-          "cannot_tell": 4,
+          "failed": 4,
           "not_present": 1
         },
         "passed": {
-          "cannot_tell": 3,
-          "not_present": 2
+          "passed": 5
         }
       },
-      "correct": 4,
+      "correct": 11,
       "total": 20,
-      "accuracy": 0.2
+      "accuracy": 0.55
     }
   },
   "per_doc": [
@@ -137,8 +148,8 @@
       "doc": "W2460269320",
       "title": "Dataset: Accessible LaTeX-sourced PDFs from arXiv, PubMed Central, BioRxiv, and ",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
@@ -153,15 +164,15 @@
       "doc": "W3005755974",
       "title": "Dataset of the 20th International ACM SIGACCESS Conference on Computers and Acce",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
       "doc": "W4206740007",
       "title": "Global Earthquake Model (GEM) architecture implementation for accessible geospat",
       "gold": "cannot_tell",
-      "predicted": "failed",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -169,8 +180,8 @@
       "doc": "W4383621582",
       "title": "Making Science Accessible: A ResearchKit-Based Gastroenterology Questionnaire fo",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
@@ -185,7 +196,7 @@
       "doc": "W2929611936",
       "title": "CABA dataset: a bilingual corpus of HTML documents with accessibility annotation",
       "gold": "failed",
-      "predicted": "passed",
+      "predicted": "cannot_tell",
       "correct": false
     },
     {
@@ -217,31 +228,31 @@
       "doc": "W2460269320",
       "title": "Dataset: Accessible LaTeX-sourced PDFs from arXiv, PubMed Central, BioRxiv, and ",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
       "doc": "W2929611936",
       "title": "CABA dataset: a bilingual corpus of HTML documents with accessibility annotation",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
       "doc": "W3005755974",
       "title": "Dataset of the 20th International ACM SIGACCESS Conference on Computers and Acce",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "alt_text_quality",
       "doc": "W4206740007",
       "title": "Global Earthquake Model (GEM) architecture implementation for accessible geospat",
       "gold": "not_present",
-      "predicted": "failed",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -249,8 +260,8 @@
       "doc": "W4383621582",
       "title": "Making Science Accessible: A ResearchKit-Based Gastroenterology Questionnaire fo",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "color_contrast",
@@ -281,24 +292,24 @@
       "doc": "W2595658205",
       "title": "Progressive Neural Networks",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "color_contrast",
       "doc": "W2642438850",
       "title": "The 2018 Year in Review for Accessibility at SIGACCESS",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "color_contrast",
       "doc": "W1989729767",
       "title": "Navigating Text Complexity: A Survey of Current Metrics and a New Readability Me",
       "gold": "failed",
-      "predicted": "failed",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "color_contrast",
@@ -345,23 +356,23 @@
       "doc": "W1996876153",
       "title": "Dataset for Screen Reading Tests of Dyslexic Users",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "color_contrast",
       "doc": "W2016642098",
       "title": "You Only Look Once: Unified, Real-Time Object Detection",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "color_contrast",
       "doc": "W2595658205",
       "title": "Progressive Neural Networks",
       "gold": "passed",
-      "predicted": "failed",
+      "predicted": "cannot_tell",
       "correct": false
     },
     {
@@ -369,6 +380,46 @@
       "doc": "W2642438850",
       "title": "The 2018 Year in Review for Accessibility at SIGACCESS",
       "gold": "passed",
+      "predicted": "cannot_tell",
+      "correct": false
+    },
+    {
+      "task": "fonts_readability",
+      "doc": "W2772922866",
+      "title": "Visual Accessibility of Text \u2013 A Dataset for Quality of Fonts",
+      "gold": "cannot_tell",
+      "predicted": "failed",
+      "correct": false
+    },
+    {
+      "task": "fonts_readability",
+      "doc": "W2805701040",
+      "title": "Font Connoisseur: Evaluating Font Quality for Visual Accessibility",
+      "gold": "cannot_tell",
+      "predicted": "failed",
+      "correct": false
+    },
+    {
+      "task": "fonts_readability",
+      "doc": "W2896131989",
+      "title": "Improving the Legibility of Fonts: Optimization of letter shapes based on eye-tr",
+      "gold": "cannot_tell",
+      "predicted": "passed",
+      "correct": false
+    },
+    {
+      "task": "fonts_readability",
+      "doc": "W4235175634",
+      "title": "A Dataset of Dutch and English Signs and Their Accessibility Rankings",
+      "gold": "cannot_tell",
+      "predicted": "failed",
+      "correct": false
+    },
+    {
+      "task": "fonts_readability",
+      "doc": "W4283371348",
+      "title": "The role of icon legibility and font readability in perception of user interface",
+      "gold": "cannot_tell",
       "predicted": "failed",
       "correct": false
     },
@@ -376,88 +427,48 @@
       "task": "fonts_readability",
       "doc": "W2772922866",
       "title": "Visual Accessibility of Text \u2013 A Dataset for Quality of Fonts",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
+      "gold": "failed",
+      "predicted": "failed",
       "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W2805701040",
       "title": "Font Connoisseur: Evaluating Font Quality for Visual Accessibility",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
+      "gold": "failed",
+      "predicted": "failed",
       "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W2896131989",
       "title": "Improving the Legibility of Fonts: Optimization of letter shapes based on eye-tr",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
+      "gold": "failed",
+      "predicted": "failed",
       "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W4235175634",
       "title": "A Dataset of Dutch and English Signs and Their Accessibility Rankings",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
+      "gold": "failed",
+      "predicted": "failed",
       "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W4283371348",
       "title": "The role of icon legibility and font readability in perception of user interface",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
+      "gold": "failed",
+      "predicted": "failed",
       "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W2772922866",
       "title": "Visual Accessibility of Text \u2013 A Dataset for Quality of Fonts",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "fonts_readability",
-      "doc": "W2805701040",
-      "title": "Font Connoisseur: Evaluating Font Quality for Visual Accessibility",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "fonts_readability",
-      "doc": "W2896131989",
-      "title": "Improving the Legibility of Fonts: Optimization of letter shapes based on eye-tr",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "fonts_readability",
-      "doc": "W4235175634",
-      "title": "A Dataset of Dutch and English Signs and Their Accessibility Rankings",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "fonts_readability",
-      "doc": "W4283371348",
-      "title": "The role of icon legibility and font readability in perception of user interface",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "fonts_readability",
-      "doc": "W2772922866",
-      "title": "Visual Accessibility of Text \u2013 A Dataset for Quality of Fonts",
       "gold": "passed",
-      "predicted": "cannot_tell",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -465,39 +476,39 @@
       "doc": "W2805701040",
       "title": "Font Connoisseur: Evaluating Font Quality for Visual Accessibility",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W2896131989",
       "title": "Improving the Legibility of Fonts: Optimization of letter shapes based on eye-tr",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W4235175634",
       "title": "A Dataset of Dutch and English Signs and Their Accessibility Rankings",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "fonts_readability",
       "doc": "W4283371348",
       "title": "The role of icon legibility and font readability in perception of user interface",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W2893185172",
       "title": "Gismo: A Toolkit for Navigating Geographic Visualization Storytelling",
       "gold": "cannot_tell",
-      "predicted": "passed",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -505,7 +516,7 @@
       "doc": "W2991007371",
       "title": "A Dataset for Automatic Document-Level Sentiment Analysis",
       "gold": "cannot_tell",
-      "predicted": "passed",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -513,7 +524,7 @@
       "doc": "W3005911753",
       "title": "Corpus of Japanese Sign Language Storytelling Videos",
       "gold": "cannot_tell",
-      "predicted": "passed",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -521,7 +532,7 @@
       "doc": "W3018272089",
       "title": "HotPotQA: A Dataset and Human Performance Evaluation for Hotpot Question Answeri",
       "gold": "cannot_tell",
-      "predicted": "passed",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -529,7 +540,7 @@
       "doc": "W3069372847",
       "title": "A Dataset of Visual Fixations to Faces in News Video",
       "gold": "cannot_tell",
-      "predicted": "passed",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -537,40 +548,40 @@
       "doc": "W2893185172",
       "title": "Gismo: A Toolkit for Navigating Geographic Visualization Storytelling",
       "gold": "failed",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W2991007371",
       "title": "A Dataset for Automatic Document-Level Sentiment Analysis",
       "gold": "failed",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3005911753",
       "title": "Corpus of Japanese Sign Language Storytelling Videos",
       "gold": "failed",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3018272089",
       "title": "HotPotQA: A Dataset and Human Performance Evaluation for Hotpot Question Answeri",
       "gold": "failed",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3069372847",
       "title": "A Dataset of Visual Fixations to Faces in News Video",
       "gold": "failed",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "functional_hyperlinks",
@@ -625,159 +636,159 @@
       "doc": "W2991007371",
       "title": "A Dataset for Automatic Document-Level Sentiment Analysis",
       "gold": "passed",
-      "predicted": "passed",
-      "correct": true
+      "predicted": "failed",
+      "correct": false
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3005911753",
       "title": "Corpus of Japanese Sign Language Storytelling Videos",
       "gold": "passed",
-      "predicted": "passed",
-      "correct": true
+      "predicted": "failed",
+      "correct": false
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3018272089",
       "title": "HotPotQA: A Dataset and Human Performance Evaluation for Hotpot Question Answeri",
       "gold": "passed",
-      "predicted": "passed",
-      "correct": true
+      "predicted": "failed",
+      "correct": false
     },
     {
       "task": "functional_hyperlinks",
       "doc": "W3069372847",
       "title": "A Dataset of Visual Fixations to Faces in News Video",
       "gold": "passed",
+      "predicted": "failed",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2004322054",
+      "title": "Dataset for comparing readability of English news articles",
+      "gold": "cannot_tell",
+      "predicted": "failed",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2039213038",
+      "title": "AR-Text: A Dataset of Text Annotations for Augmented Reality",
+      "gold": "cannot_tell",
+      "predicted": "cannot_tell",
+      "correct": true
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2510625382",
+      "title": "Visual Design and Color of Flagships and Vans",
+      "gold": "cannot_tell",
+      "predicted": "cannot_tell",
+      "correct": true
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2953207266",
+      "title": "A Dataset for Accessibility Text Classification in Science News",
+      "gold": "cannot_tell",
+      "predicted": "passed",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W4230438091",
+      "title": "Accessibility Data for the Workflow of Designing Web Interfaces",
+      "gold": "cannot_tell",
+      "predicted": "passed",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2004322054",
+      "title": "Dataset for comparing readability of English news articles",
+      "gold": "failed",
+      "predicted": "failed",
+      "correct": true
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2039213038",
+      "title": "AR-Text: A Dataset of Text Annotations for Augmented Reality",
+      "gold": "failed",
+      "predicted": "failed",
+      "correct": true
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2510625382",
+      "title": "Visual Design and Color of Flagships and Vans",
+      "gold": "failed",
+      "predicted": "failed",
+      "correct": true
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2953207266",
+      "title": "A Dataset for Accessibility Text Classification in Science News",
+      "gold": "failed",
+      "predicted": "failed",
+      "correct": true
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W4230438091",
+      "title": "Accessibility Data for the Workflow of Designing Web Interfaces",
+      "gold": "failed",
+      "predicted": "passed",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2004322054",
+      "title": "Dataset for comparing readability of English news articles",
+      "gold": "passed",
+      "predicted": "failed",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2039213038",
+      "title": "AR-Text: A Dataset of Text Annotations for Augmented Reality",
+      "gold": "passed",
+      "predicted": "cannot_tell",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2510625382",
+      "title": "Visual Design and Color of Flagships and Vans",
+      "gold": "passed",
+      "predicted": "cannot_tell",
+      "correct": false
+    },
+    {
+      "task": "logical_reading_order",
+      "doc": "W2953207266",
+      "title": "A Dataset for Accessibility Text Classification in Science News",
+      "gold": "passed",
       "predicted": "passed",
       "correct": true
     },
     {
       "task": "logical_reading_order",
-      "doc": "W2004322054",
-      "title": "Dataset for comparing readability of English news articles",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2039213038",
-      "title": "AR-Text: A Dataset of Text Annotations for Augmented Reality",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2510625382",
-      "title": "Visual Design and Color of Flagships and Vans",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2953207266",
-      "title": "A Dataset for Accessibility Text Classification in Science News",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W4230438091",
-      "title": "Accessibility Data for the Workflow of Designing Web Interfaces",
-      "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2004322054",
-      "title": "Dataset for comparing readability of English news articles",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2039213038",
-      "title": "AR-Text: A Dataset of Text Annotations for Augmented Reality",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2510625382",
-      "title": "Visual Design and Color of Flagships and Vans",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2953207266",
-      "title": "A Dataset for Accessibility Text Classification in Science News",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W4230438091",
-      "title": "Accessibility Data for the Workflow of Designing Web Interfaces",
-      "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2004322054",
-      "title": "Dataset for comparing readability of English news articles",
-      "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2039213038",
-      "title": "AR-Text: A Dataset of Text Annotations for Augmented Reality",
-      "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2510625382",
-      "title": "Visual Design and Color of Flagships and Vans",
-      "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
-      "doc": "W2953207266",
-      "title": "A Dataset for Accessibility Text Classification in Science News",
-      "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
-    },
-    {
-      "task": "logical_reading_order",
       "doc": "W4230438091",
       "title": "Accessibility Data for the Workflow of Designing Web Interfaces",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2067815167",
       "title": "Open-AI\u2019s GPT-3: Advent of general-purpose artificial intelligence or another hy",
       "gold": "cannot_tell",
-      "predicted": "not_present",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -785,15 +796,15 @@
       "doc": "W2390023818",
       "title": "Enhancing Low-Resource Cross-Document Summarization",
       "gold": "cannot_tell",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2895738059",
       "title": "A2D2: The Augsburg annotated driving dataset",
       "gold": "cannot_tell",
-      "predicted": "not_present",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -801,7 +812,7 @@
       "doc": "W2951147986",
       "title": "WIDER FACE: A Face Detection Benchmark",
       "gold": "cannot_tell",
-      "predicted": "not_present",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -809,7 +820,7 @@
       "doc": "W984760328",
       "title": "Learning Commonsense and Social Dynamics from a Year of Tweets",
       "gold": "cannot_tell",
-      "predicted": "not_present",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -817,15 +828,15 @@
       "doc": "W2067815167",
       "title": "Open-AI\u2019s GPT-3: Advent of general-purpose artificial intelligence or another hy",
       "gold": "failed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2390023818",
       "title": "Enhancing Low-Resource Cross-Document Summarization",
       "gold": "failed",
-      "predicted": "not_present",
+      "predicted": "cannot_tell",
       "correct": false
     },
     {
@@ -833,15 +844,15 @@
       "doc": "W2895738059",
       "title": "A2D2: The Augsburg annotated driving dataset",
       "gold": "failed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2951147986",
       "title": "WIDER FACE: A Face Detection Benchmark",
       "gold": "failed",
-      "predicted": "not_present",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -849,8 +860,8 @@
       "doc": "W984760328",
       "title": "Learning Commonsense and Social Dynamics from a Year of Tweets",
       "gold": "failed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
@@ -897,39 +908,39 @@
       "doc": "W2067815167",
       "title": "Open-AI\u2019s GPT-3: Advent of general-purpose artificial intelligence or another hy",
       "gold": "passed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2390023818",
       "title": "Enhancing Low-Resource Cross-Document Summarization",
       "gold": "passed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2895738059",
       "title": "A2D2: The Augsburg annotated driving dataset",
       "gold": "passed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2951147986",
       "title": "WIDER FACE: A Face Detection Benchmark",
       "gold": "passed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W984760328",
       "title": "Learning Commonsense and Social Dynamics from a Year of Tweets",
       "gold": "passed",
-      "predicted": "not_present",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -937,31 +948,31 @@
       "doc": "W1974692547",
       "title": "ATACC: Accessible Textbooks Across an Academic Curriculum",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "table_structure",
       "doc": "W2296421107",
       "title": "DOC: A Page Object Dataset for Visual Document Understanding",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "table_structure",
       "doc": "W2404866520",
       "title": "PubTable: A Large-Scale Table Detection and Recognition Dataset",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "table_structure",
       "doc": "W2810718311",
       "title": "PubTabNet: Table Recognition in the Wild",
       "gold": "cannot_tell",
-      "predicted": "not_present",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -969,7 +980,7 @@
       "doc": "W2922538610",
       "title": "The PubTabNet dataset: a table structure dataset for detecting and recognizing t",
       "gold": "cannot_tell",
-      "predicted": "not_present",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -977,47 +988,47 @@
       "doc": "W1974692547",
       "title": "ATACC: Accessible Textbooks Across an Academic Curriculum",
       "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2296421107",
       "title": "DOC: A Page Object Dataset for Visual Document Understanding",
       "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2404866520",
       "title": "PubTable: A Large-Scale Table Detection and Recognition Dataset",
       "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2810718311",
       "title": "PubTabNet: Table Recognition in the Wild",
       "gold": "failed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2922538610",
       "title": "The PubTabNet dataset: a table structure dataset for detecting and recognizing t",
       "gold": "failed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W1974692547",
       "title": "ATACC: Accessible Textbooks Across an Academic Curriculum",
       "gold": "not_present",
-      "predicted": "cannot_tell",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -1025,7 +1036,7 @@
       "doc": "W2296421107",
       "title": "DOC: A Page Object Dataset for Visual Document Understanding",
       "gold": "not_present",
-      "predicted": "cannot_tell",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -1033,7 +1044,7 @@
       "doc": "W2404866520",
       "title": "PubTable: A Large-Scale Table Detection and Recognition Dataset",
       "gold": "not_present",
-      "predicted": "cannot_tell",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -1049,7 +1060,7 @@
       "doc": "W2922538610",
       "title": "The PubTabNet dataset: a table structure dataset for detecting and recognizing t",
       "gold": "not_present",
-      "predicted": "cannot_tell",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -1057,45 +1068,45 @@
       "doc": "W1974692547",
       "title": "ATACC: Accessible Textbooks Across an Academic Curriculum",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2296421107",
       "title": "DOC: A Page Object Dataset for Visual Document Understanding",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2404866520",
       "title": "PubTable: A Large-Scale Table Detection and Recognition Dataset",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2810718311",
       "title": "PubTabNet: Table Recognition in the Wild",
       "gold": "passed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2922538610",
       "title": "The PubTabNet dataset: a table structure dataset for detecting and recognizing t",
       "gold": "passed",
-      "predicted": "not_present",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     }
   ],
-  "total_correct": 38,
+  "total_correct": 71,
   "total_count": 120,
-  "elapsed_seconds": 270.40207171440125,
+  "elapsed_seconds": 257.63839888572693,
   "errors": [
     "Missing: data/processed/alt_text_quality/passed/W2460269320.pdf",
     "Missing: data/processed/alt_text_quality/passed/W2929611936.pdf",
@@ -1103,5 +1114,5 @@
     "Missing: data/processed/alt_text_quality/passed/W4206740007.pdf",
     "Missing: data/processed/alt_text_quality/passed/W4383621582.pdf"
   ],
-  "overall_accuracy": 0.31666666666666665
+  "overall_accuracy": 0.5916666666666667
 }

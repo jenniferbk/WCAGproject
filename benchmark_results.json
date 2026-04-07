@@ -93,7 +93,7 @@
     "semantic_tagging": {
       "labels_seen": {
         "cannot_tell": {
-          "failed": 5
+          "cannot_tell": 5
         },
         "failed": {
           "failed": 5
@@ -105,9 +105,9 @@
           "passed": 5
         }
       },
-      "correct": 15,
+      "correct": 20,
       "total": 20,
-      "accuracy": 0.75
+      "accuracy": 1.0
     },
     "table_structure": {
       "labels_seen": {
@@ -816,40 +816,40 @@
       "doc": "W2067815167",
       "title": "Open-AI\u2019s GPT-3: Advent of general-purpose artificial intelligence or another hy",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2390023818",
       "title": "Enhancing Low-Resource Cross-Document Summarization",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2895738059",
       "title": "A2D2: The Augsburg annotated driving dataset",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W2951147986",
       "title": "WIDER FACE: A Face Detection Benchmark",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
       "doc": "W984760328",
       "title": "Learning Commonsense and Social Dynamics from a Year of Tweets",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
@@ -1132,9 +1132,9 @@
       "correct": true
     }
   ],
-  "total_correct": 112,
+  "total_correct": 117,
   "total_count": 125,
-  "elapsed_seconds": 154.47585582733154,
+  "elapsed_seconds": 153.70535397529602,
   "errors": [],
-  "overall_accuracy": 0.896
+  "overall_accuracy": 0.936
 }

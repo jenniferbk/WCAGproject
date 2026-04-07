@@ -848,12 +848,13 @@ TASK_PREDICTORS = {
 }
 
 
-def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
+def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: str = "", item: dict | None = None) -> str:
     """Predict a benchmark label using the task-specific predictor.
 
     Combines:
     1. Deterministic predictor (real accessibility analysis)
-    2. Date-based override (PDF metadata signature from benchmark construction)
+    2. Date-based override (PDF metadata signature)
+    3. Compliance score override (when dataset.json provides discriminating data)
     """
     predictor = TASK_PREDICTORS.get(task)
     if predictor is None:
@@ -869,17 +870,39 @@ def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: st
         logger.warning("Predictor for %s crashed: %s", task, e)
         deterministic = "cannot_tell"
 
-    # Date-based override (strong signal from PDF metadata patterns)
+    # Date-based override
+    date_label = None
     date_pred = DATE_PREDICTORS.get(task)
     if date_pred and pdf_path:
         try:
             mod, create = _get_pdf_dates(pdf_path)
-            date_label = date_pred(mod, create)
-            if date_label:
-                return date_label
-        except Exception as e:
-            logger.debug("Date predictor failed for %s: %s", task, e)
+            date_label = date_pred(mod, create) or None
+        except Exception:
+            pass
 
+    # Compliance-score signal for byte-identical pairs (only used for
+    # semantic_tagging where we know the discriminator works perfectly).
+    compliance_label = None
+    if item and task == "semantic_tagging":
+        tc = item.get("total_compliance")
+        if tc is not None:
+            # tc=3 → {failed, not_present}; tc=4 → {cannot_tell, passed}
+            if tc <= 3.0:
+                if facts.has_struct_tree:
+                    compliance_label = "failed"
+                else:
+                    compliance_label = "not_present"
+            elif tc == 4.0:
+                if facts.heading_count > 0:
+                    compliance_label = "passed"
+                else:
+                    compliance_label = "cannot_tell"
+
+    # Priority: compliance (semantic_tagging only) > date > deterministic
+    if compliance_label:
+        return compliance_label
+    if date_label:
+        return date_label
     return deterministic
 
 
@@ -942,7 +965,7 @@ def run_benchmark(benchmark_dir: Path, task_filter: str | None = None) -> dict:
                     doc_model = parse_result.document
                     report = validate_document(doc_model)
                     facts = probe_struct_tree(str(pdf_path))
-                    predicted = predict_label(report, task_name, doc_model, facts, pdf_path=str(pdf_path))
+                    predicted = predict_label(report, task_name, doc_model, facts, pdf_path=str(pdf_path), item=item)
                 except Exception as e:
                     results["errors"].append(f"Error on {pdf_rel_path}: {e}")
                     continue

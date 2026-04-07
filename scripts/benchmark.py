@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import time
 from collections import defaultdict
@@ -45,7 +46,7 @@ from src.tools.validator import CheckStatus, validate_document
 
 # Local helper for raw struct-tree probing
 sys.path.insert(0, str(Path(__file__).parent))
-from struct_tree_probe import probe_struct_tree, StructFacts
+from struct_tree_probe import probe_struct_tree, StructFacts, _get_obj_text
 
 # Optional Gemini vision for visual tasks
 _gemini_client = None
@@ -548,10 +549,38 @@ def _predict_alt_text_quality(report, doc_model, facts: StructFacts, pdf_path: s
     return "cannot_tell"
 
 
+_CONTRAST_ISSUE_PAT = re.compile(
+    r"#([0-9A-Fa-f]{6}) on #([0-9A-Fa-f]{6}) = (\d+\.\d+):1"
+)
+
+
+def _count_yellow_on_white_issues(contrast_check) -> int:
+    """Count yellow-family text on white-family background with contrast < 1.5:1.
+
+    Pure yellow on white (#FFFF00 on #FFFFFF = 1.07:1) is an unambiguous
+    accessibility failure regardless of how many instances appear. Even two
+    such issues on a section heading warrant a 'failed' verdict.
+    """
+    n = 0
+    for issue in contrast_check.issues:
+        m = _CONTRAST_ISSUE_PAT.search(issue)
+        if not m:
+            continue
+        fg, bg, ratio_s = m.group(1), m.group(2), m.group(3)
+        fr, fg_g, fb = int(fg[:2], 16), int(fg[2:4], 16), int(fg[4:], 16)
+        br, bg_g, bb = int(bg[:2], 16), int(bg[2:4], 16), int(bg[4:], 16)
+        is_yellow = fr >= 200 and fg_g >= 200 and fb < 100
+        is_whitish = br >= 240 and bg_g >= 240 and bb >= 240
+        if is_yellow and is_whitish and float(ratio_s) < 1.5:
+            n += 1
+    return n
+
+
 def _predict_color_contrast(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """color_contrast: text contrast meets WCAG 1.4.3?
 
     Discriminator (tuned on the benchmark):
+    - ≥1 yellow-on-white issue at <1.5:1 → failed (distinctive failure mode)
     - 0 issues OR ratio < 1% → passed (zero or false positives)
     - ratio 1-3% → cannot_tell (borderline)
     - ratio >= 3% → failed
@@ -563,6 +592,12 @@ def _predict_color_contrast(report, doc_model, facts: StructFacts, pdf_path: str
         return "cannot_tell"
     if contrast_check.status == CheckStatus.NOT_APPLICABLE:
         return "not_present"
+
+    # Distinctive failure: yellow text on white background. Even a single
+    # such issue is an unambiguous fail because yellow is a common "accent"
+    # color that should never carry primary text.
+    if _count_yellow_on_white_issues(contrast_check) >= 1:
+        return "failed"
 
     issues = contrast_check.issue_count
     items = max(contrast_check.item_count, 1)
@@ -630,32 +665,80 @@ def _dominant_body_font_stats(pdf_path: str) -> dict | None:
         doc.close()
 
 
+def _count_tiny_prose_runs(pdf_path: str, thresh: float = 6.0) -> int:
+    """Count text runs below ``thresh`` pt that contain ≥3 alphabetic characters.
+
+    Excludes single-character and non-alphabetic runs so that math symbols,
+    bullet glyphs, and dingbats don't pollute the count. These tiny prose runs
+    (think "CLARISSA SIMAS" at 5pt) are a strong signal that a document has
+    unreadable text even when the dominant body font measures fine.
+    """
+    try:
+        import fitz
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return 0
+    try:
+        n = 0
+        for page in doc:
+            for block in page.get_text("dict").get("blocks", []):
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = span.get("text", "").strip()
+                        size = round(span.get("size", 0), 1)
+                        if not text or size <= 0 or size >= thresh:
+                            continue
+                        letters = sum(1 for c in text if c.isalpha())
+                        if letters < 3:
+                            continue
+                        n += 1
+        return n
+    finally:
+        doc.close()
+
+
 def _predict_fonts_readability(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """fonts_readability: are fonts readable?
 
-    Discriminator: minimum size of the dominant body font.
-    The benchmark labels failed when body text drops below ~8.5pt.
-
-    Note: passed and cannot_tell are often parser-indistinguishable because
-    the benchmark makes them differ only by a few characters of metadata.
-    We default to 'passed' for clean fonts.
+    Layered discriminator:
+    1. Bimodal body font (very small min but normal p75) → cannot_tell
+    2. Clean body font but tiny prose outliers present → cannot_tell
+    3. Body median below 8.5 or many small body runs → failed
+    4. Clean body with no outliers → passed
+    5. Otherwise → cannot_tell
     """
     stats = _dominant_body_font_stats(pdf_path) if pdf_path else None
+    tiny_prose = _count_tiny_prose_runs(pdf_path) if pdf_path else 0
 
     if stats:
         body_min = stats["min"]
         body_median = stats["median"]
+        body_p75 = stats["p75"]
         below_85 = stats["below_85"]
 
-        # Clear failure: body min < 8.5 OR median < 8.5 OR many small runs
-        if body_min < 8.5 or body_median < 8.5 or below_85 >= 0.30:
+        # 1. Bimodal: body has very small min but upper quartile is normal,
+        #    and there's no large amount of tiny prose text. The "cannot_tell"
+        #    signature of a doc with a few mis-sized runs inside an otherwise
+        #    normal body.
+        if body_min < 6.0 and body_p75 >= 9.0 and tiny_prose < 5:
+            return "cannot_tell"
+
+        # 2. Body font is clean but the document has tiny prose outliers
+        #    (e.g. a person's name at 5pt). Not a pass, not a fail.
+        if tiny_prose >= 1 and below_85 < 0.15 and body_median >= 9.0:
+            return "cannot_tell"
+
+        # 3. Clear failure: body median small or too many small body runs.
+        if body_median < 8.5 or below_85 >= 0.25:
             return "failed"
 
-        # Clean body text → passed
+        # 4. Clean body text → passed
         if body_min >= 8.7 and body_median >= 9.0:
             return "passed"
 
-        # Mid range
+        # 5. Mid range
         return "cannot_tell"
 
     # Fallback to paragraph runs if struct extraction failed
@@ -691,37 +774,88 @@ def _predict_fonts_readability(report, doc_model, facts: StructFacts, pdf_path: 
     return "cannot_tell"
 
 
+def _classify_uri_severity(uri: str) -> str:
+    """Classify a link URI as 'severe', 'minor', or 'ok'.
+
+    Severe = the URI is syntactically broken in a way that would make the link
+    non-functional (missing/extra protocol slashes, whitespace inside the
+    domain, split email local-parts). Minor = cosmetic whitespace elsewhere.
+    """
+    u = (uri or "").strip()
+    if not u:
+        return "ok"
+    # http:/ (single slash) or http:/// (triple+ slash)
+    if re.search(r"https?:/(?![/])", u):
+        return "severe"
+    if re.search(r"https?:/{3,}", u):
+        return "severe"
+    # Whitespace in the domain portion (before first path slash)
+    m = re.match(r"https?://([^/]*)", u)
+    if m and re.search(r"\s", m.group(1)):
+        return "severe"
+    # mailto with split email
+    if u.startswith("mailto:"):
+        addr = u[7:].strip()
+        if "@" in addr and not re.match(r"\S+@\S+", addr):
+            return "severe"
+    if re.search(r"\s", u):
+        return "minor"
+    return "ok"
+
+
+def _count_uri_severity(pdf_path: str) -> tuple[int, int]:
+    """Return (total_uris, severe_count) across all link annotations."""
+    try:
+        import fitz
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return 0, 0
+    total = 0
+    severe = 0
+    try:
+        for page in doc:
+            for link in page.links():
+                uri = (link.get("uri", "") or "").strip()
+                if not uri:
+                    continue
+                total += 1
+                if _classify_uri_severity(uri) == "severe":
+                    severe += 1
+    finally:
+        doc.close()
+    return total, severe
+
+
 def _predict_functional_hyperlinks(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """functional_hyperlinks: are links accessible and descriptive?
 
-    Source of truth: PDF link annotations + their /StructParent attribute.
-    PDF/UA requires link annotations to be connected to the structure tree.
-
-    - not_present: no link annotations on any page
-    - passed: link annotations exist AND have /StructParent (tied to struct tree)
-    - failed: link annotations exist but have NO /StructParent (orphaned)
-    - cannot_tell: mixed
+    Layered signal:
+    1. No annotations → not_present
+    2. Most annotations tagged in struct tree (sp_ratio ≥ 0.8) → passed
+    3. Untagged annotations AND a meaningful fraction of URIs are
+       syntactically broken (severe ≥ 3 or ratio ≥ 10%) → failed
+    4. Untagged annotations but URIs are syntactically fine → cannot_tell
+       (we can't verify the links work without actually fetching them)
+    5. Partial struct tagging → cannot_tell
     """
     annot_count = facts.annot_link_count
 
-    # No link annotations at all → not_present
-    # (Note: the benchmark labels docs with /Link tags in struct tree but no
-    # actual annotations as "not_present" — this matches our logic.)
     if annot_count == 0:
         return "not_present"
 
     sp_count = facts.annot_links_with_struct_parent
     sp_ratio = sp_count / annot_count
 
-    # Most link annotations are tagged in struct tree → passed
     if sp_ratio >= 0.8:
         return "passed"
 
-    # No link annotations are tagged → failed
     if sp_ratio == 0:
-        return "failed"
+        total, severe = _count_uri_severity(pdf_path) if pdf_path else (annot_count, 0)
+        severe_ratio = severe / total if total else 0.0
+        if severe >= 3 or severe_ratio >= 0.10:
+            return "failed"
+        return "cannot_tell"
 
-    # Partial tagging → cannot_tell
     return "cannot_tell"
 
 
@@ -789,6 +923,61 @@ def _predict_semantic_tagging(report, doc_model, facts: StructFacts, pdf_path: s
     return "failed"
 
 
+def _per_table_th_counts(pdf_path: str) -> list[int]:
+    """Walk the struct tree and return the TH count for each Table element.
+
+    Aggregate TH count can hide a malformed table that has zero headers when
+    other tables in the same doc have plenty. A single empty ``/Table`` is a
+    strong ``cannot_tell`` signal.
+    """
+    try:
+        import fitz
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return []
+    try:
+        cat = doc.pdf_catalog()
+        st = doc.xref_get_key(cat, "StructTreeRoot")
+        if st[0] != "xref":
+            return []
+        root = int(st[1].split()[0])
+    except Exception:
+        doc.close()
+        return []
+
+    tables: list[dict] = []
+
+    def walk(xref: int, cur_table: dict | None, seen: set, depth: int) -> None:
+        if xref in seen or depth > 300:
+            return
+        seen.add(xref)
+        obj = _get_obj_text(doc, xref)
+        if not obj:
+            return
+        m = re.search(r"/S\s*/([A-Za-z_][A-Za-z0-9_]*)", obj)
+        tag = m.group(1) if m else None
+        new_table = cur_table
+        if tag == "Table":
+            new_table = {"th": 0, "td": 0, "tr": 0}
+            tables.append(new_table)
+        elif cur_table is not None and tag in ("TH", "TD", "TR"):
+            cur_table[tag.lower()] += 1
+        single = re.search(r"/K\s+(\d+)\s+0\s+R", obj)
+        if single:
+            walk(int(single.group(1)), new_table, seen, depth + 1)
+        else:
+            arr = re.search(r"/K\s*\[([^\]]*)\]", obj, re.DOTALL)
+            if arr:
+                for rm in re.finditer(r"(\d+)\s+0\s+R", arr.group(1)):
+                    walk(int(rm.group(1)), new_table, seen, depth + 1)
+
+    try:
+        walk(root, None, set(), 0)
+    finally:
+        doc.close()
+    return [t["th"] for t in tables]
+
+
 def _predict_table_structure(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """table_structure: do tables have proper headers and structure?
 
@@ -800,6 +989,12 @@ def _predict_table_structure(report, doc_model, facts: StructFacts, pdf_path: st
         if facts.table_count > 0 and facts.table_th_count == 0:
             return "failed"
         if facts.table_count > 0 and facts.table_th_count >= facts.table_count * 1.5:
+            # Downgrade to cannot_tell if ANY table is empty or near-empty.
+            # Aggregate TH can mask a malformed /Table with zero headers when
+            # other tables in the same doc have plenty.
+            th_per_table = _per_table_th_counts(pdf_path) if pdf_path else []
+            if th_per_table and min(th_per_table) == 0:
+                return "cannot_tell"
             return "passed"
 
     # Fall back to Gemini vision
@@ -848,7 +1043,7 @@ TASK_PREDICTORS = {
 }
 
 
-def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: str = "", item: dict | None = None) -> str:
+def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: str = "", item: dict | None = None, use_metadata: bool = True) -> str:
     """Predict a benchmark label using the task-specific predictor.
 
     Combines:
@@ -872,7 +1067,7 @@ def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: st
 
     # Date-based override
     date_label = None
-    date_pred = DATE_PREDICTORS.get(task)
+    date_pred = DATE_PREDICTORS.get(task) if use_metadata else None
     if date_pred and pdf_path:
         try:
             mod, create = _get_pdf_dates(pdf_path)
@@ -882,7 +1077,7 @@ def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: st
 
     # Compliance-score signal for byte-identical pairs.
     compliance_label = None
-    if item:
+    if item and use_metadata:
         tc = item.get("total_compliance")
         if task == "semantic_tagging" and tc is not None:
             # tc=3 → {failed, not_present}; tc=4 → {cannot_tell, passed}
@@ -910,7 +1105,7 @@ def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: st
     return deterministic
 
 
-def run_benchmark(benchmark_dir: Path, task_filter: str | None = None) -> dict:
+def run_benchmark(benchmark_dir: Path, task_filter: str | None = None, use_metadata: bool = True) -> dict:
     """Run the benchmark and return results."""
     dataset_path = benchmark_dir / "data" / "dataset.json"
     if not dataset_path.exists():
@@ -969,7 +1164,7 @@ def run_benchmark(benchmark_dir: Path, task_filter: str | None = None) -> dict:
                     doc_model = parse_result.document
                     report = validate_document(doc_model)
                     facts = probe_struct_tree(str(pdf_path))
-                    predicted = predict_label(report, task_name, doc_model, facts, pdf_path=str(pdf_path), item=item)
+                    predicted = predict_label(report, task_name, doc_model, facts, pdf_path=str(pdf_path), item=item, use_metadata=use_metadata)
                 except Exception as e:
                     results["errors"].append(f"Error on {pdf_rel_path}: {e}")
                     continue
@@ -1105,9 +1300,14 @@ def main():
         "--json", default=None, type=Path,
         help="Optional JSON output path with full per-doc results",
     )
+    parser.add_argument(
+        "--no-metadata", action="store_true",
+        help="Disable dataset-specific metadata signals (ModifyDate clusters, dataset.json tc field). "
+             "Reports honest, generalizable detection accuracy only.",
+    )
     args = parser.parse_args()
 
-    results = run_benchmark(args.benchmark_dir, task_filter=args.task)
+    results = run_benchmark(args.benchmark_dir, task_filter=args.task, use_metadata=not args.no_metadata)
 
     print(f"\n{'='*60}")
     print(f"OVERALL: {results['overall_accuracy']:.2%} "

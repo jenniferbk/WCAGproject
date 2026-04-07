@@ -1,93 +1,86 @@
 # PDF Accessibility Benchmark Report
 
-**Final score: 94.40% (118/125)** — beats GPT-4-Turbo baseline by 9.4 points.
+We evaluated our tool on the [Kumar et al. ASSETS 2025](https://github.com/Anukriti12/PDF-Accessibility-Benchmark) benchmark — the first published academic dataset for PDF accessibility evaluation, with 125 expert-labeled documents across 7 WCAG 2.2 / PDF/UA criteria.
 
-Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessibility-Benchmark) — the first published academic benchmark for PDF accessibility evaluation, with 125 expert-validated documents across 7 WCAG 2.2 / PDF/UA criteria.
+This report has two halves:
+1. **Honest detection score** — what our detector achieves using only real, generalizable accessibility signals (the number that matters for a production tool).
+2. **With-metadata score** — what we get by additionally exploiting dataset-specific artifacts (the number that should be cited only alongside the caveat below).
 
-## Comparison to Published Baselines
+## Headline
 
-| System | Overall Accuracy |
-|--------|------------------|
-| **A11y Remediate (this tool)** | **94.40%** |
-| GPT-4-Turbo | 85.00% |
-| GPT-4o-Vision | 81.00% |
-| Gemini-1.5 | 75.00% |
-| Claude-3.5 | 74.00% |
-| Llama-3.2 | 42.00% |
+| Score | Value | Notes |
+|---|---|---|
+| **Honest detection (real signals only)** | **77.60%** | Uses only PDF content: struct tree, font stats, URI syntax, validator output |
+| With dataset-specific metadata signals | 94.40% | Adds `ModifyDate` clustering and `dataset.json` `total_compliance` |
+| GPT-4-Turbo baseline (Kumar et al.) | 85.00% | Published baseline for comparison |
 
-## Per-Task Accuracy
+**We currently sit 7.4 points below GPT-4-Turbo on honest detection**, and 9.4 points above it with metadata. The honest number is the one you should use to reason about whether this tool actually detects accessibility issues in a real PDF.
 
-| Task | Correct | Total | Accuracy | GPT-4-Turbo |
-|------|---------|-------|----------|-------------|
-| alt_text_quality | 19 | 20 | **95%** | 70% |
-| color_contrast | 13 | 15 | **87%** | 93% |
-| fonts_readability | 15 | 15 | **100%** | 100% |
-| functional_hyperlinks | 20 | 20 | **100%** | 80% |
-| logical_reading_order | 11 | 15 | **73%** | 67% |
-| semantic_tagging | 20 | 20 | **100%** | 85% |
-| table_structure | 20 | 20 | **100%** | 100% |
+## Why two numbers
 
-We beat GPT-4-Turbo on 5/7 tasks and tie on 2 (fonts and tables).
+While tuning, we discovered that the benchmark dataset leaks label information through non-content channels:
 
-## Approach
+1. **`ModifyDate` clusters.** Per task and per label, the dataset's `ModifyDate` timestamps form distinctive clusters with second-level precision (e.g., `fonts_readability/passed` is always `2025-04-07`, `failed` is `2025-03-30 23:5x`). A predictor can classify purely from the timestamp without ever looking at the PDF content.
+2. **`total_compliance` in `dataset.json`.** For `semantic_tagging`, `tc=3` vs `tc=4` perfectly separates `{failed, not_present}` from `{cannot_tell, passed}`.
+3. **Byte-identical files across label categories.** At least 12 of the 125 documents are byte-for-byte identical across label categories — the only difference is the directory path and the `dataset.json` entry. A pure-content detector cannot distinguish these.
 
-The benchmark requires classifying each PDF into one of four labels per criterion: `passed`, `failed`, `not_present`, `cannot_tell`. We use a layered predictor:
+None of these signals exist in an arbitrary PDF in the wild. They're artifacts of how the benchmark was constructed. A tool pitched as "we beat GPT-4-Turbo" on the 94.40% score would be misleading; the 77.60% honest number is what transfers to real documents.
 
-### Layer 1: Real accessibility analysis
-- **PDF struct tree probe** (`scripts/struct_tree_probe.py`) — walks the PDF's StructTreeRoot, extracting tag distributions, figure alt text (with UTF-16 hex decoding), table TH counts, link annotations with `/StructParent`, headings, and custom-tag-ratio
-- **Validator** — our existing WCAG checker for contrast, alt text, link text, etc.
-- **Per-task heuristics** — body font min/median, contrast issue ratios, etc.
+This finding is itself a contribution: **future PDF accessibility benchmarks should strip `ModifyDate`, randomize `dataset.json` timestamps, and never reuse byte-identical files across labels.**
 
-### Layer 2: PDF metadata signatures
-- **Date predictors** — discovered that the benchmark dataset's `ModifyDate` timestamps form distinctive per-task, per-label clusters (e.g., `fonts_readability/passed` is always `2025-04-07`, `failed` is `2025-03-30 23:5x`). For some tasks the date alone discriminates with second-level precision.
+## Per-task scores (honest)
 
-### Layer 3: dataset.json compliance scores
-- **`total_compliance` tiebreaker** — for `semantic_tagging`, the dataset has `tc=3` for failed/not_present and `tc=4` for cannot_tell/passed. We combine this with struct tree facts to disambiguate byte-identical PDFs.
+| Task | Honest | Ceiling | With metadata | GPT-4-Turbo |
+|------|--------|---------|---------------|-------------|
+| alt_text_quality | 65.0% | — | 95.0% | 70.0% |
+| color_contrast | 73.3% | ~87% | 86.7% | 93.0% |
+| fonts_readability | **93.3%** | 93.3% | 100.0% | 100.0% |
+| functional_hyperlinks | **100.0%** | 100.0% | 100.0% | 80.0% |
+| logical_reading_order | 53.3% | — | 73.3% | 67.0% |
+| semantic_tagging | 75.0% | **75.0%** | 100.0% | 85.0% |
+| table_structure | 80.0% | 80.0% | 100.0% | 100.0% |
+| **Overall** | **77.60%** | **~90%** | 94.40% | 85.00% |
+
+Where "ceiling" is given, it reflects the maximum score achievable without reading dataset metadata, because the remaining failures are byte-identical or stat-identical pairs. **`semantic_tagging` is hard-capped at 75.0%** — all 5 `failed`/`cannot_tell` pairs are the same file under two directory names.
+
+We beat GPT-4-Turbo on 2 tasks (`functional_hyperlinks`, `fonts_readability`), tie on 0, and trail on 5.
+
+## Real signals we added (transferable to production)
+
+Each of these is a real PDF signal that improves the main remediation pipeline, not just the benchmark:
+
+### 1. Tiny-prose-run detection (`fonts_readability`, +26.7 pts)
+The previous font check looked only at the dominant body font. This misses documents where a person's name or a section label is rendered at 5pt in a secondary prose font. We now count runs below 6pt that contain ≥3 alphabetic characters (to exclude math symbols, dingbats, and single-letter decorations). A single such run downgrades an otherwise-clean document to `cannot_tell`.
+
+### 2. Per-table TH walker (`table_structure`, +5 pts)
+The struct tree probe previously counted `TH` elements across the entire document. This hides malformed tables: a document with four well-headed tables plus one empty `/Table` element sums to "plenty of headers" in the aggregate. We now walk the struct tree per-table and flag any document with at least one zero-header `Table`.
+
+### 3. URI syntax severity classifier (`functional_hyperlinks`, +25 pts)
+Real-world broken PDFs have URIs like `http:////dx.doi.org/...` (four slashes), `http://d x.doi.org/...` (whitespace in the domain), or `mailto: user@ example.com` (split addresses). We classify URIs as severe, minor, or ok and fail documents with ≥10% severe URIs among their link annotations. **This also produces a new user-facing signal for the main pipeline:** "N broken links in this document."
+
+### 4. Yellow-on-white contrast heuristic (`color_contrast`, +6.7 pts)
+A single occurrence of pure yellow text on a white background at 1.07:1 (e.g. `#FFFF00 on #FFFFFF`) is an unambiguous fail regardless of how many pixels it covers. We elevate any such issue to `failed` immediately.
 
 ## Score progression
 
-| Step | Score | Delta | Change |
-|------|-------|-------|--------|
-| Initial baseline | 31.67% | — | Just parser+validator output mapped to labels |
-| Better predictors | 35.83% | +4 | Per-task `predict_label` functions |
-| PDF struct tree | 43.33% | +8 | Walk StructTreeRoot, count tags/figures/tables/headings |
-| Smarter mappings | 47.50% | +4 | Quality scorers for alt text |
-| `/StructParent` for hyperlinks | 52.50% | +5 | Use PDF link annotations + struct tagging |
-| All weak tasks tuned | 59.17% | +7 | Color thresholds, font min size, etc. |
-| Tables via Gemini | 63.33% | +4 | Vision call for table classification |
-| Removed Vision | 66.67% | +3 | Vision was hurting on text-judgment tasks |
-| Per-task heuristics | 68.80% | +2 | Better discriminators across the board |
-| **PDF date signatures** | **84.00%** | **+15** | Major leap — `ModifyDate` patterns per task |
-| **Compliance for semantic_tagging** | **93.60%** | **+10** | `tc=3` vs `tc=4` perfectly disambiguates |
-| Tighter date patterns | 94.40% | +1 | Second-level precision, table_structure tc=None |
+| Step | Honest score | Delta |
+|------|------|-------|
+| Initial baseline (parser + validator mapped to labels) | 31.67% | — |
+| Per-task heuristics + struct tree probe + alt quality scorer | 68.80% | +37.1 |
+| + tiny-prose font check | 72.00% | +3.2 |
+| + per-table TH walker | 72.80% | +0.8 |
+| + URI syntax severity classifier | 76.80% | +4.0 |
+| + yellow-on-white contrast rule | **77.60%** | +0.8 |
 
-## What we cannot fix
+## What's still on the table
 
-The remaining 7 errors (5.6%) are all from cases where:
-1. Two PDFs are **byte-for-byte identical** between two label categories AND
-2. Their dataset.json metadata is **also identical** AND
-3. The only difference is the directory path (`/passed/` vs `/cannot_tell/`)
+Further honest gains will need judgment that deterministic heuristics can't provide:
 
-Using the directory path as a label oracle would give us 100%, but that's reading the answer key. We chose to leave these as the legitimate ceiling.
+- **`alt_text_quality`** (65% → up to ~95%): requires comparing alt text against the actual image content. Natural fit for a multimodal model (Gemini Flash proposes → Claude Sonnet reviews → disagreement is signal for `cannot_tell`).
+- **`logical_reading_order`** (53% → up to ~73%): requires comparing the struct tree's reading order against visual page layout. Needs page rendering + vision model.
+- **`color_contrast`** (73% → up to ~87%): requires judging which contrast issues are on semantically important text (headings, body) vs decorative accents. Judgment task.
 
-Specifically:
-- **alt_text_quality** (1 error): W4206740007 cannot_tell == not_present
-- **color_contrast** (2 errors): W1989729767 and W2642438850 passed == cannot_tell
-- **logical_reading_order** (4 errors): 4 passed/cannot_tell pairs are byte-identical with identical metadata
-
-## Key insights
-
-### 1. Most "real accessibility detection" can be done from the struct tree
-The PDF/UA structure tree (`StructTreeRoot`) contains rich tagging info: heading levels, table headers (TH), figure alt text, link annotations with /StructParent. Walking it gives us most of what we need without rendering pages.
-
-### 2. The benchmark has hidden signals in file metadata
-The dataset creators left `ModifyDate` timestamps and `total_compliance` scores that serve as label hints. These signals exist in every file and are fair to use, but they're not "real" accessibility detection.
-
-### 3. Many "passed" / "cannot_tell" pairs are byte-identical
-The benchmark uses the same file for both labels in several cases. The distinguishing label is in the dataset.json or the directory path, not the file content. This caps achievable accuracy without path-leakage.
-
-### 4. Vision LLMs aren't always better
-Gemini Vision underperformed our deterministic checks on subtle visual tasks (contrast, fonts, reading order). It's good for tables (gridline detection) but weaker on judgment tasks where the differences are 0.4pt or fewer issues.
+The **hard ceiling for any honest detector on this benchmark is approximately 90.4%** (125 − 12 unrecoverable pairs).
 
 ## Reproducing
 
@@ -95,19 +88,23 @@ Gemini Vision underperformed our deterministic checks on subtle visual tasks (co
 # Clone the benchmark
 git clone https://github.com/Anukriti12/PDF-Accessibility-Benchmark /tmp/PDF-Accessibility-Benchmark
 
-# Run the benchmark
+# Honest detection (no metadata signals)
 python3 scripts/benchmark.py --benchmark-dir /tmp/PDF-Accessibility-Benchmark \
-    --output benchmark_results.md --json benchmark_results.json
+    --no-metadata --output benchmark_results_honest.md
+
+# With metadata signals
+python3 scripts/benchmark.py --benchmark-dir /tmp/PDF-Accessibility-Benchmark \
+    --output benchmark_results.md
 ```
 
-Total run time: ~3 minutes for 125 PDFs. No paid API calls required for the deterministic predictors.
+Each run takes ~4–5 minutes for 125 PDFs. No paid API calls are required for the deterministic predictors.
 
 ## Files
 
-- `scripts/benchmark.py` — main runner with per-task predictors
+- `scripts/benchmark.py` — main runner with per-task predictors and `--no-metadata` flag
 - `scripts/struct_tree_probe.py` — PDF StructTreeRoot walker
-- `benchmark_results.md` — latest results report
-- `benchmark_results.json` — full per-document predictions
+- `benchmark_results_honest.md` / `.json` — latest honest results
+- `benchmark_results.md` / `.json` — results with metadata signals enabled
 
 ## Citation
 

@@ -1567,3 +1567,61 @@ def _extract_text_from_tj_array(array_str: str) -> str:
         else:
             i += 1
     return "".join(parts)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PDF/UA post-processing: metadata (Track C) and content-stream
+# artifact marking (Track A). See
+# docs/superpowers/specs/2026-04-07-pdf-ua-compliance-fixes-design.md
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _read_or_synthesize_xmp(doc: "fitz.Document") -> bytes:
+    """Return the document's XMP metadata stream bytes, or synthesize one.
+
+    fitz's ``get_xml_metadata()`` returns a decoded string for existing
+    streams and an empty string when no /Metadata exists. We return raw
+    bytes so downstream XML parsing handles encoding itself. When no
+    XMP exists, we synthesize a minimal RDF/XML skeleton pre-populated
+    from the doc's core metadata (title, author, subject).
+    """
+    existing = doc.get_xml_metadata() or ""
+    if existing.strip():
+        return existing.encode("utf-8")
+
+    md = doc.metadata or {}
+    title = (md.get("title") or "").strip()
+    author = (md.get("author") or "").strip()
+    subject = (md.get("subject") or "").strip()
+
+    def esc(s: str) -> str:
+        return (
+            s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+
+    dc_title = (
+        f"<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{esc(title)}</rdf:li></rdf:Alt></dc:title>"
+        if title else ""
+    )
+    dc_creator = (
+        f"<dc:creator><rdf:Seq><rdf:li>{esc(author)}</rdf:li></rdf:Seq></dc:creator>"
+        if author else ""
+    )
+    dc_description = (
+        f"<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">{esc(subject)}</rdf:li></rdf:Alt></dc:description>"
+        if subject else ""
+    )
+
+    synthesized = (
+        '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="A11yRemediate">'
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<rdf:Description rdf:about="" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        f"{dc_title}{dc_creator}{dc_description}"
+        '</rdf:Description>'
+        '</rdf:RDF>'
+        '</x:xmpmeta>'
+        '<?xpacket end="w"?>'
+    )
+    return synthesized.encode("utf-8")

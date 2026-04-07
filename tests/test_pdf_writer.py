@@ -623,3 +623,51 @@ class TestImageLinking:
         # Every image should be linked to a paragraph
         for img in doc.images:
             assert img.id in linked_ids, f"{img.id} not linked to any paragraph"
+
+
+class TestPdfUaMetadata:
+    """Tests for apply_pdf_ua_metadata() — Track C."""
+
+    def _make_minimal_pdf(self, tmp_path, with_xmp: bool = True) -> Path:
+        """Create a minimal test PDF with or without an XMP metadata stream."""
+        import fitz
+        doc = fitz.open()
+        doc.new_page()
+        doc.set_metadata({"title": "Test Title", "author": "Test Author"})
+        if with_xmp:
+            doc.set_xml_metadata(
+                '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+                '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+                '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+                '<rdf:Description rdf:about="" '
+                'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Test Title</rdf:li></rdf:Alt></dc:title>'
+                '</rdf:Description>'
+                '</rdf:RDF>'
+                '</x:xmpmeta>'
+                '<?xpacket end="w"?>'
+            )
+        out = tmp_path / "minimal.pdf"
+        doc.save(str(out))
+        doc.close()
+        return out
+
+    def test_helper_reads_existing_xmp(self, tmp_path):
+        from src.tools.pdf_writer import _read_or_synthesize_xmp
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        doc = fitz.open(str(pdf))
+        xmp_bytes = _read_or_synthesize_xmp(doc)
+        doc.close()
+        assert b"dc:title" in xmp_bytes
+        assert b"Test Title" in xmp_bytes
+
+    def test_helper_synthesizes_when_no_xmp(self, tmp_path):
+        from src.tools.pdf_writer import _read_or_synthesize_xmp
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=False)
+        doc = fitz.open(str(pdf))
+        xmp_bytes = _read_or_synthesize_xmp(doc)
+        doc.close()
+        assert b"rdf:RDF" in xmp_bytes
+        assert b"rdf:Description" in xmp_bytes

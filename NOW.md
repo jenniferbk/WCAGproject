@@ -3,8 +3,26 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Benchmark — honest detection at 77.6% (four deterministic signal fixes landed); pivoting to remediation benchmark
+- **Phase**: Benchmark — honest detection at 77.6% AND full 125-doc remediation run complete with independent veraPDF validation. Next: iterate on results to score big wins.
 - **Tests**: 938 passing
+
+## Full remediation benchmark results (2026-04-07, commit bzwom4spv)
+
+**125/125 succeeded, zero crashes.** Ran every Kumar et al. benchmark PDF through `orchestrator.process()` with independent veraPDF PDF/UA-1 validation on input and output.
+
+- **veraPDF failed rules: 1076 → 672** (−404, **−37.5%**, the authoritative number)
+- **Docs improved: 113/125 (90.4%)**
+- **Docs unchanged: 8/125**
+- **Docs regressed: 4/125** (all in tasks where adding a struct tree activated "content must be tagged or marked artifact" checks that were dormant on untagged PDFs)
+- **Fully PDF/UA-1 compliant: 0 → 0** (deep source brokenness — these are scanned academic papers and magazine articles; PDF/UA-1 has 100+ rules)
+- **534 heading tags added, 84/125 docs gained figure alt text, 20/125 went from no struct tree to tagged**
+- **Visual validator (pessimistic):** 607 → 262 issues (−345, −56.8%)
+- **Cost: $16.23 total ($0.13/doc avg)**
+- **Wall time: 5h20m (median 112s/doc, slower for scanned/complex docs)**
+
+**What's new vs. anything published:** Kumar et al. measured *detection*. This is the first remediation-outcomes measurement on the same 125 docs. "Of 125 documents with known accessibility issues, a single pass reduced independently-verified PDF/UA-1 rule failures by 37.5%, improved 113/125 documents, added 534 heading tags and 84 figure descriptions, at $0.13/doc."
+
+**Result artifacts committed in:** `/tmp/remediation_bench_full/` (large, gitignored). See commit for the results summary files only.
 
 ## Up Next (after this session)
 1. **Full 125-doc remediation benchmark is running in background** (task `bzwom4spv`). When it finishes, run `scripts/verapdf_postprocess.py --results-dir /tmp/remediation_bench_full` to layer independent PDF/UA compliance numbers on top.

@@ -2839,7 +2839,7 @@
         </div>
         <div class="upload-content">
           <div class="upload-title">Drop files here or click to upload</div>
-          <div class="upload-hint">.docx, .pdf, .pptx, .tex, and .zip files</div>
+          <div class="upload-hint">.docx, .pdf, .pptx, .tex, and .zip files &middot; <strong>LaTeX conversions are free</strong> while in beta</div>
           <div class="upload-meta">
             <span>Up to 20 MB</span>
             <span class="upload-meta-sep" aria-hidden="true">|</span>
@@ -3417,8 +3417,13 @@ fileInput.addEventListener('change', () => {
 });
 
 async function handleFiles(files) {
-  // Pre-flight usage check
-  if (currentUser && (currentUser.pages_balance || 0) <= 0) {
+  // Pre-flight usage check (LaTeX files are free — skip the block if all files are LaTeX)
+  const latexExts = ['.tex', '.ltx', '.zip'];
+  const allLatex = Array.from(files).every(f => {
+    const name = (f.name || '').toLowerCase();
+    return latexExts.some(ext => name.endsWith(ext));
+  });
+  if (currentUser && (currentUser.pages_balance || 0) <= 0 && !allLatex) {
     showToast('No pages remaining.');
     return;
   }

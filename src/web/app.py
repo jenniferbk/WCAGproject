@@ -469,8 +469,13 @@ async def upload_file(
     except Exception:
         page_count = 1
 
-    # Atomically deduct pages from balance
-    if not deduct_pages(user.id, page_count):
+    # LaTeX conversions are free while the feature stabilizes in production.
+    # We still record the page count on the job for visibility, but we do not
+    # deduct from the user's balance.
+    is_latex_free = Path(filename).suffix.lower() in (".tex", ".ltx", ".zip")
+
+    # Atomically deduct pages from balance (skip for free LaTeX conversions)
+    if not is_latex_free and not deduct_pages(user.id, page_count):
         upload_path.unlink(missing_ok=True)
         # Re-fetch user for current balance
         fresh_user = get_user(user.id)
@@ -967,8 +972,9 @@ def _process_job_inner(job_id: str) -> None:
                 error=result.error or "Unknown error",
                 processing_time=result.processing_time_seconds,
             )
-            # Refund pages on failure
-            if job.user_id and job.page_count > 0:
+            # Refund pages on failure (skip for free LaTeX conversions)
+            was_latex_free = Path(job.filename).suffix.lower() in (".tex", ".ltx", ".zip")
+            if job.user_id and job.page_count > 0 and not was_latex_free:
                 refund_pages(job.user_id, job.page_count)
                 logger.info("Refunded %d pages to user %s for failed job %s", job.page_count, job.user_id, job_id)
             logger.error("Job %s failed: %s", job_id, result.error)
@@ -977,8 +983,9 @@ def _process_job_inner(job_id: str) -> None:
     except Exception as e:
         logger.exception("Job %s crashed", job_id)
         update_job(job_id, status="failed", phase="", error=str(e))
-        # Refund pages on crash
-        if job.user_id and job.page_count > 0:
+        # Refund pages on crash (skip for free LaTeX conversions)
+        was_latex_free = Path(job.filename).suffix.lower() in (".tex", ".ltx", ".zip")
+        if job.user_id and job.page_count > 0 and not was_latex_free:
             refund_pages(job.user_id, job.page_count)
             logger.info("Refunded %d pages to user %s for crashed job %s", job.page_count, job.user_id, job_id)
         _send_notification(job_id)

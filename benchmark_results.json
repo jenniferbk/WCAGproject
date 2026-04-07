@@ -25,7 +25,7 @@
       "labels_seen": {
         "cannot_tell": {
           "passed": 4,
-          "failed": 1
+          "cannot_tell": 1
         },
         "failed": {
           "passed": 1,
@@ -35,27 +35,26 @@
           "passed": 5
         }
       },
-      "correct": 9,
+      "correct": 10,
       "total": 15,
-      "accuracy": 0.6
+      "accuracy": 0.6666666666666666
     },
     "fonts_readability": {
       "labels_seen": {
         "cannot_tell": {
-          "failed": 4,
-          "passed": 1
+          "passed": 3,
+          "failed": 2
         },
         "failed": {
           "failed": 5
         },
         "passed": {
-          "failed": 1,
-          "passed": 4
+          "passed": 5
         }
       },
-      "correct": 9,
+      "correct": 10,
       "total": 15,
-      "accuracy": 0.6
+      "accuracy": 0.6666666666666666
     },
     "functional_hyperlinks": {
       "labels_seen": {
@@ -100,24 +99,21 @@
     "semantic_tagging": {
       "labels_seen": {
         "cannot_tell": {
-          "failed": 4,
-          "passed": 1
+          "failed": 5
         },
         "failed": {
-          "failed": 4,
-          "passed": 1
+          "failed": 5
         },
         "not_present": {
           "not_present": 5
         },
         "passed": {
-          "passed": 4,
-          "failed": 1
+          "passed": 5
         }
       },
-      "correct": 13,
+      "correct": 15,
       "total": 20,
-      "accuracy": 0.65
+      "accuracy": 0.75
     },
     "table_structure": {
       "labels_seen": {
@@ -321,8 +317,8 @@
       "doc": "W2016642098",
       "title": "You Only Look Once: Unified, Real-Time Object Detection",
       "gold": "cannot_tell",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "cannot_tell",
+      "correct": true
     },
     {
       "task": "color_contrast",
@@ -425,7 +421,7 @@
       "doc": "W2772922866",
       "title": "Visual Accessibility of Text \u2013 A Dataset for Quality of Fonts",
       "gold": "cannot_tell",
-      "predicted": "failed",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -449,7 +445,7 @@
       "doc": "W4235175634",
       "title": "A Dataset of Dutch and English Signs and Their Accessibility Rankings",
       "gold": "cannot_tell",
-      "predicted": "failed",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -505,8 +501,8 @@
       "doc": "W2772922866",
       "title": "Visual Accessibility of Text \u2013 A Dataset for Quality of Fonts",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "fonts_readability",
@@ -849,7 +845,7 @@
       "doc": "W2951147986",
       "title": "WIDER FACE: A Face Detection Benchmark",
       "gold": "cannot_tell",
-      "predicted": "passed",
+      "predicted": "failed",
       "correct": false
     },
     {
@@ -889,8 +885,8 @@
       "doc": "W2951147986",
       "title": "WIDER FACE: A Face Detection Benchmark",
       "gold": "failed",
-      "predicted": "passed",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
@@ -977,8 +973,8 @@
       "doc": "W984760328",
       "title": "Learning Commonsense and Social Dynamics from a Year of Tweets",
       "gold": "passed",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "table_structure",
@@ -1141,9 +1137,9 @@
       "correct": true
     }
   ],
-  "total_correct": 82,
+  "total_correct": 86,
   "total_count": 125,
-  "elapsed_seconds": 181.08786511421204,
+  "elapsed_seconds": 152.2756700515747,
   "errors": [],
-  "overall_accuracy": 0.656
+  "overall_accuracy": 0.688
 }

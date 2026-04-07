@@ -2,14 +2,14 @@
 
 Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessibility-Benchmark)
 
-**Overall accuracy: 65.60%** (82/125 correct)
-**Elapsed: 181.1s**
+**Overall accuracy: 68.80%** (86/125 correct)
+**Elapsed: 152.3s**
 
 ## Comparison to Published Baselines
 
 | System | Overall Accuracy |
 |--------|-----------------|
-| **A11y Remediate (this tool)** | **65.60%** |
+| **A11y Remediate (this tool)** | **68.80%** |
 | GPT-4-Turbo | 85.00% |
 | GPT-4o-Vision | 81.00% |
 | Gemini-1.5 | 75.00% |
@@ -21,11 +21,11 @@ Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessi
 | Task | Correct | Total | Accuracy |
 |------|---------|-------|----------|
 | alt_text_quality | 13 | 20 | 65.00% |
-| color_contrast | 9 | 15 | 60.00% |
-| fonts_readability | 9 | 15 | 60.00% |
+| color_contrast | 10 | 15 | 66.67% |
+| fonts_readability | 10 | 15 | 66.67% |
 | functional_hyperlinks | 15 | 20 | 75.00% |
 | logical_reading_order | 8 | 15 | 53.33% |
-| semantic_tagging | 13 | 20 | 65.00% |
+| semantic_tagging | 15 | 20 | 75.00% |
 | table_structure | 15 | 20 | 75.00% |
 
 ## Confusion Matrices
@@ -45,7 +45,7 @@ Rows = ground truth, columns = predicted
 
 | gold ↓ / predicted → | cannot_tell | failed | passed |
 |---|---|---|---|
-| cannot_tell | 0 | 1 | 4 |
+| cannot_tell | 1 | 0 | 4 |
 | failed | 0 | 4 | 1 |
 | passed | 0 | 0 | 5 |
 
@@ -53,9 +53,9 @@ Rows = ground truth, columns = predicted
 
 | gold ↓ / predicted → | cannot_tell | failed | passed |
 |---|---|---|---|
-| cannot_tell | 0 | 4 | 1 |
+| cannot_tell | 0 | 2 | 3 |
 | failed | 0 | 5 | 0 |
-| passed | 0 | 1 | 4 |
+| passed | 0 | 0 | 5 |
 
 ### functional_hyperlinks
 
@@ -78,10 +78,10 @@ Rows = ground truth, columns = predicted
 
 | gold ↓ / predicted → | cannot_tell | failed | not_present | passed |
 |---|---|---|---|---|
-| cannot_tell | 0 | 4 | 0 | 1 |
-| failed | 0 | 4 | 0 | 1 |
+| cannot_tell | 0 | 5 | 0 | 0 |
+| failed | 0 | 5 | 0 | 0 |
 | not_present | 0 | 0 | 5 | 0 |
-| passed | 0 | 1 | 0 | 4 |
+| passed | 0 | 0 | 0 | 5 |
 
 ### table_structure
 

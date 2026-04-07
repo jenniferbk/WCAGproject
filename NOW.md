@@ -3,8 +3,33 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Benchmark crushed (94.4% on PDF Accessibility Benchmark, beating GPT-4-Turbo)
-- **Tests**: 921 passing
+- **Phase**: Benchmark — honest detection at 77.6% (four deterministic signal fixes landed); pivoting to remediation benchmark
+- **Tests**: 938 passing
+
+## Up Next (after this session)
+1. **Full 125-doc remediation benchmark is running in background** (task `bzwom4spv`). When it finishes, run `scripts/verapdf_postprocess.py --results-dir /tmp/remediation_bench_full` to layer independent PDF/UA compliance numbers on top.
+2. **Then: re-run `functional_hyperlinks` subset** (5 docs) with the new URI repair (commit `d4d116b`) wired in so we can measure the delta. Expected: visual validator 2.4.4 issues drop on broken-URI cases.
+3. **PDF link text validation blind spot (IMPORTANT TODO):** our PDF parser reads link text from visual page content (`page.get_textbox()`) and ignores struct tree `/Link` `/ActualText`. iText's tagging pass writes rich accessible names to every `/Link` struct element (verified: `"NEI Eye Data on Low Vision"`, `"H.R.3749 - Medicare Demonstration..."` etc.) but the validator still sees the original raw URLs in the visible content stream and reports 2.4.4 failures that don't exist from a PDF/UA/screen-reader perspective. The **right fix** requires resolving each link annotation's `/StructParent` → `/ParentTree` → matching `/Link` struct element. A positional cursor match was attempted in this session and reverted — iText emits one `/Link` per logical link but the annotations come one-per-rect (long URLs wrap across lines into multiple annotations), so positional pairing mis-assigns accessible names in a way that's **worse than the raw-URL baseline** (screen readers would announce a plausible-but-wrong description and take the user to a completely different URL). Do it properly next session via /StructParent.
+4. **AI judges for alt_text_quality and logical_reading_order** (deferred): benchmark ceiling analysis shows limited upside without metadata, but the judges themselves are genuinely useful in the main pipeline as "needs human review" signals. **User explicitly wants to come back and get honest score at or above GPT-4-Turbo's 85% — we have better models, should be able to beat it overall.** Current honest: 77.6%. Realistic ceiling: ~82–85%. To actually beat GPT-4-Turbo meaningfully we'd also need stochastic label sampling on byte-identical pairs.
+
+## What Was Shipped (2026-04-07 session — Honest benchmark rework)
+
+### Reframed the benchmark from "crushed it" to "honestly at 77.6%"
+Discovered the 94.4% headline was almost entirely dataset metadata exploitation (ModifyDate clusters, dataset.json tc field). Without metadata, we were at 68.8% — BELOW GPT-4-Turbo's 85%. Added `--no-metadata` flag and rebuilt four predictors with real signals:
+
+1. **fonts_readability 66.7% → 93.3%** — `_count_tiny_prose_runs()` catches ≥3-alpha-char runs below 6pt in non-dominant fonts (e.g. "CLARISSA SIMAS" at 5pt). Dominant-body-font check alone was blind to these.
+2. **table_structure 75% → 80%** — `_per_table_th_counts()` walks per /Table element; any table with 0 TH downgrades the doc from passed to cannot_tell. Aggregate TH count was masking malformed Table elements.
+3. **functional_hyperlinks 75% → 100%** — `_classify_uri_severity()` detects http:/// (3+ slashes), whitespace inside domain, split mailto addresses. severe_ratio ≥ 10% → failed. **Beats GPT-4-Turbo (80%) and ties metadata-on.** New reusable production signal.
+4. **color_contrast 66.7% → 73.3%** — yellow-on-white (#FFFF00 on #FFFFFF at <1.5:1) is an unambiguous fail regardless of count.
+
+**Overall honest: 68.8% → 77.6% (+8.8 points).** Metadata-on score unchanged at 94.4%.
+
+### Benchmark ceiling analysis
+- Byte-identical files across label categories in 13+ of 125 documents cap honest detection at ~89.6%
+- Content-identical alt text across cannot_tell/passed in alt_text_quality caps that task at 70%
+- semantic_tagging is hard-capped at 75% (5 byte-identical failed/cannot_tell pairs)
+- `docs/benchmark-report.md` rewritten with honest vs metadata-on split and per-task ceilings
+- Commit `4005a8e`: `Benchmark: honest detection 68.8% → 77.6% via real signals`
 
 ## What Was Shipped (2026-04-07 session — PDF Accessibility Benchmark)
 

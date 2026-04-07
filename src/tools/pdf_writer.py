@@ -1792,3 +1792,57 @@ def _ensure_display_doc_title(vp_dict_str: str) -> str:
     if body:
         return f"<< {body} /DisplayDocTitle true >>"
     return "<< /DisplayDocTitle true >>"
+
+
+# Operator classification for Track A artifact marking.
+# See spec §"Operator classification" for the rationale.
+
+_CONTENT_PRODUCING_OPS = frozenset({
+    # Text showing (inside BT/ET)
+    "Tj", "TJ", "'", '"',
+    # Path painting
+    "S", "s", "f", "F", "f*", "B", "B*", "b", "b*",
+    # Shading
+    "sh",
+    # XObject reference
+    "Do",
+})
+
+_STATE_SETTING_OPS = frozenset({
+    # Graphics state save/restore
+    "q", "Q",
+    # Transform
+    "cm",
+    # Text state
+    "Tf", "Tr", "Tc", "Tw", "Tz", "TL", "Ts",
+    # Text positioning
+    "Td", "TD", "Tm", "T*",
+    # Graphics state parameter
+    "gs",
+    # Color
+    "rg", "RG", "g", "G", "k", "K",
+    "sc", "SC", "scn", "SCN", "cs", "CS",
+    # Path style
+    "w", "J", "j", "M", "d", "ri", "i",
+    # Path construction (no output on their own)
+    "m", "l", "c", "v", "y", "re", "h", "n",
+    # Clipping flags (no output; affect subsequent path)
+    "W", "W*",
+    # Text object markers (no output on their own)
+    "BT", "ET",
+})
+
+
+def _is_content_producing_op(op: str) -> bool:
+    """Return True if the operator produces visible marks on the page.
+
+    Inline images (BI/ID/EI) are handled by the tokenizer as a single
+    atom and this function is not called on them individually — the
+    walker treats the atom as content-producing.
+    """
+    return op in _CONTENT_PRODUCING_OPS
+
+
+def _is_state_setting_op(op: str) -> bool:
+    """Return True if the operator sets graphics state without producing marks."""
+    return op in _STATE_SETTING_OPS

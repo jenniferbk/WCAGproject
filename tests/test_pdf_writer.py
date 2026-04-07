@@ -767,3 +767,44 @@ class TestPdfUaMetadata:
         assert _re.search(
             r"<[A-Za-z_][\w-]*:part(?:\s[^>]*)?>1</[A-Za-z_][\w-]*:part>", xmp
         )
+
+
+class TestArtifactMarkingHelpers:
+    """Tests for Track A operator classification."""
+
+    def test_tj_is_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        assert _is_content_producing_op("Tj")
+        assert _is_content_producing_op("TJ")
+        assert _is_content_producing_op("'")
+        assert _is_content_producing_op('"')
+
+    def test_path_painting_is_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        for op in ["S", "s", "f", "F", "f*", "B", "B*", "b", "b*"]:
+            assert _is_content_producing_op(op), f"{op} should be content-producing"
+
+    def test_do_and_sh_are_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        assert _is_content_producing_op("Do")
+        assert _is_content_producing_op("sh")
+
+    def test_state_ops_not_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        for op in ["q", "Q", "cm", "Tf", "Td", "TD", "Tm", "T*",
+                   "gs", "rg", "RG", "g", "G", "k", "K", "sc", "SC",
+                   "scn", "SCN", "cs", "CS", "w", "J", "j", "M", "d",
+                   "ri", "i", "m", "l", "c", "v", "y", "re", "h", "n",
+                   "BT", "ET", "W", "W*"]:
+            assert not _is_content_producing_op(op), f"{op} should NOT be content-producing"
+
+    def test_state_ops_classified_as_state(self):
+        from src.tools.pdf_writer import _is_state_setting_op
+        for op in ["q", "Q", "cm", "Tf", "Td", "gs", "rg", "BT", "ET"]:
+            assert _is_state_setting_op(op), f"{op} should be state-setting"
+
+    def test_bdc_emc_not_classified_as_either(self):
+        from src.tools.pdf_writer import _is_content_producing_op, _is_state_setting_op
+        for op in ["BDC", "BMC", "EMC"]:
+            assert not _is_content_producing_op(op)
+            assert not _is_state_setting_op(op)

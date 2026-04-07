@@ -137,20 +137,29 @@ def _parse_verapdf_json(json_str: str, pdf_path: str) -> VeraPdfResult:
     if "report" in data:
         report = data["report"]
 
-    # Try to find the validation result in the report
+    # Try to find the validation result in the report.
+    # veraPDF ≥1.28 wraps validationResult in a list; earlier versions used
+    # a single dict. Normalise to always iterate a list of dicts.
+    def _normalise(val) -> list[dict]:
+        if isinstance(val, list):
+            return [v for v in val if isinstance(v, dict)]
+        if isinstance(val, dict):
+            return [val]
+        return []
+
     jobs = report.get("jobs", [])
-    if not jobs:
-        # Older format or single-file result
-        val_result = report.get("validationResult", {})
-        if val_result:
-            compliant, passed_rules, failed_rules, violations = _parse_validation_result(val_result)
-    else:
-        # Newer multi-job format
+    val_results: list[dict] = []
+    if jobs:
         for job in jobs:
-            val_result = job.get("validationResult", {})
-            if val_result:
-                compliant, passed_rules, failed_rules, violations = _parse_validation_result(val_result)
-                break
+            val_results.extend(_normalise(job.get("validationResult")))
+    else:
+        val_results = _normalise(report.get("validationResult"))
+
+    if val_results:
+        # Parse the first available validation result (single-file reports
+        # only ever contain one; multi-profile reports would give us several
+        # and we care about PDF/UA-1 specifically — see --format ua1).
+        compliant, passed_rules, failed_rules, violations = _parse_validation_result(val_results[0])
 
     return VeraPdfResult(
         success=True,
@@ -167,7 +176,8 @@ def _parse_validation_result(
     val_result: dict,
 ) -> tuple[bool, int, int, list[PdfUaViolation]]:
     """Parse a validationResult object from veraPDF JSON."""
-    compliant = val_result.get("compliant", val_result.get("isCompliant", False))
+    # v1.28+ has no top-level `compliant` field — derive it from failedRules.
+    compliant = val_result.get("compliant", val_result.get("isCompliant"))
     passed_rules = 0
     failed_rules = 0
     violations: list[PdfUaViolation] = []
@@ -177,6 +187,8 @@ def _parse_validation_result(
     if details:
         passed_rules = details.get("passedRules", 0)
         failed_rules = details.get("failedRules", 0)
+        if compliant is None:
+            compliant = failed_rules == 0
 
         for rule in details.get("ruleSummaries", []):
             status = rule.get("status", "")
@@ -217,7 +229,7 @@ def _parse_validation_result(
                 ))
                 failed_rules += 1
 
-    return compliant, passed_rules, failed_rules, violations
+    return bool(compliant), passed_rules, failed_rules, violations
 
 
 def format_verapdf_report(result: VeraPdfResult) -> str:

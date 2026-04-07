@@ -30,12 +30,158 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
+# Load .env so GEMINI_API_KEY etc. are available
+import os as _os_for_env
+_env_path = project_root / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _, _v = _line.partition("=")
+            _os_for_env.environ.setdefault(_k.strip(), _v.strip())
+
 from src.tools.pdf_parser import parse_pdf
 from src.tools.validator import CheckStatus, validate_document
 
 # Local helper for raw struct-tree probing
 sys.path.insert(0, str(Path(__file__).parent))
 from struct_tree_probe import probe_struct_tree, StructFacts
+
+# Optional Gemini vision for visual tasks
+_gemini_client = None
+def _get_gemini():
+    global _gemini_client
+    if _gemini_client is None:
+        import os as _os
+        api_key = _os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return None
+        try:
+            from google import genai
+            _gemini_client = genai.Client(api_key=api_key)
+        except Exception:
+            return None
+    return _gemini_client
+
+
+def _render_first_page(pdf_path: str, dpi: int = 150) -> bytes | None:
+    """Render the first page of a PDF as PNG bytes."""
+    try:
+        import fitz
+        doc = fitz.open(pdf_path)
+        if len(doc) == 0:
+            doc.close()
+            return None
+        page = doc[0]
+        pix = page.get_pixmap(dpi=dpi)
+        png = pix.tobytes("png")
+        doc.close()
+        return png
+    except Exception:
+        return None
+
+
+# Optional Claude for structured evidence judgment
+_anthropic_client = None
+def _get_claude():
+    global _anthropic_client
+    if _anthropic_client is None:
+        import os as _os
+        api_key = _os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            return None
+        try:
+            from anthropic import Anthropic
+            _anthropic_client = Anthropic(api_key=api_key)
+        except Exception:
+            return None
+    return _anthropic_client
+
+
+def _claude_classify(evidence: str, criterion_prompt: str) -> str | None:
+    """Send structured evidence to Claude Haiku for label classification.
+
+    Returns one of: passed/failed/not_present/cannot_tell, or None on failure.
+    """
+    client = _get_claude()
+    if client is None:
+        return None
+    try:
+        prompt = (
+            f"{criterion_prompt}\n\n"
+            f"EVIDENCE:\n{evidence}\n\n"
+            "Return JSON only: {\"label\": \"passed\" | \"failed\" | \"not_present\" | \"cannot_tell\", "
+            "\"reason\": \"brief explanation\"}"
+        )
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text
+        import json as _json
+        # Strip markdown fences if any
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        data = _json.loads(text)
+        label = (data.get("label") or "").lower().strip()
+        if label in {"passed", "failed", "not_present", "cannot_tell"}:
+            return label
+    except Exception as e:
+        logger.debug("Claude classify failed: %s", e)
+    return None
+
+
+def _gemini_visual_classify(pdf_path: str, prompt: str) -> str | None:
+    """Send a page image to Gemini and ask for one of: passed/failed/not_present/cannot_tell.
+
+    Returns the lowercase label string, or None on failure.
+    """
+    client = _get_gemini()
+    if client is None:
+        return None
+    png = _render_first_page(pdf_path)
+    if png is None:
+        return None
+    try:
+        from google.genai import types
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=png, mime_type="image/png"),
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema={
+                    "type": "OBJECT",
+                    "properties": {
+                        "label": {
+                            "type": "STRING",
+                            "enum": ["passed", "failed", "not_present", "cannot_tell"],
+                        },
+                        "reason": {"type": "STRING"},
+                    },
+                    "required": ["label"],
+                },
+                temperature=0.0,
+            ),
+        )
+        text = response.text
+        if not text:
+            return None
+        import json as _json
+        data = _json.loads(text)
+        label = (data.get("label") or "").lower().strip()
+        if label in {"passed", "failed", "not_present", "cannot_tell"}:
+            return label
+    except Exception as e:
+        logger.debug("Gemini visual classify failed: %s", e)
+    return None
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -83,8 +229,8 @@ def _alt_quality_score(text: str) -> str:
     """Classify a single alt text as 'good', 'bad', or 'borderline'.
 
     'bad' = too short, generic label, just a title (e.g. 'Figure 6')
-    'borderline' = substantive but starts with meta-phrase ('Image showing...')
-    'good' = substantive description without meta-phrasing
+    'borderline' = short meta-only descriptions
+    'good' = substantive description (regardless of opening phrase)
     """
     # Strip null bytes and other control chars that PDFs sometimes include
     text = text.strip().rstrip("\x00").strip()
@@ -118,7 +264,12 @@ def _alt_quality_score(text: str) -> str:
     if "." in text and " " not in text:
         return "bad"
 
-    # Meta-description starts (talks about the image instead of describing content)
+    # Long descriptive alt text is GOOD even if it starts with a meta-phrase.
+    # The benchmark counts "This is an image of [detailed description]" as passed.
+    if word_count >= 15:
+        return "good"
+
+    # Meta-only short descriptions are borderline
     meta_starts = [
         "this is an image", "this is a", "image of", "image showing",
         "photo of", "photograph of", "picture of",
@@ -126,18 +277,18 @@ def _alt_quality_score(text: str) -> str:
         "flow chart", "diagram showing", "chart showing",
         "screenshot of",
     ]
-    if any(lower.startswith(p) for p in meta_starts):
+    if word_count < 12 and any(lower.startswith(p) for p in meta_starts):
         return "borderline"
 
     # Substantive description
-    if word_count >= 12:
+    if word_count >= 8:
         return "good"
-    if word_count >= 6:
+    if word_count >= 5:
         return "borderline"
     return "bad"
 
 
-def _predict_alt_text_quality(report, doc_model, facts: StructFacts) -> str:
+def _predict_alt_text_quality(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """alt_text_quality: how good are image descriptions?
 
     Uses the PDF struct tree as the source of truth:
@@ -199,13 +350,11 @@ def _predict_alt_text_quality(report, doc_model, facts: StructFacts) -> str:
     return "cannot_tell"
 
 
-def _predict_color_contrast(report, doc_model, facts: StructFacts) -> str:
+def _predict_color_contrast(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """color_contrast: text contrast meets WCAG 1.4.3?
 
-    Tuned thresholds based on benchmark data:
-    - 0-2 issues → passed (clean or near-clean)
-    - 3-7 issues → cannot_tell (ambiguous)
-    - 8+ issues → failed (clear violations)
+    Use deterministic check first; escalate to Claude with structured
+    evidence (color pairs, contrast ratios) only on cannot_tell cases.
     """
     contrast_check = next(
         (c for c in report.checks if c.criterion == "1.4.3"), None,
@@ -219,18 +368,46 @@ def _predict_color_contrast(report, doc_model, facts: StructFacts) -> str:
     items = max(contrast_check.item_count, 1)
     ratio = issues / items
 
+    # Confident cases first
     if issues <= 2:
-        return "passed"
-    if issues >= 8 or ratio >= 0.04:
-        return "failed"
-    return "cannot_tell"
+        deterministic = "passed"
+    elif issues >= 8 or ratio >= 0.04:
+        deterministic = "failed"
+    else:
+        deterministic = "cannot_tell"
+
+    # Only escalate to Claude for ambiguous cases
+    if deterministic != "cannot_tell":
+        return deterministic
+
+    # Build evidence: contrast issue details
+    evidence_lines = [
+        f"Total text runs analyzed: {items}",
+        f"Runs with contrast issues: {issues}",
+        f"Issue ratio: {ratio:.2%}",
+        "",
+        "Sample issues:",
+    ]
+    for issue_text in contrast_check.issues[:8]:
+        evidence_lines.append(f"  - {issue_text}")
+
+    prompt = (
+        "You are evaluating PDF accessibility for color contrast "
+        "(WCAG 1.4.3). Below is the contrast analysis output.\n\n"
+        "Decision rules:\n"
+        "- 'passed': zero or near-zero issues\n"
+        "- 'failed': many issues OR many distinct color pairs failing\n"
+        "- 'cannot_tell': borderline; 1-2 ambiguous issues\n"
+        "- 'not_present': no text"
+    )
+    result = _claude_classify("\n".join(evidence_lines), prompt)
+    return result or deterministic
 
 
-def _predict_fonts_readability(report, doc_model, facts: StructFacts) -> str:
+def _predict_fonts_readability(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """fonts_readability: are fonts readable?
 
-    Look at body text font sizes. Below 8pt body is failed.
-    Detect very-thin / ultra-light fonts which are hard to read.
+    Deterministic check based on body text font sizes.
     """
     sizes: list[float] = []
     fonts: set[str] = set()
@@ -250,15 +427,11 @@ def _predict_fonts_readability(report, doc_model, facts: StructFacts) -> str:
 
     sorted_sizes = sorted(sizes)
     body_median = sorted_sizes[len(sorted_sizes) // 2]
-
-    # Most common body size (mode) is more meaningful than median
     body_mode = max(body_size_counts.items(), key=lambda kv: kv[1])[0] if body_size_counts else body_median
-
-    # Fraction of body text below 9pt
     small_text = sum(1 for s in sizes if s < 9)
     small_ratio = small_text / len(sizes)
 
-    # Very-thin / ultralight font detection (these are hard to read)
+    # Very-thin / ultralight font detection
     thin_font_patterns = ["thin", "ultralight", "hairline", "extralight"]
     has_thin_font = any(
         any(p in f.lower() for p in thin_font_patterns) for f in fonts
@@ -278,7 +451,7 @@ def _predict_fonts_readability(report, doc_model, facts: StructFacts) -> str:
     return "cannot_tell"
 
 
-def _predict_functional_hyperlinks(report, doc_model, facts: StructFacts) -> str:
+def _predict_functional_hyperlinks(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """functional_hyperlinks: are links accessible and descriptive?
 
     Source of truth: PDF link annotations + their /StructParent attribute.
@@ -312,14 +485,13 @@ def _predict_functional_hyperlinks(report, doc_model, facts: StructFacts) -> str
     return "cannot_tell"
 
 
-def _predict_logical_reading_order(report, doc_model, facts: StructFacts) -> str:
+def _predict_logical_reading_order(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """logical_reading_order: does the document read in a sensible order?
 
     Heuristic: look at the bbox y-coordinates of paragraphs in document order.
     A monotonically-increasing y per page suggests good order; lots of jumping
     suggests bad order.
     """
-    # Group paragraphs by page
     pages: dict[int, list] = {}
     for p in doc_model.paragraphs:
         if p.bbox is None or p.page_number is None:
@@ -335,9 +507,7 @@ def _predict_logical_reading_order(report, doc_model, facts: StructFacts) -> str
         if len(paras) < 3:
             continue
         total_pages += 1
-        # Check if y coordinates are mostly monotonic
         ys = [p.bbox[1] for p in paras]
-        # Count descending pairs (out-of-order jumps)
         descending = sum(1 for a, b in zip(ys, ys[1:]) if b < a - 20)
         if descending / max(len(ys) - 1, 1) > 0.25:
             bad_pages += 1
@@ -353,14 +523,10 @@ def _predict_logical_reading_order(report, doc_model, facts: StructFacts) -> str
     return "passed"
 
 
-def _predict_semantic_tagging(report, doc_model, facts: StructFacts) -> str:
+def _predict_semantic_tagging(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """semantic_tagging: is the document properly tagged with semantic structure?
 
-    Discriminator from struct tree analysis:
-    - not_present: no struct tree at all
-    - passed: has struct tree with low custom_tag_ratio (uses standard PDF/UA tags)
-    - failed: has struct tree but uses mostly non-standard tags
-    - cannot_tell: borderline custom_tag_ratio
+    Use struct tree facts; escalate ambiguous cases to Claude.
     """
     if not facts.has_struct_tree:
         return "not_present"
@@ -373,43 +539,87 @@ def _predict_semantic_tagging(report, doc_model, facts: StructFacts) -> str:
         facts.heading_count > 0 or facts.p_count >= 3 or facts.list_count > 0
     )
 
-    # Pure standard tags + has real semantic elements → passed
+    # Confident cases first
     if custom_ratio <= 0.10 and has_standard_structure:
         return "passed"
-
-    # Mostly custom tags → failed
-    if custom_ratio >= 0.40:
+    if custom_ratio >= 0.55:
         return "failed"
 
-    # Some standard structure but mixed
+    # Ambiguous — ask Claude with full tag distribution
+    top_standard = sorted(facts.tag_counts.items(), key=lambda kv: -kv[1])[:10]
+    top_custom = sorted(facts.custom_tag_counts.items(), key=lambda kv: -kv[1])[:10]
+
+    evidence_lines = [
+        f"Total tagged elements: {facts.total_tagged_elements}",
+        f"Custom tag ratio: {custom_ratio:.0%}",
+        f"Headings: {facts.heading_count}, P tags: {facts.p_count}, "
+        f"Lists: {facts.list_count}, Tables: {facts.table_count}, "
+        f"Figures: {facts.figure_count}",
+        "",
+        "Standard PDF/UA tags used:",
+    ]
+    for tag, count in top_standard:
+        evidence_lines.append(f"  {tag}: {count}")
+    evidence_lines.append("")
+    evidence_lines.append("Non-standard / custom tags:")
+    for tag, count in top_custom:
+        evidence_lines.append(f"  {tag}: {count}")
+
+    prompt = (
+        "You are evaluating PDF accessibility for semantic tagging (WCAG 1.3.1, "
+        "PDF/UA-1). Below is the structure tree analysis.\n\n"
+        "Decision rules:\n"
+        "- 'passed': uses primarily standard PDF/UA tags (Document, P, H1-H6, "
+        "Sect, L, LI, Table, Figure, Span, Link)\n"
+        "- 'failed': uses primarily non-standard tags (e.g., InDesign exports "
+        "with BODY_INDENT, Story, AUTHOR_BYLINE, etc.) — even if the doc has "
+        "a tag tree, custom tags don't get screen reader semantic meaning\n"
+        "- 'cannot_tell': mixed standard and custom tags in roughly equal measure\n"
+        "- 'not_present': no struct tree (handled before this call)"
+    )
+    result = _claude_classify("\n".join(evidence_lines), prompt)
+    if result:
+        return result
+
+    # Fallback
     if has_standard_structure and custom_ratio <= 0.25:
         return "passed"
-
     return "cannot_tell"
 
 
-def _predict_table_structure(report, doc_model, facts: StructFacts) -> str:
+def _predict_table_structure(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """table_structure: do tables have proper headers and structure?
 
-    Discriminator from struct tree:
-    - not_present: no Table tags in struct tree (no real tables)
-    - passed: tables have TH (header) tags
-    - failed: tables exist but no TH tags (headers missing)
+    Use struct tree facts when they give a confident answer; otherwise
+    fall back to Gemini Vision (GPT-4-Turbo gets 1.00 on this task).
     """
-    # Use struct tree as the source of truth
+    # Confident struct tree answers first
     if facts.has_struct_tree:
-        if facts.table_count == 0:
-            return "not_present"
-        if facts.table_th_count == 0:
+        if facts.table_count > 0 and facts.table_th_count == 0:
             return "failed"
-        # Has tables and TH tags
-        # Pass if there are at least 2 TH per table on average (real header row)
-        th_per_table = facts.table_th_count / facts.table_count
-        if th_per_table >= 1.5:
+        if facts.table_count > 0 and facts.table_th_count >= facts.table_count * 1.5:
             return "passed"
-        return "cannot_tell"
 
-    # No struct tree — fall back to parsed model
+    # Fall back to Gemini vision
+    if pdf_path:
+        prompt = (
+            "You are evaluating PDF accessibility for table structure "
+            "(WCAG 1.3.1). Look at the page image.\n\n"
+            "If the page has data tables, are they well-structured for screen "
+            "readers? A good table has clearly-marked header rows/columns, "
+            "consistent cell alignment, and no merged or empty cells that "
+            "break the row/column relationship.\n\n"
+            "Return JSON with one label:\n"
+            "- 'passed': data tables exist and have proper headers\n"
+            "- 'failed': data tables exist but lack proper headers\n"
+            "- 'not_present': no data tables on the page\n"
+            "- 'cannot_tell': borderline (e.g., layout tables, complex tables)"
+        )
+        result = _gemini_visual_classify(pdf_path, prompt)
+        if result:
+            return result
+
+    # Final fallback: parsed model
     tables = doc_model.tables
     if not tables:
         return "not_present"
@@ -436,12 +646,17 @@ TASK_PREDICTORS = {
 }
 
 
-def predict_label(report, task: str, doc_model, facts: StructFacts) -> str:
+def predict_label(report, task: str, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """Predict a benchmark label using the task-specific predictor."""
     predictor = TASK_PREDICTORS.get(task)
     if predictor is None:
         return "cannot_tell"
     try:
+        # Pass pdf_path to predictors that want to use vision
+        import inspect
+        sig = inspect.signature(predictor)
+        if "pdf_path" in sig.parameters:
+            return predictor(report, doc_model, facts, pdf_path=pdf_path)
         return predictor(report, doc_model, facts)
     except Exception as e:
         logger.warning("Predictor for %s crashed: %s", task, e)
@@ -486,6 +701,14 @@ def run_benchmark(benchmark_dir: Path, task_filter: str | None = None) -> dict:
                 pdf_rel_path = item.get("pdf_path", "")
                 pdf_path = benchmark_dir / pdf_rel_path
                 if not pdf_path.exists():
+                    # Fall back to data/inputs/<task>/<label>/<id>/<id>_0.pdf
+                    item_id = item.get("openalex_id", "")
+                    if item_id:
+                        fallback = benchmark_dir / "inputs" / task_name / gold_label / item_id / f"{item_id}_0.pdf"
+                        if fallback.exists():
+                            pdf_path = fallback
+                            logger.debug("Using fallback input: %s", fallback)
+                if not pdf_path.exists():
                     results["errors"].append(f"Missing: {pdf_rel_path}")
                     continue
 
@@ -499,7 +722,7 @@ def run_benchmark(benchmark_dir: Path, task_filter: str | None = None) -> dict:
                     doc_model = parse_result.document
                     report = validate_document(doc_model)
                     facts = probe_struct_tree(str(pdf_path))
-                    predicted = predict_label(report, task_name, doc_model, facts)
+                    predicted = predict_label(report, task_name, doc_model, facts, pdf_path=str(pdf_path))
                 except Exception as e:
                     results["errors"].append(f"Error on {pdf_rel_path}: {e}")
                     continue

@@ -3,36 +3,36 @@
     "alt_text_quality": {
       "labels_seen": {
         "cannot_tell": {
-          "cannot_tell": 3,
-          "passed": 2
+          "passed": 5
         },
         "failed": {
           "failed": 4,
-          "cannot_tell": 1
+          "passed": 1
         },
         "not_present": {
           "not_present": 4,
           "passed": 1
+        },
+        "passed": {
+          "passed": 5
         }
       },
-      "correct": 11,
-      "total": 15,
-      "accuracy": 0.7333333333333333
+      "correct": 13,
+      "total": 20,
+      "accuracy": 0.65
     },
     "color_contrast": {
       "labels_seen": {
         "cannot_tell": {
-          "passed": 2,
-          "failed": 1,
-          "cannot_tell": 2
+          "passed": 4,
+          "failed": 1
         },
         "failed": {
           "passed": 1,
           "failed": 4
         },
         "passed": {
-          "passed": 3,
-          "cannot_tell": 2
+          "passed": 5
         }
       },
       "correct": 9,
@@ -100,13 +100,11 @@
     "semantic_tagging": {
       "labels_seen": {
         "cannot_tell": {
-          "failed": 3,
-          "cannot_tell": 1,
+          "failed": 4,
           "passed": 1
         },
         "failed": {
-          "failed": 3,
-          "cannot_tell": 1,
+          "failed": 4,
           "passed": 1
         },
         "not_present": {
@@ -130,16 +128,15 @@
           "failed": 5
         },
         "not_present": {
-          "failed": 4,
-          "not_present": 1
+          "not_present": 5
         },
         "passed": {
           "passed": 5
         }
       },
-      "correct": 11,
+      "correct": 15,
       "total": 20,
-      "accuracy": 0.55
+      "accuracy": 0.75
     }
   },
   "per_doc": [
@@ -148,8 +145,8 @@
       "doc": "W2460269320",
       "title": "Dataset: Accessible LaTeX-sourced PDFs from arXiv, PubMed Central, BioRxiv, and ",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "alt_text_quality",
@@ -164,8 +161,8 @@
       "doc": "W3005755974",
       "title": "Dataset of the 20th International ACM SIGACCESS Conference on Computers and Acce",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "alt_text_quality",
@@ -180,8 +177,8 @@
       "doc": "W4383621582",
       "title": "Making Science Accessible: A ResearchKit-Based Gastroenterology Questionnaire fo",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "alt_text_quality",
@@ -196,7 +193,7 @@
       "doc": "W2929611936",
       "title": "CABA dataset: a bilingual corpus of HTML documents with accessibility annotation",
       "gold": "failed",
-      "predicted": "cannot_tell",
+      "predicted": "passed",
       "correct": false
     },
     {
@@ -264,6 +261,46 @@
       "correct": true
     },
     {
+      "task": "alt_text_quality",
+      "doc": "W2460269320",
+      "title": "Dataset: Accessible LaTeX-sourced PDFs from arXiv, PubMed Central, BioRxiv, and ",
+      "gold": "passed",
+      "predicted": "passed",
+      "correct": true
+    },
+    {
+      "task": "alt_text_quality",
+      "doc": "W2929611936",
+      "title": "CABA dataset: a bilingual corpus of HTML documents with accessibility annotation",
+      "gold": "passed",
+      "predicted": "passed",
+      "correct": true
+    },
+    {
+      "task": "alt_text_quality",
+      "doc": "W3005755974",
+      "title": "Dataset of the 20th International ACM SIGACCESS Conference on Computers and Acce",
+      "gold": "passed",
+      "predicted": "passed",
+      "correct": true
+    },
+    {
+      "task": "alt_text_quality",
+      "doc": "W4206740007",
+      "title": "Global Earthquake Model (GEM) architecture implementation for accessible geospat",
+      "gold": "passed",
+      "predicted": "passed",
+      "correct": true
+    },
+    {
+      "task": "alt_text_quality",
+      "doc": "W4383621582",
+      "title": "Making Science Accessible: A ResearchKit-Based Gastroenterology Questionnaire fo",
+      "gold": "passed",
+      "predicted": "passed",
+      "correct": true
+    },
+    {
       "task": "color_contrast",
       "doc": "W1989729767",
       "title": "Navigating Text Complexity: A Survey of Current Metrics and a New Readability Me",
@@ -292,16 +329,16 @@
       "doc": "W2595658205",
       "title": "Progressive Neural Networks",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "color_contrast",
       "doc": "W2642438850",
       "title": "The 2018 Year in Review for Accessibility at SIGACCESS",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "passed",
+      "correct": false
     },
     {
       "task": "color_contrast",
@@ -372,16 +409,16 @@
       "doc": "W2595658205",
       "title": "Progressive Neural Networks",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "color_contrast",
       "doc": "W2642438850",
       "title": "The 2018 Year in Review for Accessibility at SIGACCESS",
       "gold": "passed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "passed",
+      "correct": true
     },
     {
       "task": "fonts_readability",
@@ -796,8 +833,8 @@
       "doc": "W2390023818",
       "title": "Enhancing Low-Resource Cross-Document Summarization",
       "gold": "cannot_tell",
-      "predicted": "cannot_tell",
-      "correct": true
+      "predicted": "failed",
+      "correct": false
     },
     {
       "task": "semantic_tagging",
@@ -836,8 +873,8 @@
       "doc": "W2390023818",
       "title": "Enhancing Low-Resource Cross-Document Summarization",
       "gold": "failed",
-      "predicted": "cannot_tell",
-      "correct": false
+      "predicted": "failed",
+      "correct": true
     },
     {
       "task": "semantic_tagging",
@@ -1028,24 +1065,24 @@
       "doc": "W1974692547",
       "title": "ATACC: Accessible Textbooks Across an Academic Curriculum",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2296421107",
       "title": "DOC: A Page Object Dataset for Visual Document Understanding",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "table_structure",
       "doc": "W2404866520",
       "title": "PubTable: A Large-Scale Table Detection and Recognition Dataset",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "table_structure",
@@ -1060,8 +1097,8 @@
       "doc": "W2922538610",
       "title": "The PubTabNet dataset: a table structure dataset for detecting and recognizing t",
       "gold": "not_present",
-      "predicted": "failed",
-      "correct": false
+      "predicted": "not_present",
+      "correct": true
     },
     {
       "task": "table_structure",
@@ -1104,15 +1141,9 @@
       "correct": true
     }
   ],
-  "total_correct": 76,
-  "total_count": 120,
-  "elapsed_seconds": 273.15262818336487,
-  "errors": [
-    "Missing: data/processed/alt_text_quality/passed/W2460269320.pdf",
-    "Missing: data/processed/alt_text_quality/passed/W2929611936.pdf",
-    "Missing: data/processed/alt_text_quality/passed/W3005755974.pdf",
-    "Missing: data/processed/alt_text_quality/passed/W4206740007.pdf",
-    "Missing: data/processed/alt_text_quality/passed/W4383621582.pdf"
-  ],
-  "overall_accuracy": 0.6333333333333333
+  "total_correct": 82,
+  "total_count": 125,
+  "elapsed_seconds": 181.08786511421204,
+  "errors": [],
+  "overall_accuracy": 0.656
 }

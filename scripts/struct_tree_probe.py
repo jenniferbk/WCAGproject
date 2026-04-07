@@ -70,12 +70,40 @@ def _get_obj_text(doc, xref: int) -> str:
         return ""
 
 
+def _decode_utf16be_hex(hex_str: str) -> str:
+    """Decode a UTF-16 BE hex string (with optional FEFF BOM)."""
+    try:
+        # Strip whitespace and any leading FEFF BOM marker
+        hex_str = hex_str.replace(" ", "").replace("\n", "")
+        if hex_str.upper().startswith("FEFF"):
+            hex_str = hex_str[4:]
+        if len(hex_str) % 4 != 0:
+            return ""
+        bytes_data = bytes.fromhex(hex_str)
+        return bytes_data.decode("utf-16-be", errors="replace").rstrip("\x00").strip()
+    except Exception:
+        return ""
+
+
 def _get_alt_attribute(doc, xref: int, obj_text: str) -> str:
-    """Extract /Alt or /ActualText from a struct element. Returns empty if absent."""
-    # Inline /Alt (string literal)
+    """Extract /Alt or /ActualText from a struct element. Returns empty if absent.
+
+    Handles both:
+    - Plain string literals: /Alt (some text)
+    - UTF-16 BE hex strings: /Alt <FEFF0041006C0074>
+    - Indirect references: /Alt 42 0 R
+    """
+    # Inline /Alt as plain string
     m = re.search(r"/Alt\s*\(([^)]*)\)", obj_text)
     if m:
         return m.group(1)
+    # Inline /Alt as hex string
+    m = re.search(r"/Alt\s*<([0-9A-Fa-f\s]+)>", obj_text)
+    if m:
+        decoded = _decode_utf16be_hex(m.group(1))
+        if decoded:
+            return decoded
+        return m.group(1)[:200]  # raw hex as fallback signal
     # /Alt indirect reference to a string object
     m = re.search(r"/Alt\s+(\d+)\s+0\s+R", obj_text)
     if m:
@@ -83,10 +111,20 @@ def _get_alt_attribute(doc, xref: int, obj_text: str) -> str:
         m2 = re.search(r"\(([^)]*)\)", ref_text)
         if m2:
             return m2.group(1)
-    # /ActualText
+        m2 = re.search(r"<([0-9A-Fa-f\s]+)>", ref_text)
+        if m2:
+            decoded = _decode_utf16be_hex(m2.group(1))
+            if decoded:
+                return decoded
+    # /ActualText (same patterns)
     m = re.search(r"/ActualText\s*\(([^)]*)\)", obj_text)
     if m:
         return m.group(1)
+    m = re.search(r"/ActualText\s*<([0-9A-Fa-f\s]+)>", obj_text)
+    if m:
+        decoded = _decode_utf16be_hex(m.group(1))
+        if decoded:
+            return decoded
     return ""
 
 

@@ -30,7 +30,7 @@ from src.tools.headings import set_heading_level
 from src.tools.html_builder import build_html
 from src.tools.itext_tagger import build_tagging_plan, tag_pdf
 from src.tools.metadata import set_language, set_language_pptx, set_title, set_title_pptx
-from src.tools.pdf_writer import apply_contrast_fixes_to_pdf, apply_pdf_fixes, strip_struct_tree, update_existing_figure_alt_texts
+from src.tools.pdf_writer import apply_contrast_fixes_to_pdf, apply_pdf_fixes, repair_broken_uris_in_pdf, strip_struct_tree, update_existing_figure_alt_texts
 from src.tools.links import set_link_text
 from src.tools.tables import mark_header_rows
 
@@ -314,6 +314,22 @@ def execute_pdf(
                         "Contrast fix failed on tagged PDF: %s",
                         "; ".join(contrast_result.errors),
                     )
+
+            # Repair syntactically broken link annotations (whitespace in
+            # domain, triple slashes, etc.). Safe to run unconditionally —
+            # the repair function is a no-op on URIs that are already fine
+            # and conservative on ones it can't confidently fix.
+            try:
+                n_fixed, uri_repairs = repair_broken_uris_in_pdf(tagged_pdf_path)
+                if n_fixed:
+                    logger.info(
+                        "Repaired %d broken link URI(s) in %s",
+                        n_fixed, tagged_pdf_path,
+                    )
+                    for before, after in uri_repairs[:5]:
+                        logger.info("  %r → %r", before[:80], after[:80])
+            except Exception as exc:
+                logger.warning("URI repair pass failed: %s", exc)
         else:
             # Fallback: use pdf_writer for Tier 1 (metadata + alt text)
             logger.warning(

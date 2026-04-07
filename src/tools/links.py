@@ -28,6 +28,61 @@ class LinkIssueType(str, Enum):
     GENERIC_TEXT = "generic_text"  # "link", "here", "this"
     EMPTY_TEXT = "empty_text"  # no link text at all
     SAME_TEXT_DIFFERENT_URL = "same_text_different_url"  # multiple links with same text but different URLs
+    BROKEN_URI = "broken_uri"  # URI is syntactically malformed (whitespace in domain, triple slashes, etc.)
+
+
+def repair_uri(uri: str) -> str | None:
+    """Return a repaired version of a syntactically malformed URI, or None
+    if the URI is already well-formed (no change needed).
+
+    Handles the broken patterns we see in real PDFs where the source
+    document's PDF producer inserted spurious whitespace or slashes into
+    link annotations:
+
+    - ``http:////dx.doi.org/...`` → ``http://dx.doi.org/...`` (extra slashes)
+    - ``http:/dx.doi.org/...``    → ``http://dx.doi.org/...`` (missing slash)
+    - ``http://d x.doi.org/...``  → ``http://dx.doi.org/...`` (whitespace in domain)
+    - ``http://dx.doi.org/ 10.1103/...`` → ``http://dx.doi.org/10.1103/...`` (whitespace in path)
+    - ``mailto: user@ example.com`` → ``mailto:user@example.com`` (whitespace in mailto)
+
+    Returns None for URIs that are already OK, empty, or non-fixable (e.g.
+    relative URIs without a protocol). Callers should treat None as a signal
+    to leave the annotation alone.
+    """
+    if not uri:
+        return None
+    original = uri
+    s = uri.strip()
+
+    # Protocol normalization
+    proto_match = re.match(r"^(https?):(/+)", s, re.IGNORECASE)
+    if proto_match:
+        proto = proto_match.group(1).lower()
+        rest = s[proto_match.end():]
+        s = f"{proto}://{rest}"
+
+    # mailto: handling
+    if s.lower().startswith("mailto:"):
+        addr = s[7:]
+        # Remove all whitespace inside the address — mailto addresses cannot
+        # contain literal spaces, so any whitespace is certainly a PDF
+        # producer artifact rather than meaningful content.
+        fixed_addr = re.sub(r"\s+", "", addr)
+        s = "mailto:" + fixed_addr
+        return s if s != original.strip() else None
+
+    # http/https: strip whitespace from the domain (between protocol and first /)
+    m = re.match(r"^(https?://)([^/]*)(.*)$", s, re.IGNORECASE)
+    if m:
+        scheme, domain, path = m.group(1), m.group(2), m.group(3)
+        domain_fixed = re.sub(r"\s+", "", domain)
+        # Path: remove whitespace that appears DIRECTLY after a slash or
+        # between runs of non-whitespace characters. Spaces in query strings
+        # are technically invalid too, so strip them as well.
+        path_fixed = re.sub(r"\s+", "", path)
+        s = scheme + domain_fixed + path_fixed
+
+    return s if s != original.strip() else None
 
 
 # Common vague link phrases (case-insensitive)
@@ -113,6 +168,21 @@ def analyze_links(links: list[LinkInfo]) -> LinkAnalysisResult:
 
     for link in links:
         text = link.text.strip()
+
+        # Broken URI: report separately from text issues. A link can have
+        # fine display text AND a malformed URL (e.g. PDF producer inserted
+        # whitespace into the target). We report this per-link regardless of
+        # the text content below.
+        repaired = repair_uri(link.url) if link.url else None
+        if repaired and repaired != link.url:
+            issues.append(LinkIssue(
+                link_id=link.id,
+                paragraph_id=link.paragraph_id,
+                text=link.text,
+                url=link.url,
+                issue_type=LinkIssueType.BROKEN_URI,
+                detail=f"Link URL is syntactically malformed: {link.url[:80]!r}",
+            ))
 
         # Empty text
         if not text:

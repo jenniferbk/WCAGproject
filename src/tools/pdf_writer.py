@@ -256,6 +256,58 @@ def apply_contrast_fixes_to_pdf(
         )
 
 
+def repair_broken_uris_in_pdf(
+    source_path: str | Path,
+    output_path: str | Path | None = None,
+) -> tuple[int, list[tuple[str, str]]]:
+    """Walk all link annotations in a PDF and repair any malformed URIs.
+
+    Uses :func:`src.tools.links.repair_uri` as the pure-function decision
+    maker, then writes the fixed URIs back via PyMuPDF's
+    ``page.update_link()`` (which persists through ``save()``). Modifies the
+    source file in place when ``output_path`` is None.
+
+    Returns:
+        (n_repaired, repairs) where ``repairs`` is a list of
+        ``(before, after)`` tuples for every URI that was rewritten. The
+        caller can log these for the compliance report.
+    """
+    from src.tools.links import repair_uri
+
+    try:
+        doc = fitz.open(str(source_path))
+    except Exception as exc:
+        logger.warning("repair_broken_uris_in_pdf: open failed %s: %s", source_path, exc)
+        return 0, []
+
+    repairs: list[tuple[str, str]] = []
+    try:
+        for page in doc:
+            for link in page.links():
+                uri = link.get("uri", "") or ""
+                if not uri:
+                    continue
+                fixed = repair_uri(uri)
+                if fixed and fixed != uri:
+                    link["uri"] = fixed
+                    try:
+                        page.update_link(link)
+                        repairs.append((uri, fixed))
+                    except Exception as exc:
+                        logger.debug(
+                            "update_link failed for %r: %s", uri[:80], exc
+                        )
+        if repairs:
+            doc.save(str(output_path or source_path), incremental=bool(output_path is None), encryption=0)
+        elif output_path and str(output_path) != str(source_path):
+            # No changes but caller wants a separate output file — copy.
+            import shutil
+            shutil.copy(source_path, output_path)
+    finally:
+        doc.close()
+    return len(repairs), repairs
+
+
 def strip_struct_tree(source_path: str | Path, output_path: str | Path) -> bool:
     """Remove existing structure tree from a PDF.
 

@@ -978,11 +978,19 @@ class TestMarkUntaggedContent:
         from src.tools.pdf_writer import mark_untagged_content_as_artifact
         from src.tools.verapdf_checker import check_pdf_ua
 
-        src = Path(
+        # Prefer the pre_ua_fix backup (created by apply_ua_fixes.py).
+        # If that's missing, fall back to the post-fix file (which will
+        # have a smaller delta but still works as a smoke test).
+        backup = Path(
+            "/tmp/remediation_bench_full/ua_fixes_work/"
+            "W2895738059_remediated.pre_ua_fix.pdf"
+        )
+        live = Path(
             "/tmp/remediation_bench_full/"
             "semantic_tagging_passed_W2895738059/"
             "W2895738059_remediated.pdf"
         )
+        src = backup if backup.exists() else live
         if not src.exists():
             pytest.skip(f"Benchmark PDF not available: {src}")
 

@@ -1975,6 +1975,7 @@ class ArtifactMarkingResult:
     pages_modified: int = 0
     artifact_wrappers_inserted: int = 0
     pages_skipped: int = 0
+    form_xobjects_modified: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -2121,6 +2122,52 @@ def mark_untagged_content_as_artifact(
             result.pages_modified += 1
             result.artifact_wrappers_inserted += len(runs) + orphans_converted
 
+        # ── Pass 2: form XObject content streams ─────────────────────
+        # Form XObjects are self-contained content streams referenced
+        # from page content via the ``Do`` operator (e.g. ``/Fm0 Do``).
+        # Each XObject has its own BT/ET, Tj, BDC/EMC structure that
+        # the page-level walker never sees. The same untagged content
+        # and orphan-BDC patterns appear inside them, and on docs where
+        # most page content lives inside form XObjects (magazine layouts,
+        # complex academic papers) this is where the bulk of remaining
+        # 7.1-3 violations live.
+        #
+        # We walk by xref rather than by page so that form XObjects
+        # shared across multiple pages are processed exactly once.
+        form_xrefs = _find_form_xobject_xrefs(doc)
+        for fx in form_xrefs:
+            try:
+                stream_bytes = doc.xref_stream(fx)
+            except Exception as exc:
+                result.errors.append(
+                    f"form xobject {fx}: read failed: {exc}"
+                )
+                continue
+            if not stream_bytes:
+                continue
+
+            tokens = _tokenize_content_stream(stream_bytes)
+            orphan_indices = _find_orphan_bdc_openings(tokens, referenced_mcids)
+            orphans_converted = _convert_orphan_bdc_to_artifact(
+                tokens, orphan_indices
+            )
+            runs = _find_untagged_content_runs(tokens)
+
+            if not runs and not orphans_converted:
+                continue
+
+            new_stream = _apply_artifact_wrappers(tokens, runs)
+            try:
+                doc.update_stream(fx, new_stream)
+            except Exception as exc:
+                result.errors.append(
+                    f"form xobject {fx}: update failed: {exc}"
+                )
+                continue
+
+            result.artifact_wrappers_inserted += len(runs) + orphans_converted
+            result.form_xobjects_modified = result.form_xobjects_modified + 1
+
         doc.save(str(path), incremental=True, encryption=0)
     except Exception as exc:
         result.success = False
@@ -2132,6 +2179,25 @@ def mark_untagged_content_as_artifact(
             pass
 
     return result
+
+
+def _find_form_xobject_xrefs(doc: "fitz.Document") -> list[int]:
+    """Return all xrefs in the document that are Form XObjects.
+
+    A Form XObject is identified by ``/Type /XObject /Subtype /Form``
+    in its dictionary. We use ``xref_get_key`` for the typed lookup
+    rather than substring matching to avoid false positives from
+    objects that mention these strings in unrelated contexts.
+    """
+    form_xrefs: list[int] = []
+    for xref in range(1, doc.xref_length()):
+        try:
+            subtype = doc.xref_get_key(xref, "Subtype")
+        except Exception:
+            continue
+        if subtype[0] == "name" and subtype[1] == "/Form":
+            form_xrefs.append(xref)
+    return form_xrefs
 
 
 def _collect_struct_tree_mcids(doc: "fitz.Document") -> set[int]:

@@ -30,7 +30,17 @@ from src.tools.headings import set_heading_level
 from src.tools.html_builder import build_html
 from src.tools.itext_tagger import build_tagging_plan, tag_pdf
 from src.tools.metadata import set_language, set_language_pptx, set_title, set_title_pptx
-from src.tools.pdf_writer import apply_contrast_fixes_to_pdf, apply_pdf_fixes, repair_broken_uris_in_pdf, strip_struct_tree, update_existing_figure_alt_texts
+from src.tools.pdf_writer import (
+    apply_contrast_fixes_to_pdf,
+    apply_pdf_fixes,
+    apply_pdf_ua_metadata,
+    apply_pdf_ua_tail_polish,
+    mark_untagged_content_as_artifact,
+    populate_link_annotation_contents,
+    repair_broken_uris_in_pdf,
+    strip_struct_tree,
+    update_existing_figure_alt_texts,
+)
 from src.tools.links import set_link_text
 from src.tools.tables import mark_header_rows
 
@@ -330,6 +340,90 @@ def execute_pdf(
                         logger.info("  %r → %r", before[:80], after[:80])
             except Exception as exc:
                 logger.warning("URI repair pass failed: %s", exc)
+
+            # PDF/UA Track C — XMP pdfuaid:part=1, DisplayDocTitle,
+            # /Metadata key on catalog. Eliminates rules 5-1, 7.1-8,
+            # 7.1-10 across all docs at zero API cost. See spec
+            # docs/superpowers/specs/2026-04-07-pdf-ua-compliance-fixes-design.md
+            try:
+                meta_result = apply_pdf_ua_metadata(tagged_pdf_path)
+                if meta_result.success and meta_result.changes:
+                    logger.info(
+                        "PDF/UA metadata fixes applied to %s: %s",
+                        tagged_pdf_path, ", ".join(meta_result.changes),
+                    )
+                elif not meta_result.success:
+                    logger.warning(
+                        "PDF/UA metadata fixes failed: %s", meta_result.error
+                    )
+            except Exception as exc:
+                logger.warning("PDF/UA metadata pass failed: %s", exc)
+
+            # PDF/UA Track A — wrap depth-0 untagged content and
+            # convert orphan BDCs to /Artifact <</Type /Pagination>>.
+            # Reduces rule 7.1-3 failed checks by 50–92% on the
+            # benchmark depending on the source PDF's tagging quality.
+            try:
+                artifact_result = mark_untagged_content_as_artifact(tagged_pdf_path)
+                if artifact_result.success:
+                    if artifact_result.artifact_wrappers_inserted:
+                        logger.info(
+                            "Artifact-marked %d content region(s) "
+                            "across %d page(s) and %d form XObject(s) in %s",
+                            artifact_result.artifact_wrappers_inserted,
+                            artifact_result.pages_modified,
+                            artifact_result.form_xobjects_modified,
+                            tagged_pdf_path,
+                        )
+                else:
+                    logger.warning(
+                        "Artifact marking failed: %s",
+                        "; ".join(artifact_result.errors),
+                    )
+            except Exception as exc:
+                logger.warning("Artifact marking pass failed: %s", exc)
+
+            # PDF/UA link contents — set /Contents on every link
+            # annotation that lacks one. Satisfies rule 7.18.5-2.
+            try:
+                link_result = populate_link_annotation_contents(tagged_pdf_path)
+                if link_result.success and link_result.annotations_modified:
+                    logger.info(
+                        "Set /Contents on %d link annotation(s) in %s",
+                        link_result.annotations_modified, tagged_pdf_path,
+                    )
+                elif not link_result.success:
+                    logger.warning(
+                        "Link /Contents pass failed: %s", link_result.error
+                    )
+            except Exception as exc:
+                logger.warning("Link /Contents pass failed: %s", exc)
+
+            # PDF/UA tail polish — catalog /Lang, page /Tabs /S,
+            # /Figure /Alt fallback. Eliminates rules 7.2-34, 7.18.3-1,
+            # and 7.3-1 across the long tail.
+            try:
+                doc_lang = (doc_model.metadata.language or "en-US").strip() or "en-US"
+                tail_result = apply_pdf_ua_tail_polish(
+                    tagged_pdf_path, default_lang=doc_lang
+                )
+                if tail_result.success and (
+                    tail_result.lang_set
+                    or tail_result.pages_tabs_fixed
+                    or tail_result.figures_alt_filled
+                ):
+                    logger.info(
+                        "PDF/UA tail polish: lang_set=%s, pages_tabs_fixed=%d, figures_alt_filled=%d",
+                        tail_result.lang_set,
+                        tail_result.pages_tabs_fixed,
+                        tail_result.figures_alt_filled,
+                    )
+                elif not tail_result.success:
+                    logger.warning(
+                        "PDF/UA tail polish failed: %s", tail_result.error
+                    )
+            except Exception as exc:
+                logger.warning("PDF/UA tail polish failed: %s", exc)
         else:
             # Fallback: use pdf_writer for Tier 1 (metadata + alt text)
             logger.warning(

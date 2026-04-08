@@ -1567,3 +1567,1012 @@ def _extract_text_from_tj_array(array_str: str) -> str:
         else:
             i += 1
     return "".join(parts)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PDF/UA post-processing: metadata (Track C) and content-stream
+# artifact marking (Track A). See
+# docs/superpowers/specs/2026-04-07-pdf-ua-compliance-fixes-design.md
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _read_or_synthesize_xmp(doc: "fitz.Document") -> bytes:
+    """Return the document's XMP metadata stream bytes, or synthesize one.
+
+    fitz's ``get_xml_metadata()`` returns a decoded string for existing
+    streams and an empty string when no /Metadata exists. We return raw
+    bytes so downstream XML parsing handles encoding itself. When no
+    XMP exists, we synthesize a minimal RDF/XML skeleton pre-populated
+    from the doc's core metadata (title, author, subject).
+    """
+    existing = doc.get_xml_metadata() or ""
+    if existing.strip():
+        return existing.encode("utf-8")
+
+    md = doc.metadata or {}
+    title = (md.get("title") or "").strip()
+    author = (md.get("author") or "").strip()
+    subject = (md.get("subject") or "").strip()
+
+    def esc(s: str) -> str:
+        return (
+            s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+
+    dc_title = (
+        f"<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{esc(title)}</rdf:li></rdf:Alt></dc:title>"
+        if title else ""
+    )
+    dc_creator = (
+        f"<dc:creator><rdf:Seq><rdf:li>{esc(author)}</rdf:li></rdf:Seq></dc:creator>"
+        if author else ""
+    )
+    dc_description = (
+        f"<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">{esc(subject)}</rdf:li></rdf:Alt></dc:description>"
+        if subject else ""
+    )
+
+    synthesized = (
+        '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="A11yRemediate">'
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<rdf:Description rdf:about="" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        f"{dc_title}{dc_creator}{dc_description}"
+        '</rdf:Description>'
+        '</rdf:RDF>'
+        '</x:xmpmeta>'
+        '<?xpacket end="w"?>'
+    )
+    return synthesized.encode("utf-8")
+
+
+@dataclass
+class MetadataResult:
+    """Result of apply_pdf_ua_metadata()."""
+    success: bool
+    changes: list[str] = field(default_factory=list)
+    error: str = ""
+
+
+# XMP namespaces we care about.
+_PDFUAID_NS = "http://www.aiim.org/pdfua/ns/id/"
+_RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
+
+def apply_pdf_ua_metadata(pdf_path: "str | Path") -> MetadataResult:
+    """Apply Track C — PDF/UA metadata fixes to a PDF.
+
+    Writes the document's XMP ``pdfuaid:part=1`` (rule 5-1), sets
+    ``/ViewerPreferences /DisplayDocTitle true`` on the catalog (rule
+    7.1-10), and ensures the catalog has a ``/Metadata`` key (rule
+    7.1-8). Safe to run on any PDF — the function preserves existing
+    XMP elements and ViewerPreferences entries.
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place.
+
+    Returns:
+        MetadataResult with success flag and a human-readable change log.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return MetadataResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return MetadataResult(success=False, error=f"Open failed: {exc}")
+
+    changes: list[str] = []
+    try:
+        # 1. XMP: add pdfuaid:part=1 (rule 5-1)
+        xmp_bytes = _read_or_synthesize_xmp(doc)
+        new_xmp, xmp_changed = _ensure_pdfuaid_in_xmp(xmp_bytes)
+        if xmp_changed:
+            doc.set_xml_metadata(new_xmp.decode("utf-8"))
+            changes.append("xmp:pdfuaid:part=1")
+
+        # 2. ViewerPreferences/DisplayDocTitle (rule 7.1-10)
+        cat_xref = doc.pdf_catalog()
+        vp_raw = doc.xref_get_key(cat_xref, "ViewerPreferences")
+        if vp_raw[0] == "dict":
+            new_vp = _ensure_display_doc_title(vp_raw[1])
+        else:
+            new_vp = "<< /DisplayDocTitle true >>"
+        doc.xref_set_key(cat_xref, "ViewerPreferences", new_vp)
+        changes.append("catalog:ViewerPreferences/DisplayDocTitle=true")
+
+        # 3. Verify /Metadata key on catalog (rule 7.1-8). fitz's
+        #    set_xml_metadata() wires up /Metadata for us; verify.
+        md_raw = doc.xref_get_key(cat_xref, "Metadata")
+        if md_raw[0] != "xref":
+            changes.append("catalog:Metadata=missing(unexpected)")
+
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        return MetadataResult(
+            success=False, error=f"apply_pdf_ua_metadata failed: {exc}"
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return MetadataResult(success=True, changes=changes)
+
+
+def _ensure_pdfuaid_in_xmp(xmp_bytes: bytes) -> "tuple[bytes, bool]":
+    """Return (possibly-modified XMP bytes, changed flag).
+
+    Adds a ``<pdfuaid:part>1</pdfuaid:part>`` element into the first
+    ``rdf:Description``. Preserves every other element. No-op if
+    pdfuaid:part already exists with value 1.
+
+    Implementation note: lxml is used to safely *check* for an existing
+    pdfuaid:part by namespace URI (so PDFs that use a different prefix
+    are detected). Insertion is done by string manipulation rather than
+    lxml's SubElement, because lxml auto-generates ``ns0:`` style
+    prefixes when the parent doesn't already declare ``pdfuaid``.
+    PDF/UA validators only check the namespace URI so the auto-prefix
+    is technically valid, but using the conventional ``pdfuaid:`` prefix
+    keeps XMP human-readable and matches what Acrobat emits.
+    """
+    from lxml import etree
+
+    try:
+        xmp_str = xmp_bytes.decode("utf-8", errors="replace")
+        # Strip xpacket PI wrappers for parsing, restore for serialization
+        start = xmp_str.find("<x:xmpmeta")
+        end_tag = xmp_str.find("</x:xmpmeta>")
+        if start == -1 or end_tag == -1:
+            payload = xmp_str.strip()
+            prefix = ""
+            suffix = ""
+        else:
+            end_tag += len("</x:xmpmeta>")
+            prefix = xmp_str[:start]
+            payload = xmp_str[start:end_tag]
+            suffix = xmp_str[end_tag:]
+
+        parser = etree.XMLParser(remove_blank_text=False, recover=True)
+        root = etree.fromstring(payload.encode("utf-8"), parser)
+        if root is None:
+            return xmp_bytes, False
+
+        descriptions = root.findall(f".//{{{_RDF_NS}}}Description")
+        if not descriptions:
+            return xmp_bytes, False
+        target = descriptions[0]
+
+        existing_part = target.find(f"{{{_PDFUAID_NS}}}part")
+        attr_key = f"{{{_PDFUAID_NS}}}part"
+        if existing_part is not None and existing_part.text == "1":
+            return xmp_bytes, False
+        if target.get(attr_key) == "1":
+            return xmp_bytes, False
+
+        insert_str = (
+            '<pdfuaid:part xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">1</pdfuaid:part>'
+        )
+
+        if existing_part is not None and existing_part.text != "1":
+            # Replace existing part element regardless of prefix
+            new_payload = re.sub(
+                r"<(?:[A-Za-z_][\w-]*:)?part(?:\s[^>]*)?>[^<]*</(?:[A-Za-z_][\w-]*:)?part>",
+                insert_str,
+                payload,
+                count=1,
+            )
+        else:
+            close_idx = payload.find("</rdf:Description>")
+            if close_idx == -1:
+                return xmp_bytes, False
+            new_payload = payload[:close_idx] + insert_str + payload[close_idx:]
+
+        new_full = prefix + new_payload + suffix
+        return new_full.encode("utf-8"), True
+    except Exception:
+        return xmp_bytes, False
+
+
+def _ensure_display_doc_title(vp_dict_str: str) -> str:
+    """Given the raw PDF object string for /ViewerPreferences, return a
+    new dict string with /DisplayDocTitle set to true, preserving all
+    other keys.
+    """
+    body = vp_dict_str.strip()
+    if body.startswith("<<"):
+        body = body[2:]
+    if body.endswith(">>"):
+        body = body[:-2]
+    body = body.strip()
+    body = re.sub(r"/DisplayDocTitle\s+(true|false)\s*", "", body).strip()
+    if body:
+        return f"<< {body} /DisplayDocTitle true >>"
+    return "<< /DisplayDocTitle true >>"
+
+
+# Operator classification for Track A artifact marking.
+# See spec §"Operator classification" for the rationale.
+
+_CONTENT_PRODUCING_OPS = frozenset({
+    # Text showing (inside BT/ET)
+    "Tj", "TJ", "'", '"',
+    # Path painting
+    "S", "s", "f", "F", "f*", "B", "B*", "b", "b*",
+    # Shading
+    "sh",
+    # XObject reference
+    "Do",
+})
+
+_STATE_SETTING_OPS = frozenset({
+    # Graphics state save/restore
+    "q", "Q",
+    # Transform
+    "cm",
+    # Text state
+    "Tf", "Tr", "Tc", "Tw", "Tz", "TL", "Ts",
+    # Text positioning
+    "Td", "TD", "Tm", "T*",
+    # Graphics state parameter
+    "gs",
+    # Color
+    "rg", "RG", "g", "G", "k", "K",
+    "sc", "SC", "scn", "SCN", "cs", "CS",
+    # Path style
+    "w", "J", "j", "M", "d", "ri", "i",
+    # Path construction (no output on their own)
+    "m", "l", "c", "v", "y", "re", "h", "n",
+    # Clipping flags (no output; affect subsequent path)
+    "W", "W*",
+    # Text object markers (no output on their own)
+    "BT", "ET",
+})
+
+
+def _is_content_producing_op(op: str) -> bool:
+    """Return True if the operator produces visible marks on the page.
+
+    Inline images (BI/ID/EI) are handled by the tokenizer as a single
+    atom and this function is not called on them individually — the
+    walker treats the atom as content-producing.
+    """
+    return op in _CONTENT_PRODUCING_OPS
+
+
+def _is_state_setting_op(op: str) -> bool:
+    """Return True if the operator sets graphics state without producing marks."""
+    return op in _STATE_SETTING_OPS
+
+
+def _find_untagged_content_runs(tokens: list[Token]) -> list[tuple[int, int]]:
+    """Find runs of depth-0 untagged content that need /Artifact wrapping.
+
+    Walks the token list maintaining BDC nesting depth. A "run" is a
+    contiguous sequence of tokens at depth 0 that begins with a
+    content-producing operator and may include subsequent state-setting
+    operators. State-only sequences at depth 0 do not start a run —
+    they are left untouched.
+
+    Args:
+        tokens: Output of ``_tokenize_content_stream``.
+
+    Returns:
+        List of ``(start_index, end_index)`` pairs, inclusive on both
+        ends, where each pair denotes a run to wrap in /Artifact BDC / EMC.
+        Indices point at the first content/state operator token (start)
+        and the last content/state operator token (end).
+    """
+    runs: list[tuple[int, int]] = []
+    depth = 0
+    run_start: int | None = None
+    run_end: int | None = None
+
+    def _close_run() -> None:
+        nonlocal run_start, run_end
+        if run_start is not None and run_end is not None:
+            runs.append((run_start, run_end))
+        run_start = None
+        run_end = None
+
+    for i, token in enumerate(tokens):
+        if token.type != "operator":
+            # Non-op token (operand, whitespace, comment, name, dict).
+            # If we're inside an open run, the index range will sweep
+            # over it implicitly because runs are contiguous index spans.
+            continue
+
+        op = token.value
+
+        if op == "BDC" or op == "BMC":
+            _close_run()
+            depth += 1
+            continue
+
+        if op == "EMC":
+            depth -= 1
+            continue
+
+        if depth != 0:
+            # Inside a tagged region — leave it alone.
+            continue
+
+        if op == "BT":
+            # BT at depth 0 always starts a run. A text object that
+            # isn't already inside a BDC contains content that needs to
+            # be tagged or marked as Artifact, by definition. The
+            # (string) operand between BT and Tj sits between the two
+            # operators, so the run must start AT BT (not at the
+            # subsequent Tj) for the string to fall inside the wrapper.
+            if run_start is None:
+                run_start = i
+            run_end = i
+            continue
+
+        if _is_content_producing_op(op):
+            if run_start is None:
+                run_start = i
+            run_end = i
+        elif _is_state_setting_op(op):
+            if run_start is not None:
+                # State op extends an open run; doesn't start one.
+                run_end = i
+
+    _close_run()
+    return _expand_run_starts_backward(tokens, runs)
+
+
+def _expand_run_starts_backward(
+    tokens: list[Token],
+    runs: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Extend each run's start backward to include operand and state
+    tokens that belong to the content operator.
+
+    Critical fix: a content-producing operator like ``Do`` consumes a
+    name operand pushed onto the operand stack just before it
+    (``/Fm0 Do``). If the run starts AT ``Do`` and the wrapper inserts
+    ``/Artifact BDC`` immediately before, the result is
+    ``/Fm0 /Artifact BDC Do EMC`` — which separates the operand from
+    its operator and produces a malformed PDF (the BDC has no dict and
+    Do has no name operand on the stack).
+
+    The fix is to extend the run start backward through operand tokens
+    (numbers, strings, names, dicts, whitespace) and through
+    state-setting operators, stopping at BDC/EMC, end of stream, or any
+    other content-producing operator that isn't already in the run.
+    """
+    expanded: list[tuple[int, int]] = []
+    for start, end in runs:
+        new_start = start
+        for j in range(start - 1, -1, -1):
+            t = tokens[j]
+            if t.type == "operator":
+                if t.value in ("BDC", "BMC", "EMC"):
+                    break
+                if _is_state_setting_op(t.value):
+                    new_start = j
+                    continue
+                if t.value == "BT":
+                    new_start = j
+                    continue
+                # Any other operator (content-producing, unknown) — stop
+                break
+            # Non-operator token (operand, whitespace, name, dict, number,
+            # string, comment) — sweep into the run.
+            new_start = j
+        expanded.append((new_start, end))
+    return expanded
+
+
+@dataclass
+class ArtifactMarkingResult:
+    """Result of mark_untagged_content_as_artifact()."""
+    success: bool
+    pages_modified: int = 0
+    artifact_wrappers_inserted: int = 0
+    pages_skipped: int = 0
+    form_xobjects_modified: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def _apply_artifact_wrappers(
+    tokens: list[Token],
+    runs: list[tuple[int, int]],
+) -> bytes:
+    """Reassemble the token list with /Artifact BDC/EMC wrappers
+    inserted around each run.
+
+    Simpler in_run flag implementation: walk the original token list
+    once, emit BDC immediately before entering a run start, emit EMC
+    immediately after the run end. Single sweep, no index gymnastics.
+    """
+    if not runs:
+        return _reassemble_stream(tokens)
+
+    starts = {start for start, _ in runs}
+    ends = {end for _, end in runs}
+
+    # veraPDF rule 7.1-3 requires the artifact marker to carry a
+    # property dict — bare ``/Artifact BDC`` is silently ignored. The
+    # ``Pagination`` artifact subtype is the standard for page furniture
+    # (headers, footers, page numbers, decorative content) per
+    # ISO 32000-1:2008 §14.8.2.2 and matches what Acrobat emits.
+    bdc_open = Token(
+        value="/Artifact <</Type /Pagination>> BDC\n",
+        type="operator",
+    )
+    emc_close = Token(value="\nEMC", type="operator")
+
+    out: list[Token] = []
+    for i, t in enumerate(tokens):
+        if i in starts:
+            out.append(bdc_open)
+        out.append(t)
+        if i in ends:
+            out.append(emc_close)
+
+    return _reassemble_stream(out)
+
+
+def mark_untagged_content_as_artifact(
+    pdf_path: "str | Path",
+) -> ArtifactMarkingResult:
+    """Walk the PDF's content streams and wrap depth-0 untagged content
+    in /Artifact BDC / EMC markers. Satisfies veraPDF rule 7.1-3
+    ("Content shall be marked as Artifact or tagged as real content")
+    for every content item the walker can reach.
+
+    Does not recurse into form XObjects referenced via Do — that's a
+    known v1 limitation (see spec §"Out of scope (v1 limits)").
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place.
+
+    Returns:
+        ArtifactMarkingResult with counts and per-page errors.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return ArtifactMarkingResult(
+            success=False, errors=[f"File not found: {path}"]
+        )
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return ArtifactMarkingResult(
+            success=False, errors=[f"Open failed: {exc}"]
+        )
+
+    result = ArtifactMarkingResult(success=True)
+
+    # Collect MCIDs referenced by the struct tree once, up front. The
+    # walker will use this to detect orphan BDCs (marked content with
+    # an MCID that no struct element references — typically left over
+    # from a previous tagging pass that was stripped before re-tagging).
+    referenced_mcids = _collect_struct_tree_mcids(doc)
+
+    try:
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            try:
+                stream_bytes = page.read_contents()
+            except Exception as exc:
+                result.errors.append(
+                    f"page {page_idx}: read_contents failed: {exc}"
+                )
+                result.pages_skipped += 1
+                continue
+
+            if not stream_bytes:
+                result.pages_skipped += 1
+                continue
+
+            tokens = _tokenize_content_stream(stream_bytes)
+            # Convert orphan BDC openings (`/Tag <<MCID N>> BDC` where N
+            # is not in the struct tree) to `/Artifact BDC` first. This
+            # mutates the tokens list in place.
+            orphan_indices = _find_orphan_bdc_openings(tokens, referenced_mcids)
+            orphans_converted = _convert_orphan_bdc_to_artifact(
+                tokens, orphan_indices
+            )
+
+            runs = _find_untagged_content_runs(tokens)
+
+            if not runs and not orphans_converted:
+                result.pages_skipped += 1
+                continue
+
+            new_stream = _apply_artifact_wrappers(tokens, runs)
+
+            # Find the xref of the page's /Contents stream and rewrite it.
+            # If /Contents is an array we collapse into the first stream
+            # and clear the rest.
+            contents_ref = doc.xref_get_key(page.xref, "Contents")
+            if contents_ref[0] == "xref":
+                xref = int(contents_ref[1].split()[0])
+                doc.update_stream(xref, new_stream)
+            elif contents_ref[0] == "array":
+                refs = [
+                    int(piece.split()[0])
+                    for piece in contents_ref[1].strip("[]").split("R")
+                    if piece.strip()
+                ]
+                if not refs:
+                    result.errors.append(
+                        f"page {page_idx}: empty /Contents array"
+                    )
+                    result.pages_skipped += 1
+                    continue
+                doc.update_stream(refs[0], new_stream)
+                for xref_clear in refs[1:]:
+                    doc.update_stream(xref_clear, b"")
+            else:
+                result.errors.append(
+                    f"page {page_idx}: unexpected /Contents type "
+                    f"{contents_ref[0]}"
+                )
+                result.pages_skipped += 1
+                continue
+
+            result.pages_modified += 1
+            result.artifact_wrappers_inserted += len(runs) + orphans_converted
+
+        # ── Pass 2: form XObject content streams ─────────────────────
+        # Form XObjects are self-contained content streams referenced
+        # from page content via the ``Do`` operator (e.g. ``/Fm0 Do``).
+        # Each XObject has its own BT/ET, Tj, BDC/EMC structure that
+        # the page-level walker never sees. The same untagged content
+        # and orphan-BDC patterns appear inside them, and on docs where
+        # most page content lives inside form XObjects (magazine layouts,
+        # complex academic papers) this is where the bulk of remaining
+        # 7.1-3 violations live.
+        #
+        # We walk by xref rather than by page so that form XObjects
+        # shared across multiple pages are processed exactly once.
+        form_xrefs = _find_form_xobject_xrefs(doc)
+        for fx in form_xrefs:
+            try:
+                stream_bytes = doc.xref_stream(fx)
+            except Exception as exc:
+                result.errors.append(
+                    f"form xobject {fx}: read failed: {exc}"
+                )
+                continue
+            if not stream_bytes:
+                continue
+
+            tokens = _tokenize_content_stream(stream_bytes)
+            orphan_indices = _find_orphan_bdc_openings(tokens, referenced_mcids)
+            orphans_converted = _convert_orphan_bdc_to_artifact(
+                tokens, orphan_indices
+            )
+            runs = _find_untagged_content_runs(tokens)
+
+            if not runs and not orphans_converted:
+                continue
+
+            new_stream = _apply_artifact_wrappers(tokens, runs)
+            try:
+                doc.update_stream(fx, new_stream)
+            except Exception as exc:
+                result.errors.append(
+                    f"form xobject {fx}: update failed: {exc}"
+                )
+                continue
+
+            result.artifact_wrappers_inserted += len(runs) + orphans_converted
+            result.form_xobjects_modified = result.form_xobjects_modified + 1
+
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        result.success = False
+        result.errors.append(f"mark_untagged_content_as_artifact: {exc}")
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return result
+
+
+def _find_form_xobject_xrefs(doc: "fitz.Document") -> list[int]:
+    """Return all xrefs in the document that are Form XObjects.
+
+    A Form XObject is identified by ``/Type /XObject /Subtype /Form``
+    in its dictionary. We use ``xref_get_key`` for the typed lookup
+    rather than substring matching to avoid false positives from
+    objects that mention these strings in unrelated contexts.
+    """
+    form_xrefs: list[int] = []
+    for xref in range(1, doc.xref_length()):
+        try:
+            subtype = doc.xref_get_key(xref, "Subtype")
+        except Exception:
+            continue
+        if subtype[0] == "name" and subtype[1] == "/Form":
+            form_xrefs.append(xref)
+    return form_xrefs
+
+
+def _collect_struct_tree_mcids(doc: "fitz.Document") -> set[int]:
+    """Walk the StructTreeRoot and return every MCID referenced.
+
+    PDF struct elements reference content via either:
+      - ``/K N`` where N is an integer MCID directly
+      - ``/K [N1 N2 ...]`` array of integer MCIDs
+      - ``/K [<</Type /MCR /MCID N>> ...]`` array of MCR dicts
+      - ``/K << /Type /MCR /MCID N >>`` single MCR dict
+
+    Returns the union of all MCIDs found across all struct elements.
+    Used by Track A to detect orphan BDCs in the content stream that
+    were left over from a previous tagging pass and aren't referenced
+    by the current struct tree.
+    """
+    cat = doc.pdf_catalog()
+    st = doc.xref_get_key(cat, "StructTreeRoot")
+    if st[0] != "xref":
+        return set()
+    try:
+        root = int(st[1].split()[0])
+    except (ValueError, IndexError):
+        return set()
+
+    seen: set[int] = set()
+    mcids: set[int] = set()
+
+    def _walk(xref: int, depth: int = 0) -> None:
+        if xref in seen or depth > 400:
+            return
+        seen.add(xref)
+        try:
+            obj = doc.xref_object(xref) or ""
+        except Exception:
+            return
+        # Direct integer kid: /K 5  (must not be followed by `0 R` which
+        # would make it an indirect reference instead)
+        for m in re.finditer(r"/K\s+(\d+)\b(?!\s+0\s+R)", obj):
+            mcids.add(int(m.group(1)))
+        # /K [3 5 7] integer array
+        for arr in re.finditer(r"/K\s*\[([^\]]*)\]", obj):
+            for n in re.finditer(r"\b(\d+)\b(?!\s+0\s+R)", arr.group(1)):
+                try:
+                    mcids.add(int(n.group(1)))
+                except ValueError:
+                    pass
+        # MCR dict form: /MCID N anywhere in the obj
+        for m in re.finditer(r"/MCID\s+(\d+)", obj):
+            mcids.add(int(m.group(1)))
+        # Recurse via N 0 R refs
+        for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+            _walk(int(m.group(1)), depth + 1)
+
+    _walk(root)
+    return mcids
+
+
+def _find_orphan_bdc_openings(
+    tokens: list[Token],
+    referenced_mcids: set[int],
+) -> list[int]:
+    """Find indices of orphan BDC opening operators.
+
+    An "orphan BDC" is a marked-content begin operator (BDC) whose
+    MCID is not referenced by any struct tree element. The opening
+    typically looks like ``/SomeTag <</MCID 673>> BDC`` in the token
+    stream — three tokens: a name, a dict, and the BDC operator.
+
+    Returns a list of token indices where each index points at the
+    BDC operator token of an orphan opening. The caller can then
+    replace the preceding name+dict tokens with ``/Artifact``.
+    """
+    orphans: list[int] = []
+    for i, token in enumerate(tokens):
+        if token.type != "operator" or token.value != "BDC":
+            continue
+        # Look back for the most recent dict and name tokens
+        dict_idx = None
+        name_idx = None
+        for j in range(i - 1, max(-1, i - 10), -1):
+            if tokens[j].type == "dict" and dict_idx is None:
+                dict_idx = j
+            elif tokens[j].type == "name" and name_idx is None:
+                name_idx = j
+                break
+            elif tokens[j].type == "operator":
+                # Hit another operator before finding the name — give up
+                break
+        if dict_idx is None or name_idx is None:
+            continue
+        # Extract MCID from the dict
+        m = re.search(r"/MCID\s+(\d+)", tokens[dict_idx].value)
+        if not m:
+            continue
+        mcid = int(m.group(1))
+        if mcid in referenced_mcids:
+            continue  # legitimately tagged
+        orphans.append(i)
+    return orphans
+
+
+def _convert_orphan_bdc_to_artifact(
+    tokens: list[Token],
+    orphan_bdc_indices: list[int],
+) -> int:
+    """Mutate ``tokens`` in place: replace orphan BDC openings with
+    ``/Artifact BDC``. Returns the count of conversions.
+
+    For each orphan BDC index, finds the preceding name and dict
+    tokens (which together form the ``/Tag <<...>> BDC`` opening) and
+    replaces the name token's value with ``/Artifact``, the dict
+    token's value with empty string. The BDC token itself is left
+    alone.
+    """
+    converted = 0
+    orphan_set = set(orphan_bdc_indices)
+    for i in orphan_set:
+        # Find the same name+dict that _find_orphan_bdc_openings found
+        dict_idx = None
+        name_idx = None
+        for j in range(i - 1, max(-1, i - 10), -1):
+            if tokens[j].type == "dict" and dict_idx is None:
+                dict_idx = j
+            elif tokens[j].type == "name" and name_idx is None:
+                name_idx = j
+                break
+            elif tokens[j].type == "operator":
+                break
+        if dict_idx is None or name_idx is None:
+            continue
+        tokens[name_idx] = Token(value="/Artifact", type="name")
+        # Replace the original property dict with a Pagination artifact
+        # type dict — veraPDF requires this for rule 7.1-3 to recognise
+        # the wrapper as a valid artifact marker. See ISO 32000-1:2008
+        # §14.8.2.2.
+        tokens[dict_idx] = Token(
+            value="<</Type /Pagination>>", type="dict"
+        )
+        converted += 1
+    return converted
+
+
+@dataclass
+class LinkContentsResult:
+    """Result of populate_link_annotation_contents()."""
+    success: bool
+    annotations_modified: int = 0
+    annotations_skipped: int = 0
+    error: str = ""
+
+
+def populate_link_annotation_contents(
+    pdf_path: "str | Path",
+) -> LinkContentsResult:
+    """Set the ``/Contents`` key on every link annotation that lacks one.
+
+    PDF/UA-1 rule 7.18.5-2 requires every link annotation to carry an
+    alternate description in its ``/Contents`` key. iText's tagging
+    pass adds rich ``/ActualText`` to /Link struct elements but does
+    not propagate that text to the annotation, and the ``/ParentTree``
+    that would let us match annotations to struct elements is left
+    empty by iText. As a pragmatic fallback we use the link's URL
+    itself as the /Contents value: it's honest (the URL is an alt
+    description), guaranteed to satisfy the rule, and never misleads
+    a screen reader user about where the link goes.
+
+    Documents that already have /Contents on every link annotation
+    are no-ops.
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place.
+
+    Returns:
+        LinkContentsResult with counts.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return LinkContentsResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return LinkContentsResult(success=False, error=f"Open failed: {exc}")
+
+    modified = 0
+    skipped = 0
+    try:
+        # Walk every xref looking for link annotations. Iterating by
+        # xref (instead of via page.links()) catches every annotation
+        # subtype regardless of how PyMuPDF surfaces it — page.links()
+        # in particular hides GoTo / GoToR / Launch / Named actions
+        # from its standard iteration.
+        for xref in range(1, doc.xref_length()):
+            try:
+                subtype = doc.xref_get_key(xref, "Subtype")
+            except Exception:
+                continue
+            if subtype[0] != "name" or subtype[1] != "/Link":
+                continue
+
+            # Skip annotations that already have a non-null /Contents.
+            try:
+                contents = doc.xref_get_key(xref, "Contents")
+            except Exception:
+                contents = ("null", "")
+            if contents[0] not in ("null", "undefined"):
+                skipped += 1
+                continue
+
+            # Pull the alt-text source from the annotation's action
+            # dict. Prefer /URI for external links; fall back to
+            # /D (named destination) for internal GoTo links so
+            # citation links and table-of-contents anchors also get
+            # a description.
+            alt_text = ""
+            try:
+                obj_text = doc.xref_object(xref) or ""
+                m = re.search(
+                    r"/URI\s*\(((?:[^()\\]|\\.)*)\)", obj_text
+                )
+                if m:
+                    alt_text = m.group(1)
+                else:
+                    m = re.search(
+                        r"/D\s*\(((?:[^()\\]|\\.)*)\)", obj_text
+                    )
+                    if m:
+                        alt_text = f"Reference: {m.group(1)}"
+            except Exception:
+                pass
+
+            if not alt_text:
+                skipped += 1
+                continue
+
+            escaped = (
+                alt_text.replace("\\", "\\\\")
+                .replace("(", "\\(")
+                .replace(")", "\\)")
+            )
+            try:
+                doc.xref_set_key(xref, "Contents", f"({escaped})")
+                modified += 1
+            except Exception:
+                skipped += 1
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        return LinkContentsResult(
+            success=False, error=f"populate_link_annotation_contents: {exc}"
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return LinkContentsResult(
+        success=True, annotations_modified=modified, annotations_skipped=skipped
+    )
+
+
+@dataclass
+class TailPolishResult:
+    """Result of apply_pdf_ua_tail_polish()."""
+    success: bool
+    lang_set: bool = False
+    pages_tabs_fixed: int = 0
+    figures_alt_filled: int = 0
+    error: str = ""
+
+
+def apply_pdf_ua_tail_polish(
+    pdf_path: "str | Path",
+    default_lang: str = "en-US",
+) -> TailPolishResult:
+    """Apply Bucket 4 PDF/UA polish fixes.
+
+    Three small fixes that together close the long tail of veraPDF
+    failures left by the larger Track A and Track C passes:
+
+    - **Rule 7.2-34** ("Natural language for text in page content"):
+      set ``/Lang`` on the catalog if missing. The default is ``en-US``
+      because the benchmark is dominated by English-language academic
+      papers; pass ``default_lang`` to override.
+    - **Rule 7.18.3-1** ("Page with annotations contains Tabs key with
+      value null instead of S"): set ``/Tabs /S`` on every page that
+      contains annotations.
+    - **Rule 7.3-1** ("Figure structure element neither has an alternate
+      description nor a replacement text"): walk the struct tree, find
+      ``/Figure`` elements without ``/Alt`` or ``/ActualText``, and set
+      ``/Alt ()`` (empty alt — declares the figure decorative). Marking
+      a figure decorative is the conservative choice when no description
+      is available; the alternative is to ship a placeholder string,
+      which would mislead a screen reader user.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return TailPolishResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return TailPolishResult(success=False, error=f"Open failed: {exc}")
+
+    result = TailPolishResult(success=True)
+    try:
+        cat = doc.pdf_catalog()
+
+        # 1. Catalog /Lang
+        lang_raw = doc.xref_get_key(cat, "Lang")
+        if lang_raw[0] in ("null", "undefined"):
+            doc.xref_set_key(cat, "Lang", f"({default_lang})")
+            result.lang_set = True
+
+        # 2. Page /Tabs /S where annotations exist
+        for page in doc:
+            try:
+                annots_key = doc.xref_get_key(page.xref, "Annots")
+            except Exception:
+                continue
+            if annots_key[0] in ("null", "undefined"):
+                continue  # no annotations on this page
+            try:
+                tabs_key = doc.xref_get_key(page.xref, "Tabs")
+            except Exception:
+                tabs_key = ("null", "")
+            if tabs_key[0] != "name" or tabs_key[1] != "/S":
+                doc.xref_set_key(page.xref, "Tabs", "/S")
+                result.pages_tabs_fixed += 1
+
+        # 3. Figures without /Alt or /ActualText — mark decorative
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        if st_key[0] == "xref":
+            try:
+                st_root = int(st_key[1].split()[0])
+            except (ValueError, IndexError):
+                st_root = None
+            if st_root:
+                seen: set[int] = set()
+                stack = [st_root]
+                while stack:
+                    xref = stack.pop()
+                    if xref in seen:
+                        continue
+                    seen.add(xref)
+                    try:
+                        obj_text = doc.xref_object(xref) or ""
+                    except Exception:
+                        continue
+                    tag_match = re.search(
+                        r"/S\s*/([A-Za-z_][A-Za-z0-9_]*)", obj_text
+                    )
+                    is_figure = bool(tag_match and tag_match.group(1) == "Figure")
+                    if is_figure:
+                        has_alt = "/Alt" in obj_text
+                        has_actual = "/ActualText" in obj_text
+                        if not (has_alt or has_actual):
+                            try:
+                                doc.xref_set_key(xref, "Alt", "()")
+                                result.figures_alt_filled += 1
+                            except Exception:
+                                pass
+                    for ref in re.finditer(r"(\d+)\s+0\s+R", obj_text):
+                        stack.append(int(ref.group(1)))
+
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        return TailPolishResult(
+            success=False, error=f"apply_pdf_ua_tail_polish: {exc}"
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return result

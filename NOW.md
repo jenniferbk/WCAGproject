@@ -3,8 +3,95 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Benchmark — honest detection at 77.6% AND full 125-doc remediation run complete with independent veraPDF validation. Next: iterate on results to score big wins.
-- **Tests**: 938 passing
+- **Phase**: Benchmark — honest detection at 77.6%, full remediation pipeline **84.9% PDF/UA failed-check reduction** via Track A v2 + Track C + Bucket 2/4 post-processing. Working on `feat/pdf-ua-fixes` branch.
+- **Tests**: 963 passing (was 938; +25 from this branch)
+
+## PDF/UA Compliance Post-Processing — feat/pdf-ua-fixes branch (2026-04-07)
+
+Implemented two new standalone post-processors per
+`docs/superpowers/specs/2026-04-07-pdf-ua-compliance-fixes-design.md`
+and `docs/superpowers/plans/2026-04-07-pdf-ua-compliance-fixes.md`.
+Both wired into `execute_pdf()` after iText tagging.
+
+### Track C — `apply_pdf_ua_metadata()`
+- Adds `<pdfuaid:part>1</pdfuaid:part>` to XMP (rule 5-1)
+- Sets `/ViewerPreferences /DisplayDocTitle true` on catalog (rule 7.1-10)
+- Ensures catalog `/Metadata` key (rule 7.1-8)
+- Preserves all existing XMP elements and ViewerPreferences entries
+- 8 unit tests in `TestPdfUaMetadata`
+
+### Track A — `mark_untagged_content_as_artifact()`
+- Walks page content streams, finds depth-0 untagged content runs
+- Wraps each in `/Artifact <</Type /Pagination>> BDC ... EMC` (the
+  property dict is required by veraPDF — bare `/Artifact BDC` is
+  silently ignored)
+- ALSO converts orphan BDCs (marked content with MCIDs not referenced
+  by the current struct tree) to `/Artifact <</Type /Pagination>> BDC`.
+  This was the dominant source of remaining 7.1-3 failures in our
+  benchmark outputs because we strip+retag struct trees, leaving
+  orphan markers in the content stream.
+- Uses `_collect_struct_tree_mcids()` to determine the orphan set
+- Backward-extends each run start through operands and state ops so
+  `/Fm0 Do` and `(text) Tj` aren't split mid-pair
+- 17 unit tests across `TestArtifactMarkingHelpers`,
+  `TestFindUntaggedRuns`, `TestMarkUntaggedContent`
+
+### `scripts/apply_ua_fixes.py`
+- Standalone orchestration: applies both tracks to a directory of
+  remediated PDFs with per-track verification gates
+- Gate B: text extraction byte-exact + no new veraPDF rules
+- Per-track blame attribution with snapshot-revert on failure
+- Atomic JSON rewrite for resumability
+
+### Headline numbers (full 125-doc benchmark, true veraPDF aggregate, v2)
+
+| Metric | Before | After | Δ |
+|---|---:|---:|---:|
+| **Total failed checks** | **194,394** | **29,318** | **−165,076 (−84.9%)** |
+| Total failed rules | 731 | 537 | −194 (−26.5%) |
+| Fully PDF/UA compliant docs | 0 | 0 | 0 |
+| Per-status: success | — | 125 | — |
+| Per-status: track_a_no_improvement_kept_c | — | 0 | — |
+
+**Compared to v1 (before form XObject recursion + Bucket 2/4):**
+- v1: −56.7% failed checks, 3 reverts
+- v2: **−84.9% failed checks, 0 reverts** (+28.2 percentage points)
+
+Track C eliminated rules **5-1 (119 docs → 0)** and **7.1-10 (14 → 0)**
+entirely. Track A reduced rule 7.1-3 per-doc check counts dramatically
+without eliminating the rule (it still fires on every doc because of
+form XObject content we don't recurse into in v1).
+
+### 5-doc end-to-end smoke through `execute_pdf()`
+
+Aggregate: 2505 → 263 failed checks (−89.5%), 41 → 22 failed rules.
+Confirms executor integration produces dramatically cleaner output
+than the baseline pipeline. Cost was $0.57 for 5 docs.
+
+### What's still deferred (would push us beyond 84.9%)
+
+- **Phase 2b link bidirectional integration** (rules 7.18.1-2, 7.18.5-1, 7.18.5-2): ~7,440 remaining checks. Requires populating empty ParentTrees iText leaves behind. ~3-4 hours of bookkeeping. Would push reduction to ~88.7%.
+- **Bucket 3 font repair** (rules 7.21.x): ~5,543 remaining checks. Requires fontTools-based glyph re-embedding, real risk of breaking visual rendering. 1-2 days of work. Would push to ~91.5%.
+- **Deeper form XObject recursion** (nested XObjects, content the v1 walker still can't reach): ~16,186 remaining 7.1-3 checks. Approach unclear; may need iText config changes.
+
+### Branch state
+
+`feat/pdf-ua-fixes` has 12 commits ahead of master, all green:
+
+```
+8134d52 Wire PDF/UA Track C and Track A into execute_pdf() after URI repair
+38ade13 PDF/UA post-processing on 125 benchmark docs: -56.7% failed checks
+0ab828b Add scripts/apply_ua_fixes.py orchestration with per-track verification gates
+cc34a22 Track A: orphan-BDC conversion + Pagination property dict
+c55325b Add mark_untagged_content_as_artifact() for PDF/UA Track A (rule 7.1-3)
+d74affc Add _find_untagged_content_runs state machine for Track A
+792c194 Add operator classification helpers for Track A artifact marking
+cbc217f Test Track C metadata: ViewerPreferences preservation and idempotency
+3de7f49 Add apply_pdf_ua_metadata() for PDF/UA Track C (rules 5-1, 7.1-8, 7.1-10)
+c36ac75 Add _read_or_synthesize_xmp helper for Track C metadata fixes
+```
+
+Ready to merge to master.
 
 ## Full remediation benchmark results (2026-04-07, commit bzwom4spv)
 

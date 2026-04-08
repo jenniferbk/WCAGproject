@@ -623,3 +623,403 @@ class TestImageLinking:
         # Every image should be linked to a paragraph
         for img in doc.images:
             assert img.id in linked_ids, f"{img.id} not linked to any paragraph"
+
+
+class TestPdfUaMetadata:
+    """Tests for apply_pdf_ua_metadata() — Track C."""
+
+    def _make_minimal_pdf(self, tmp_path, with_xmp: bool = True) -> Path:
+        """Create a minimal test PDF with or without an XMP metadata stream."""
+        import fitz
+        doc = fitz.open()
+        doc.new_page()
+        doc.set_metadata({"title": "Test Title", "author": "Test Author"})
+        if with_xmp:
+            doc.set_xml_metadata(
+                '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+                '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+                '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+                '<rdf:Description rdf:about="" '
+                'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Test Title</rdf:li></rdf:Alt></dc:title>'
+                '</rdf:Description>'
+                '</rdf:RDF>'
+                '</x:xmpmeta>'
+                '<?xpacket end="w"?>'
+            )
+        out = tmp_path / "minimal.pdf"
+        doc.save(str(out))
+        doc.close()
+        return out
+
+    def test_helper_reads_existing_xmp(self, tmp_path):
+        from src.tools.pdf_writer import _read_or_synthesize_xmp
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        doc = fitz.open(str(pdf))
+        xmp_bytes = _read_or_synthesize_xmp(doc)
+        doc.close()
+        assert b"dc:title" in xmp_bytes
+        assert b"Test Title" in xmp_bytes
+
+    def test_helper_synthesizes_when_no_xmp(self, tmp_path):
+        from src.tools.pdf_writer import _read_or_synthesize_xmp
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=False)
+        doc = fitz.open(str(pdf))
+        xmp_bytes = _read_or_synthesize_xmp(doc)
+        doc.close()
+        assert b"rdf:RDF" in xmp_bytes
+        assert b"rdf:Description" in xmp_bytes
+
+    def test_apply_adds_pdfuaid_part(self, tmp_path):
+        import re as _re
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        result = apply_pdf_ua_metadata(pdf)
+        assert result.success
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        # The pdfuaid namespace URI must be present (prefix may vary
+        # depending on serializer behaviour).
+        assert "http://www.aiim.org/pdfua/ns/id/" in xmp
+        # And a `<...:part ...>1</...:part>` element with value 1 must
+        # exist using whatever prefix is bound to that namespace.
+        assert _re.search(
+            r"<[A-Za-z_][\w-]*:part(?:\s[^>]*)?>1</[A-Za-z_][\w-]*:part>", xmp
+        )
+
+    def test_apply_preserves_existing_dc_title(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        apply_pdf_ua_metadata(pdf)
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        assert "Test Title" in xmp
+
+    def test_apply_sets_display_doc_title(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        apply_pdf_ua_metadata(pdf)
+        doc = fitz.open(str(pdf))
+        vp = doc.xref_get_key(doc.pdf_catalog(), "ViewerPreferences")
+        doc.close()
+        assert vp[0] == "dict"
+        assert "DisplayDocTitle" in vp[1]
+        assert "true" in vp[1]
+
+    def test_apply_preserves_other_viewer_prefs(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        # Pre-populate ViewerPreferences with a non-DisplayDocTitle entry
+        doc = fitz.open(str(pdf))
+        doc.xref_set_key(
+            doc.pdf_catalog(),
+            "ViewerPreferences",
+            "<< /FitWindow true >>",
+        )
+        doc.save(str(pdf), incremental=True, encryption=0)
+        doc.close()
+
+        apply_pdf_ua_metadata(pdf)
+
+        doc = fitz.open(str(pdf))
+        vp = doc.xref_get_key(doc.pdf_catalog(), "ViewerPreferences")
+        doc.close()
+        assert "FitWindow" in vp[1]
+        assert "DisplayDocTitle" in vp[1]
+
+    def test_apply_is_idempotent(self, tmp_path):
+        """Running twice must not add a second pdfuaid:part element."""
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        import re as _re
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=True)
+        apply_pdf_ua_metadata(pdf)
+        apply_pdf_ua_metadata(pdf)
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        # Exactly one part element with value 1, regardless of prefix
+        matches = _re.findall(
+            r"<[A-Za-z_][\w-]*:part(?:\s[^>]*)?>1</[A-Za-z_][\w-]*:part>", xmp
+        )
+        assert len(matches) == 1
+
+    def test_apply_synthesizes_xmp_for_bare_pdf(self, tmp_path):
+        """A PDF with no /Metadata stream gets a fresh XMP with pdfuaid."""
+        import re as _re
+        from src.tools.pdf_writer import apply_pdf_ua_metadata
+        import fitz
+        pdf = self._make_minimal_pdf(tmp_path, with_xmp=False)
+        result = apply_pdf_ua_metadata(pdf)
+        assert result.success
+        doc = fitz.open(str(pdf))
+        xmp = doc.get_xml_metadata() or ""
+        doc.close()
+        assert "http://www.aiim.org/pdfua/ns/id/" in xmp
+        assert _re.search(
+            r"<[A-Za-z_][\w-]*:part(?:\s[^>]*)?>1</[A-Za-z_][\w-]*:part>", xmp
+        )
+
+
+class TestArtifactMarkingHelpers:
+    """Tests for Track A operator classification."""
+
+    def test_tj_is_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        assert _is_content_producing_op("Tj")
+        assert _is_content_producing_op("TJ")
+        assert _is_content_producing_op("'")
+        assert _is_content_producing_op('"')
+
+    def test_path_painting_is_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        for op in ["S", "s", "f", "F", "f*", "B", "B*", "b", "b*"]:
+            assert _is_content_producing_op(op), f"{op} should be content-producing"
+
+    def test_do_and_sh_are_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        assert _is_content_producing_op("Do")
+        assert _is_content_producing_op("sh")
+
+    def test_state_ops_not_content_producing(self):
+        from src.tools.pdf_writer import _is_content_producing_op
+        for op in ["q", "Q", "cm", "Tf", "Td", "TD", "Tm", "T*",
+                   "gs", "rg", "RG", "g", "G", "k", "K", "sc", "SC",
+                   "scn", "SCN", "cs", "CS", "w", "J", "j", "M", "d",
+                   "ri", "i", "m", "l", "c", "v", "y", "re", "h", "n",
+                   "BT", "ET", "W", "W*"]:
+            assert not _is_content_producing_op(op), f"{op} should NOT be content-producing"
+
+    def test_state_ops_classified_as_state(self):
+        from src.tools.pdf_writer import _is_state_setting_op
+        for op in ["q", "Q", "cm", "Tf", "Td", "gs", "rg", "BT", "ET"]:
+            assert _is_state_setting_op(op), f"{op} should be state-setting"
+
+    def test_bdc_emc_not_classified_as_either(self):
+        from src.tools.pdf_writer import _is_content_producing_op, _is_state_setting_op
+        for op in ["BDC", "BMC", "EMC"]:
+            assert not _is_content_producing_op(op)
+            assert not _is_state_setting_op(op)
+
+
+class TestFindUntaggedRuns:
+    """Tests for _find_untagged_content_runs() — Track A state machine."""
+
+    def _tokenize(self, stream_str: str):
+        from src.tools.pdf_writer import _tokenize_content_stream
+        return _tokenize_content_stream(stream_str.encode("latin-1"))
+
+    def test_empty_stream_no_runs(self):
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("")
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_state_ops_alone_no_runs(self):
+        """A page with only state ops at depth 0 — no content to wrap."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("q\n1 0 0 1 0 0 cm\nQ\n")
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_content_at_depth_0_yields_run(self):
+        """A simple BT/ET text object at depth 0 — one run covering it."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("BT\n/F0 10 Tf\n72 720 Td\n(hi) Tj\nET\n")
+        runs = _find_untagged_content_runs(tokens)
+        assert len(runs) == 1
+        start, end = runs[0]
+        # Run should include the Tj token
+        ops_in_run = [
+            t.value for t in tokens[start:end + 1]
+            if t.type == "operator"
+        ]
+        assert "Tj" in ops_in_run
+
+    def test_content_inside_bdc_not_wrapped(self):
+        """Content inside /P BDC is at depth 1 — yields no run."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        stream = "/P << /MCID 0 >> BDC\nBT (hi) Tj ET\nEMC\n"
+        tokens = self._tokenize(stream)
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_mixed_tagged_and_untagged(self):
+        """Tagged body plus untagged footer — only the footer becomes a run."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        stream = (
+            "/P << /MCID 0 >> BDC\n"
+            "BT (body) Tj ET\n"
+            "EMC\n"
+            "BT (footer) Tj ET\n"
+        )
+        tokens = self._tokenize(stream)
+        runs = _find_untagged_content_runs(tokens)
+        assert len(runs) == 1
+        start, end = runs[0]
+        run_text = "".join(t.value for t in tokens[start:end + 1])
+        assert "footer" in run_text
+        assert "body" not in run_text
+
+    def test_nested_bdc_handled(self):
+        """/P BDC /Span BDC content EMC EMC — untouched."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        stream = "/P BDC /Span BDC BT (x) Tj ET EMC EMC\n"
+        tokens = self._tokenize(stream)
+        runs = _find_untagged_content_runs(tokens)
+        assert runs == []
+
+    def test_do_operator_at_depth_0_yields_run(self):
+        """Form XObject call (Do) at depth 0 produces a run."""
+        from src.tools.pdf_writer import _find_untagged_content_runs
+        tokens = self._tokenize("/Fm0 Do\n")
+        runs = _find_untagged_content_runs(tokens)
+        assert len(runs) == 1
+
+
+class TestMarkUntaggedContent:
+    """End-to-end tests for mark_untagged_content_as_artifact()."""
+
+    def _pdf_with_untagged_footer(self, tmp_path) -> Path:
+        """Create a PDF whose content stream has a BDC-tagged body and
+        an untagged footer line."""
+        import fitz
+        import re as _re
+        doc = fitz.open()
+        page = doc.new_page(width=300, height=400)
+        page.insert_text((50, 50), "Body text")
+        page.insert_text((50, 380), "Page 1")  # untagged footer
+        out = tmp_path / "with_footer.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        # Post-process: wrap the first BT..ET in /P BDC/EMC so the body
+        # is "tagged" and the footer is "untagged" at depth 0.
+        doc = fitz.open(str(out))
+        p = doc[0]
+        stream = p.read_contents()
+        m = _re.search(rb"BT\b.*?ET", stream, flags=_re.DOTALL)
+        if not m:
+            doc.close()
+            raise RuntimeError("Test fixture: no BT..ET in generated content stream")
+        wrapped = (
+            stream[:m.start()]
+            + b"/P << /MCID 0 >> BDC\n"
+            + m.group(0)
+            + b"\nEMC\n"
+            + stream[m.end():]
+        )
+        contents_ref = doc.xref_get_key(p.xref, "Contents")
+        if contents_ref[0] == "xref":
+            xref = int(contents_ref[1].split()[0])
+        elif contents_ref[0] == "array":
+            xref = int(contents_ref[1].strip("[]").split()[0])
+        else:
+            doc.close()
+            raise RuntimeError(f"Unexpected /Contents type: {contents_ref}")
+        doc.update_stream(xref, wrapped)
+        doc.save(str(out), incremental=True, encryption=0)
+        doc.close()
+        return out
+
+    def test_wraps_untagged_footer(self, tmp_path):
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        import fitz
+        pdf = self._pdf_with_untagged_footer(tmp_path)
+        result = mark_untagged_content_as_artifact(pdf)
+        assert result.success
+        assert result.artifact_wrappers_inserted >= 1
+        doc = fitz.open(str(pdf))
+        content = doc[0].read_contents()
+        doc.close()
+        # The wrapper uses ``/Artifact <</Type /Pagination>> BDC`` —
+        # the property dict is required by veraPDF rule 7.1-3.
+        assert b"/Artifact" in content
+        assert b"BDC" in content
+        assert b"/Type /Pagination" in content
+
+    def test_empty_pdf_no_op(self, tmp_path):
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        import fitz
+        doc = fitz.open()
+        doc.new_page()  # blank page, no content
+        out = tmp_path / "empty.pdf"
+        doc.save(str(out))
+        doc.close()
+        result = mark_untagged_content_as_artifact(out)
+        assert result.success
+        assert result.artifact_wrappers_inserted == 0
+
+    def test_idempotent(self, tmp_path):
+        """Running twice inserts zero wrappers on the second call."""
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        pdf = self._pdf_with_untagged_footer(tmp_path)
+        first = mark_untagged_content_as_artifact(pdf)
+        second = mark_untagged_content_as_artifact(pdf)
+        assert first.success and second.success
+        assert second.artifact_wrappers_inserted == 0
+
+    def test_on_real_benchmark_pdf(self, tmp_path):
+        """Run on a real remediated benchmark PDF and verify:
+        - text extraction is unchanged
+        - veraPDF total violation count decreases
+        - no new rule types appear
+        """
+        import shutil
+        import fitz
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+        from src.tools.verapdf_checker import check_pdf_ua
+
+        # Prefer the pre_ua_fix backup (created by apply_ua_fixes.py).
+        # If that's missing, fall back to the post-fix file (which will
+        # have a smaller delta but still works as a smoke test).
+        backup = Path(
+            "/tmp/remediation_bench_full/ua_fixes_work/"
+            "W2895738059_remediated.pre_ua_fix.pdf"
+        )
+        live = Path(
+            "/tmp/remediation_bench_full/"
+            "semantic_tagging_passed_W2895738059/"
+            "W2895738059_remediated.pdf"
+        )
+        src = backup if backup.exists() else live
+        if not src.exists():
+            pytest.skip(f"Benchmark PDF not available: {src}")
+
+        dst = tmp_path / "smoke.pdf"
+        shutil.copy(src, dst)
+
+        # Baseline text extraction
+        doc = fitz.open(str(dst))
+        baseline_text = [p.get_text() for p in doc]
+        doc.close()
+
+        # Baseline verapdf
+        baseline_vera = check_pdf_ua(str(dst))
+        assert baseline_vera.success
+
+        # Apply Track A
+        result = mark_untagged_content_as_artifact(dst)
+        assert result.success, result.errors
+
+        # Text must match
+        doc = fitz.open(str(dst))
+        post_text = [p.get_text() for p in doc]
+        doc.close()
+        assert post_text == baseline_text, "Text extraction changed after Track A"
+
+        # veraPDF total checks should decrease
+        post_vera = check_pdf_ua(str(dst))
+        assert post_vera.success
+        assert post_vera.violation_count < baseline_vera.violation_count, (
+            f"violations did not decrease: {baseline_vera.violation_count} "
+            f"→ {post_vera.violation_count}"
+        )

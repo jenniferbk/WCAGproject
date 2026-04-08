@@ -30,6 +30,7 @@ import fitz
 
 from src.tools.pdf_writer import (
     apply_pdf_ua_metadata,
+    apply_pdf_ua_tail_polish,
     mark_untagged_content_as_artifact,
     populate_link_annotation_contents,
 )
@@ -123,14 +124,25 @@ def _process_one(doc_info: dict, work_dir: Path) -> dict:
     # ── Track A ──
     try:
         a_result = mark_untagged_content_as_artifact(pdf_path)
-        # Also propagate link annotation /Contents (Bucket 2 / rule 7.18.5-2).
-        # We treat this as part of Track A's measurement so the gate
-        # logic still has a single "Track A" before/after to compare.
+        # Also propagate link annotation /Contents (Bucket 2 / rule 7.18.5-2)
+        # and apply tail polish (Bucket 4 / rules 7.2-34, 7.18.3-1, 7.3-1).
+        # All three are bundled into the Track A measurement window so
+        # the gate logic still has a single "Track A" before/after to
+        # compare.
         try:
             link_result = populate_link_annotation_contents(pdf_path)
             link_modified = link_result.annotations_modified if link_result.success else 0
         except Exception:
             link_modified = 0
+        try:
+            tail_result = apply_pdf_ua_tail_polish(pdf_path)
+            tail_changes = (
+                int(tail_result.lang_set)
+                + tail_result.pages_tabs_fixed
+                + tail_result.figures_alt_filled
+            ) if tail_result.success else 0
+        except Exception:
+            tail_changes = 0
         record["ua_fix_track_a"] = {
             "success": a_result.success,
             "pages_modified": a_result.pages_modified,
@@ -138,6 +150,7 @@ def _process_one(doc_info: dict, work_dir: Path) -> dict:
             "pages_skipped": a_result.pages_skipped,
             "form_xobjects_modified": a_result.form_xobjects_modified,
             "link_contents_set": link_modified,
+            "tail_polish_changes": tail_changes,
             "errors": a_result.errors,
         }
         if not a_result.success:

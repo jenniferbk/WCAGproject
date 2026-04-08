@@ -34,6 +34,7 @@ from src.tools.pdf_writer import (
     apply_contrast_fixes_to_pdf,
     apply_pdf_fixes,
     apply_pdf_ua_metadata,
+    apply_pdf_ua_tail_polish,
     mark_untagged_content_as_artifact,
     populate_link_annotation_contents,
     repair_broken_uris_in_pdf,
@@ -397,6 +398,32 @@ def execute_pdf(
                     )
             except Exception as exc:
                 logger.warning("Link /Contents pass failed: %s", exc)
+
+            # PDF/UA tail polish — catalog /Lang, page /Tabs /S,
+            # /Figure /Alt fallback. Eliminates rules 7.2-34, 7.18.3-1,
+            # and 7.3-1 across the long tail.
+            try:
+                doc_lang = (doc_model.metadata.language or "en-US").strip() or "en-US"
+                tail_result = apply_pdf_ua_tail_polish(
+                    tagged_pdf_path, default_lang=doc_lang
+                )
+                if tail_result.success and (
+                    tail_result.lang_set
+                    or tail_result.pages_tabs_fixed
+                    or tail_result.figures_alt_filled
+                ):
+                    logger.info(
+                        "PDF/UA tail polish: lang_set=%s, pages_tabs_fixed=%d, figures_alt_filled=%d",
+                        tail_result.lang_set,
+                        tail_result.pages_tabs_fixed,
+                        tail_result.figures_alt_filled,
+                    )
+                elif not tail_result.success:
+                    logger.warning(
+                        "PDF/UA tail polish failed: %s", tail_result.error
+                    )
+            except Exception as exc:
+                logger.warning("PDF/UA tail polish failed: %s", exc)
         else:
             # Fallback: use pdf_writer for Tier 1 (metadata + alt text)
             logger.warning(

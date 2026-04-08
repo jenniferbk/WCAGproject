@@ -43,3 +43,6 @@ testdocs/
 .env.production
 *.latexml.log
 *.latexmlpost.log
+
+# External reference exploration (kept locally for comparison, not tracked)
+asu_exploration/

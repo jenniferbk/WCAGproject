@@ -2339,3 +2339,122 @@ def _convert_orphan_bdc_to_artifact(
         )
         converted += 1
     return converted
+
+
+@dataclass
+class LinkContentsResult:
+    """Result of populate_link_annotation_contents()."""
+    success: bool
+    annotations_modified: int = 0
+    annotations_skipped: int = 0
+    error: str = ""
+
+
+def populate_link_annotation_contents(
+    pdf_path: "str | Path",
+) -> LinkContentsResult:
+    """Set the ``/Contents`` key on every link annotation that lacks one.
+
+    PDF/UA-1 rule 7.18.5-2 requires every link annotation to carry an
+    alternate description in its ``/Contents`` key. iText's tagging
+    pass adds rich ``/ActualText`` to /Link struct elements but does
+    not propagate that text to the annotation, and the ``/ParentTree``
+    that would let us match annotations to struct elements is left
+    empty by iText. As a pragmatic fallback we use the link's URL
+    itself as the /Contents value: it's honest (the URL is an alt
+    description), guaranteed to satisfy the rule, and never misleads
+    a screen reader user about where the link goes.
+
+    Documents that already have /Contents on every link annotation
+    are no-ops.
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place.
+
+    Returns:
+        LinkContentsResult with counts.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return LinkContentsResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return LinkContentsResult(success=False, error=f"Open failed: {exc}")
+
+    modified = 0
+    skipped = 0
+    try:
+        # Walk every xref looking for link annotations. Iterating by
+        # xref (instead of via page.links()) catches every annotation
+        # subtype regardless of how PyMuPDF surfaces it — page.links()
+        # in particular hides GoTo / GoToR / Launch / Named actions
+        # from its standard iteration.
+        for xref in range(1, doc.xref_length()):
+            try:
+                subtype = doc.xref_get_key(xref, "Subtype")
+            except Exception:
+                continue
+            if subtype[0] != "name" or subtype[1] != "/Link":
+                continue
+
+            # Skip annotations that already have a non-null /Contents.
+            try:
+                contents = doc.xref_get_key(xref, "Contents")
+            except Exception:
+                contents = ("null", "")
+            if contents[0] not in ("null", "undefined"):
+                skipped += 1
+                continue
+
+            # Pull the alt-text source from the annotation's action
+            # dict. Prefer /URI for external links; fall back to
+            # /D (named destination) for internal GoTo links so
+            # citation links and table-of-contents anchors also get
+            # a description.
+            alt_text = ""
+            try:
+                obj_text = doc.xref_object(xref) or ""
+                m = re.search(
+                    r"/URI\s*\(((?:[^()\\]|\\.)*)\)", obj_text
+                )
+                if m:
+                    alt_text = m.group(1)
+                else:
+                    m = re.search(
+                        r"/D\s*\(((?:[^()\\]|\\.)*)\)", obj_text
+                    )
+                    if m:
+                        alt_text = f"Reference: {m.group(1)}"
+            except Exception:
+                pass
+
+            if not alt_text:
+                skipped += 1
+                continue
+
+            escaped = (
+                alt_text.replace("\\", "\\\\")
+                .replace("(", "\\(")
+                .replace(")", "\\)")
+            )
+            try:
+                doc.xref_set_key(xref, "Contents", f"({escaped})")
+                modified += 1
+            except Exception:
+                skipped += 1
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        return LinkContentsResult(
+            success=False, error=f"populate_link_annotation_contents: {exc}"
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return LinkContentsResult(
+        success=True, annotations_modified=modified, annotations_skipped=skipped
+    )

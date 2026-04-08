@@ -35,6 +35,7 @@ from src.tools.pdf_writer import (
     apply_pdf_fixes,
     apply_pdf_ua_metadata,
     mark_untagged_content_as_artifact,
+    populate_link_annotation_contents,
     repair_broken_uris_in_pdf,
     strip_struct_tree,
     update_existing_figure_alt_texts,
@@ -367,9 +368,10 @@ def execute_pdf(
                     if artifact_result.artifact_wrappers_inserted:
                         logger.info(
                             "Artifact-marked %d content region(s) "
-                            "across %d page(s) in %s",
+                            "across %d page(s) and %d form XObject(s) in %s",
                             artifact_result.artifact_wrappers_inserted,
                             artifact_result.pages_modified,
+                            artifact_result.form_xobjects_modified,
                             tagged_pdf_path,
                         )
                 else:
@@ -379,6 +381,22 @@ def execute_pdf(
                     )
             except Exception as exc:
                 logger.warning("Artifact marking pass failed: %s", exc)
+
+            # PDF/UA link contents — set /Contents on every link
+            # annotation that lacks one. Satisfies rule 7.18.5-2.
+            try:
+                link_result = populate_link_annotation_contents(tagged_pdf_path)
+                if link_result.success and link_result.annotations_modified:
+                    logger.info(
+                        "Set /Contents on %d link annotation(s) in %s",
+                        link_result.annotations_modified, tagged_pdf_path,
+                    )
+                elif not link_result.success:
+                    logger.warning(
+                        "Link /Contents pass failed: %s", link_result.error
+                    )
+            except Exception as exc:
+                logger.warning("Link /Contents pass failed: %s", exc)
         else:
             # Fallback: use pdf_writer for Tier 1 (metadata + alt text)
             logger.warning(

@@ -31,6 +31,7 @@ import fitz
 from src.tools.pdf_writer import (
     apply_pdf_ua_metadata,
     mark_untagged_content_as_artifact,
+    populate_link_annotation_contents,
 )
 from src.tools.verapdf_checker import check_pdf_ua
 
@@ -122,11 +123,21 @@ def _process_one(doc_info: dict, work_dir: Path) -> dict:
     # ── Track A ──
     try:
         a_result = mark_untagged_content_as_artifact(pdf_path)
+        # Also propagate link annotation /Contents (Bucket 2 / rule 7.18.5-2).
+        # We treat this as part of Track A's measurement so the gate
+        # logic still has a single "Track A" before/after to compare.
+        try:
+            link_result = populate_link_annotation_contents(pdf_path)
+            link_modified = link_result.annotations_modified if link_result.success else 0
+        except Exception:
+            link_modified = 0
         record["ua_fix_track_a"] = {
             "success": a_result.success,
             "pages_modified": a_result.pages_modified,
             "artifact_wrappers_inserted": a_result.artifact_wrappers_inserted,
             "pages_skipped": a_result.pages_skipped,
+            "form_xobjects_modified": a_result.form_xobjects_modified,
+            "link_contents_set": link_modified,
             "errors": a_result.errors,
         }
         if not a_result.success:

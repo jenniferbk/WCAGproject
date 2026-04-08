@@ -3,7 +3,7 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Benchmark — honest detection at 77.6%, full remediation pipeline 56.7% PDF/UA failed-check reduction via Track A+C post-processing. Working on `feat/pdf-ua-fixes` branch.
+- **Phase**: Benchmark — honest detection at 77.6%, full remediation pipeline **84.9% PDF/UA failed-check reduction** via Track A v2 + Track C + Bucket 2/4 post-processing. Working on `feat/pdf-ua-fixes` branch.
 - **Tests**: 963 passing (was 938; +25 from this branch)
 
 ## PDF/UA Compliance Post-Processing — feat/pdf-ua-fixes branch (2026-04-07)
@@ -43,15 +43,19 @@ Both wired into `execute_pdf()` after iText tagging.
 - Per-track blame attribution with snapshot-revert on failure
 - Atomic JSON rewrite for resumability
 
-### Headline numbers (full 125-doc benchmark, true veraPDF aggregate)
+### Headline numbers (full 125-doc benchmark, true veraPDF aggregate, v2)
 
 | Metric | Before | After | Δ |
 |---|---:|---:|---:|
-| **Total failed checks** | **194,394** | **84,199** | **−110,195 (−56.7%)** |
-| Total failed rules | 731 | 536 | −195 (−26.7%) |
+| **Total failed checks** | **194,394** | **29,318** | **−165,076 (−84.9%)** |
+| Total failed rules | 731 | 537 | −194 (−26.5%) |
 | Fully PDF/UA compliant docs | 0 | 0 | 0 |
-| Per-status: success | — | 122 | — |
-| Per-status: track_a_no_improvement_kept_c | — | 3 | — |
+| Per-status: success | — | 125 | — |
+| Per-status: track_a_no_improvement_kept_c | — | 0 | — |
+
+**Compared to v1 (before form XObject recursion + Bucket 2/4):**
+- v1: −56.7% failed checks, 3 reverts
+- v2: **−84.9% failed checks, 0 reverts** (+28.2 percentage points)
 
 Track C eliminated rules **5-1 (119 docs → 0)** and **7.1-10 (14 → 0)**
 entirely. Track A reduced rule 7.1-3 per-doc check counts dramatically
@@ -64,11 +68,11 @@ Aggregate: 2505 → 263 failed checks (−89.5%), 41 → 22 failed rules.
 Confirms executor integration produces dramatically cleaner output
 than the baseline pipeline. Cost was $0.57 for 5 docs.
 
-### What's deferred to v2
+### What's still deferred (would push us beyond 84.9%)
 
-- **Form XObject recursion** (estimated ~30% of remaining 7.1-3 checks)
-- **Font repair** (rules 7.21.x, ~4,290 failed checks across 56+ docs)
-- **Tier B link tagging polish** (rules 7.18.1-2, 7.18.5-1, 7.18.5-2)
+- **Phase 2b link bidirectional integration** (rules 7.18.1-2, 7.18.5-1, 7.18.5-2): ~7,440 remaining checks. Requires populating empty ParentTrees iText leaves behind. ~3-4 hours of bookkeeping. Would push reduction to ~88.7%.
+- **Bucket 3 font repair** (rules 7.21.x): ~5,543 remaining checks. Requires fontTools-based glyph re-embedding, real risk of breaking visual rendering. 1-2 days of work. Would push to ~91.5%.
+- **Deeper form XObject recursion** (nested XObjects, content the v1 walker still can't reach): ~16,186 remaining 7.1-3 checks. Approach unclear; may need iText config changes.
 
 ### Branch state
 

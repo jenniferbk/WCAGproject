@@ -77,8 +77,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 435,
+      "artifact_wrappers_inserted": 437,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
@@ -99,13 +102,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 6,
+      "failed_rules": 4,
+      "passed_rules": 102,
+      "violation_count": 5,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2"
       ]
@@ -191,17 +193,19 @@
       "pages_modified": 2,
       "artifact_wrappers_inserted": 44,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 139,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 138,
       "rule_ids": [
         "5-1",
-        "7.1-10",
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
@@ -304,29 +308,30 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 10,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 3,
-      "passed_rules": 103,
-      "violation_count": 68,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 67,
       "rule_ids": [
         "5-1",
-        "7.1-3",
-        "7.4.2-1"
+        "7.1-3"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 3,
+      "failed_rules": 1,
+      "passed_rules": 105,
+      "violation_count": 2,
       "rule_ids": [
-        "7.1-3",
-        "7.4.2-1"
+        "7.1-3"
       ]
     }
   },
@@ -410,6 +415,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 1,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -514,8 +522,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 8,
+      "artifact_wrappers_inserted": 12,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -523,7 +534,7 @@
       "compliant": false,
       "failed_rules": 4,
       "passed_rules": 102,
-      "violation_count": 84,
+      "violation_count": 67,
       "rule_ids": [
         "5-1",
         "7.1-10",
@@ -536,7 +547,7 @@
       "compliant": false,
       "failed_rules": 2,
       "passed_rules": 104,
-      "violation_count": 17,
+      "violation_count": 8,
       "rule_ids": [
         "7.1-3",
         "7.21.4.2-2"
@@ -621,8 +632,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 435,
+      "artifact_wrappers_inserted": 437,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
@@ -643,13 +657,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 6,
+      "failed_rules": 4,
+      "passed_rules": 102,
+      "violation_count": 5,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2"
       ]
@@ -735,17 +748,19 @@
       "pages_modified": 2,
       "artifact_wrappers_inserted": 44,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 139,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 138,
       "rule_ids": [
         "5-1",
-        "7.1-10",
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
@@ -848,6 +863,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 10,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -952,6 +970,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 1,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -959,7 +980,7 @@
       "compliant": false,
       "failed_rules": 3,
       "passed_rules": 103,
-      "violation_count": 28,
+      "violation_count": 29,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -971,7 +992,7 @@
       "compliant": false,
       "failed_rules": 2,
       "passed_rules": 104,
-      "violation_count": 26,
+      "violation_count": 27,
       "rule_ids": [
         "7.1-3",
         "7.21.4.1-1"
@@ -1056,8 +1077,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 8,
+      "artifact_wrappers_inserted": 12,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -1065,7 +1089,7 @@
       "compliant": false,
       "failed_rules": 4,
       "passed_rules": 102,
-      "violation_count": 84,
+      "violation_count": 67,
       "rule_ids": [
         "5-1",
         "7.1-10",
@@ -1078,7 +1102,7 @@
       "compliant": false,
       "failed_rules": 2,
       "passed_rules": 104,
-      "violation_count": 17,
+      "violation_count": 8,
       "rule_ids": [
         "7.1-3",
         "7.21.4.2-2"
@@ -1163,8 +1187,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 435,
+      "artifact_wrappers_inserted": 437,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
@@ -1185,13 +1212,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 6,
+      "failed_rules": 4,
+      "passed_rules": 102,
+      "violation_count": 5,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2"
       ]
@@ -1277,6 +1303,9 @@
       "pages_modified": 2,
       "artifact_wrappers_inserted": 44,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -1389,6 +1418,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 10,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -1493,6 +1525,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 1,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -1599,6 +1634,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 12,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -1704,8 +1742,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 153,
+      "artifact_wrappers_inserted": 154,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -1810,6 +1851,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 25,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -1923,6 +1967,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 10,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2029,6 +2076,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 1,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2135,6 +2185,9 @@
       "pages_modified": 1,
       "artifact_wrappers_inserted": 8,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2241,8 +2294,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 282,
+      "artifact_wrappers_inserted": 284,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2345,29 +2401,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 428,
+      "artifact_wrappers_inserted": 432,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 103,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.3-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 4,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 5,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.3-1"
       ]
     }
   },
@@ -2449,8 +2510,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 376,
+      "artifact_wrappers_inserted": 385,
       "pages_skipped": 0,
+      "form_xobjects_modified": 4,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2462,7 +2526,7 @@
       "rule_ids": [
         "5-1",
         "7.1-3",
-        "7.3-1"
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
@@ -2470,10 +2534,10 @@
       "compliant": false,
       "failed_rules": 2,
       "passed_rules": 104,
-      "violation_count": 7,
+      "violation_count": 18,
       "rule_ids": [
         "7.1-3",
-        "7.3-1"
+        "7.4.2-1"
       ]
     }
   },
@@ -2555,8 +2619,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 272,
+      "artifact_wrappers_inserted": 282,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2669,29 +2736,39 @@
       "pages_modified": 2,
       "artifact_wrappers_inserted": 333,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 3,
-      "passed_rules": 103,
-      "violation_count": 102,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 223,
       "rule_ids": [
         "5-1",
+        "7.1-10",
         "7.1-3",
-        "7.3-1"
+        "7.1-9",
+        "7.2-21",
+        "7.2-30",
+        "7.2-33",
+        "7.2-34",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 5,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 10,
       "rule_ids": [
         "7.1-3",
-        "7.3-1"
+        "7.1-9",
+        "7.4.2-1"
       ]
     }
   },
@@ -2773,8 +2850,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 282,
+      "artifact_wrappers_inserted": 284,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2877,8 +2957,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 428,
+      "artifact_wrappers_inserted": 432,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -2886,7 +2969,7 @@
       "compliant": false,
       "failed_rules": 3,
       "passed_rules": 103,
-      "violation_count": 102,
+      "violation_count": 103,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -2983,29 +3066,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 375,
+      "artifact_wrappers_inserted": 385,
       "pages_skipped": 0,
+      "form_xobjects_modified": 4,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 19,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 18,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     }
   },
@@ -3087,31 +3175,40 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 281,
+      "artifact_wrappers_inserted": 282,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 3,
-      "passed_rules": 103,
-      "violation_count": 103,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 106,
       "rule_ids": [
         "5-1",
         "7.1-3",
-        "7.21.7-1"
+        "7.21.5-1",
+        "7.21.7-1",
+        "7.21.7-2",
+        "7.21.8-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 12,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 105,
       "rule_ids": [
         "7.1-3",
-        "7.21.7-1"
+        "7.21.5-1",
+        "7.21.7-1",
+        "7.21.7-2",
+        "7.21.8-1"
       ]
     }
   },
@@ -3193,29 +3290,41 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 343,
+      "artifact_wrappers_inserted": 333,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 223,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-10",
+        "7.1-3",
+        "7.1-9",
+        "7.2-21",
+        "7.2-30",
+        "7.2-33",
+        "7.2-34",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 32,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 10,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.1-9",
+        "7.4.2-1"
       ]
     }
   },
@@ -3297,8 +3406,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 282,
+      "artifact_wrappers_inserted": 284,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -3401,8 +3513,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 427,
+      "artifact_wrappers_inserted": 432,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -3507,8 +3622,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 380,
+      "artifact_wrappers_inserted": 385,
       "pages_skipped": 0,
+      "form_xobjects_modified": 4,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -3613,8 +3731,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 275,
+      "artifact_wrappers_inserted": 282,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -3725,8 +3846,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 331,
+      "artifact_wrappers_inserted": 333,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
@@ -3750,16 +3874,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 128,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 10,
       "rule_ids": [
         "7.1-3",
         "7.1-9",
-        "7.2-21",
-        "7.2-30",
-        "7.2-33",
-        "7.2-34",
         "7.4.2-1"
       ]
     }
@@ -3842,29 +3962,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 129,
+      "artifact_wrappers_inserted": 136,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 104,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
+      "failed_rules": 2,
+      "passed_rules": 104,
       "violation_count": 5,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     }
   },
@@ -3946,8 +4071,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 463,
+      "artifact_wrappers_inserted": 513,
       "pages_skipped": 0,
+      "form_xobjects_modified": 34,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -3966,7 +4094,7 @@
       "compliant": false,
       "failed_rules": 1,
       "passed_rules": 105,
-      "violation_count": 2,
+      "violation_count": 3,
       "rule_ids": [
         "7.1-3"
       ]
@@ -4050,29 +4178,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 157,
+      "artifact_wrappers_inserted": 160,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
+      "failed_rules": 2,
+      "passed_rules": 104,
       "violation_count": 3,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     }
   },
@@ -4154,29 +4287,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 166,
+      "artifact_wrappers_inserted": 179,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 104,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 1,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 4,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     }
   },
@@ -4258,29 +4396,41 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 254,
+      "artifact_wrappers_inserted": 259,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 108,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-10",
+        "7.1-3",
+        "7.21.4.1-2",
+        "7.21.4.2-2",
+        "7.21.7-1",
+        "7.21.8-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 1,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 7,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-2",
+        "7.21.4.2-2",
+        "7.21.7-1",
+        "7.21.8-1"
       ]
     }
   },
@@ -4362,29 +4512,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 135,
+      "artifact_wrappers_inserted": 136,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 104,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 2,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 5,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     }
   },
@@ -4466,37 +4621,32 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 471,
+      "artifact_wrappers_inserted": 513,
       "pages_skipped": 0,
+      "form_xobjects_modified": 34,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 107,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 101,
       "rule_ids": [
         "5-1",
-        "7.1-3",
-        "7.18.1-1",
-        "7.18.1-2",
-        "7.18.3-1",
-        "7.4.2-1"
+        "7.1-3"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 8,
+      "failed_rules": 1,
+      "passed_rules": 105,
+      "violation_count": 3,
       "rule_ids": [
-        "7.1-3",
-        "7.18.1-1",
-        "7.18.1-2",
-        "7.18.3-1",
-        "7.4.2-1"
+        "7.1-3"
       ]
     }
   },
@@ -4578,29 +4728,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 161,
+      "artifact_wrappers_inserted": 160,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 2,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 3,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     }
   },
@@ -4682,29 +4837,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 174,
+      "artifact_wrappers_inserted": 179,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 104,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 1,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 4,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.2-2"
       ]
     }
   },
@@ -4786,29 +4946,41 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 257,
+      "artifact_wrappers_inserted": 259,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 108,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-10",
+        "7.1-3",
+        "7.21.4.1-2",
+        "7.21.4.2-2",
+        "7.21.7-1",
+        "7.21.8-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 1,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 7,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-2",
+        "7.21.4.2-2",
+        "7.21.7-1",
+        "7.21.8-1"
       ]
     }
   },
@@ -4890,8 +5062,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 132,
+      "artifact_wrappers_inserted": 136,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -4996,8 +5171,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 472,
+      "artifact_wrappers_inserted": 513,
       "pages_skipped": 0,
+      "form_xobjects_modified": 34,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -5100,8 +5278,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 156,
+      "artifact_wrappers_inserted": 160,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -5206,8 +5387,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 175,
+      "artifact_wrappers_inserted": 179,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -5312,8 +5496,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 257,
+      "artifact_wrappers_inserted": 259,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -5425,47 +5612,40 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 3,
-      "artifact_wrappers_inserted": 3,
+      "artifact_wrappers_inserted": 524,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 48,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 11,
-      "passed_rules": 95,
+      "failed_rules": 6,
+      "passed_rules": 100,
       "violation_count": 256,
       "rule_ids": [
+        "5-1",
         "7.1-3",
-        "7.1-8",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.1-1",
-        "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1",
-        "7.21.7-2"
+        "7.21.4.1-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 10,
-      "passed_rules": 96,
-      "violation_count": 157,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 159,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.1-1",
-        "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1",
-        "7.21.7-2"
+        "7.21.4.1-1"
       ]
     }
   },
@@ -5535,7 +5715,7 @@
       "violation_count": 577,
       "error": ""
     },
-    "ua_fix_status": "track_a_no_improvement_kept_c",
+    "ua_fix_status": "success",
     "ua_fix_track_c": {
       "success": true,
       "changes": [
@@ -5546,32 +5726,54 @@
     },
     "ua_fix_track_a": {
       "success": true,
-      "pages_modified": 4,
-      "artifact_wrappers_inserted": 4,
-      "pages_skipped": 1,
+      "pages_modified": 5,
+      "artifact_wrappers_inserted": 660,
+      "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 33,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 11,
-      "passed_rules": 95,
-      "violation_count": 577,
+      "failed_rules": 13,
+      "passed_rules": 93,
+      "violation_count": 724,
       "rule_ids": [
         "5-1",
         "7.1-10",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.2-33",
         "7.2-34",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1",
+        "7.21.7-1",
+        "7.4.2-1"
       ]
     },
-    "ua_vera_after": null
+    "ua_vera_after": {
+      "success": true,
+      "compliant": false,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 566,
+      "rule_ids": [
+        "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.5-1",
+        "7.21.7-1",
+        "7.4.2-1"
+      ]
+    }
   },
   {
     "pdf_path": "/tmp/PDF-Accessibility-Benchmark/data/processed/functional_hyperlinks/cannot_tell/W3005911753.pdf",
@@ -5651,8 +5853,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 7,
+      "artifact_wrappers_inserted": 1046,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 8,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -5660,16 +5865,16 @@
       "compliant": false,
       "failed_rules": 8,
       "passed_rules": 98,
-      "violation_count": 387,
+      "violation_count": 483,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1"
       ]
     },
     "ua_vera_after": {
@@ -5677,15 +5882,15 @@
       "compliant": false,
       "failed_rules": 7,
       "passed_rules": 99,
-      "violation_count": 374,
+      "violation_count": 466,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1"
       ]
     }
   },
@@ -5767,45 +5972,42 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 5,
+      "artifact_wrappers_inserted": 675,
       "pages_skipped": 0,
+      "form_xobjects_modified": 139,
+      "link_contents_set": 88,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 10,
-      "passed_rules": 96,
-      "violation_count": 386,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 491,
       "rule_ids": [
+        "5-1",
         "7.1-3",
-        "7.1-8",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1"
+        "7.21.5-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 9,
-      "passed_rules": 97,
-      "violation_count": 295,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 217,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1"
+        "7.21.5-1"
       ]
     }
   },
@@ -5887,49 +6089,44 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 4,
-      "artifact_wrappers_inserted": 4,
+      "artifact_wrappers_inserted": 1213,
       "pages_skipped": 0,
+      "form_xobjects_modified": 19,
+      "link_contents_set": 134,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 12,
-      "passed_rules": 94,
-      "violation_count": 428,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 414,
       "rule_ids": [
+        "5-1",
         "7.1-3",
-        "7.1-8",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.3.2-1",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1",
-        "7.3-1"
+        "7.21.5-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 11,
-      "passed_rules": 95,
-      "violation_count": 334,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 213,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.3.2-1",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1",
-        "7.3-1"
+        "7.21.5-1"
       ]
     }
   },
@@ -6011,47 +6208,40 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 3,
-      "artifact_wrappers_inserted": 3,
+      "artifact_wrappers_inserted": 524,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 48,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 11,
-      "passed_rules": 95,
+      "failed_rules": 6,
+      "passed_rules": 100,
       "violation_count": 256,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.1-1",
-        "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1",
-        "7.21.7-2"
+        "7.21.4.1-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 10,
-      "passed_rules": 96,
-      "violation_count": 157,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 159,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.1-1",
-        "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1",
-        "7.21.7-2"
+        "7.21.4.1-1"
       ]
     }
   },
@@ -6121,7 +6311,7 @@
       "violation_count": 577,
       "error": ""
     },
-    "ua_fix_status": "track_a_no_improvement_kept_c",
+    "ua_fix_status": "success",
     "ua_fix_track_c": {
       "success": true,
       "changes": [
@@ -6132,32 +6322,54 @@
     },
     "ua_fix_track_a": {
       "success": true,
-      "pages_modified": 4,
-      "artifact_wrappers_inserted": 4,
-      "pages_skipped": 1,
+      "pages_modified": 5,
+      "artifact_wrappers_inserted": 660,
+      "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 33,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 11,
-      "passed_rules": 95,
-      "violation_count": 577,
+      "failed_rules": 13,
+      "passed_rules": 93,
+      "violation_count": 724,
       "rule_ids": [
         "5-1",
         "7.1-10",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.2-33",
         "7.2-34",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1",
+        "7.21.7-1",
+        "7.4.2-1"
       ]
     },
-    "ua_vera_after": null
+    "ua_vera_after": {
+      "success": true,
+      "compliant": false,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 566,
+      "rule_ids": [
+        "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.5-1",
+        "7.21.7-1",
+        "7.4.2-1"
+      ]
+    }
   },
   {
     "pdf_path": "/tmp/PDF-Accessibility-Benchmark/data/processed/functional_hyperlinks/failed/W3005911753.pdf",
@@ -6237,8 +6449,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 7,
+      "artifact_wrappers_inserted": 1046,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 8,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -6246,16 +6461,16 @@
       "compliant": false,
       "failed_rules": 8,
       "passed_rules": 98,
-      "violation_count": 387,
+      "violation_count": 483,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1"
       ]
     },
     "ua_vera_after": {
@@ -6263,15 +6478,15 @@
       "compliant": false,
       "failed_rules": 7,
       "passed_rules": 99,
-      "violation_count": 374,
+      "violation_count": 466,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1"
       ]
     }
   },
@@ -6353,45 +6568,42 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 5,
+      "artifact_wrappers_inserted": 675,
       "pages_skipped": 0,
+      "form_xobjects_modified": 139,
+      "link_contents_set": 88,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 10,
-      "passed_rules": 96,
-      "violation_count": 386,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 491,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1"
+        "7.21.5-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 9,
-      "passed_rules": 97,
-      "violation_count": 293,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 217,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.21.7-1"
+        "7.21.5-1"
       ]
     }
   },
@@ -6473,8 +6685,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 4,
-      "artifact_wrappers_inserted": 4,
+      "artifact_wrappers_inserted": 1213,
       "pages_skipped": 0,
+      "form_xobjects_modified": 19,
+      "link_contents_set": 134,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -6482,34 +6697,32 @@
       "compliant": false,
       "failed_rules": 9,
       "passed_rules": 97,
-      "violation_count": 423,
+      "violation_count": 414,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.3.2-1",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 329,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 213,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.3.2-1",
         "7.21.4.1-1",
-        "7.21.7-1"
+        "7.21.4.1-2",
+        "7.21.5-1"
       ]
     }
   },
@@ -6593,28 +6806,37 @@
       "pages_modified": 3,
       "artifact_wrappers_inserted": 524,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 48,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 3,
-      "passed_rules": 103,
-      "violation_count": 103,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 256,
       "rule_ids": [
         "5-1",
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
         "7.21.4.1-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 102,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 159,
       "rule_ids": [
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
         "7.21.4.1-1"
       ]
     }
@@ -6697,37 +6919,51 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 726,
+      "artifact_wrappers_inserted": 660,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 33,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 304,
+      "failed_rules": 13,
+      "passed_rules": 93,
+      "violation_count": 724,
       "rule_ids": [
         "5-1",
+        "7.1-10",
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.2-33",
+        "7.2-34",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1",
-        "7.21.7-1"
+        "7.21.7-1",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 303,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 566,
       "rule_ids": [
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1",
-        "7.21.7-1"
+        "7.21.7-1",
+        "7.4.2-1"
       ]
     }
   },
@@ -6809,19 +7045,25 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 1044,
+      "artifact_wrappers_inserted": 1046,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 8,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 303,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 483,
       "rule_ids": [
         "5-1",
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1"
@@ -6830,11 +7072,14 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 4,
-      "passed_rules": 102,
-      "violation_count": 302,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 466,
       "rule_ids": [
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1"
@@ -6919,19 +7164,25 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 536,
+      "artifact_wrappers_inserted": 675,
       "pages_skipped": 0,
+      "form_xobjects_modified": 139,
+      "link_contents_set": 88,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 227,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 491,
       "rule_ids": [
         "5-1",
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1"
@@ -6940,11 +7191,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 4,
-      "passed_rules": 102,
-      "violation_count": 226,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 217,
       "rule_ids": [
         "7.1-3",
+        "7.18.5-1",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1"
@@ -7029,24 +7281,29 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 4,
-      "artifact_wrappers_inserted": 639,
+      "artifact_wrappers_inserted": 1213,
       "pages_skipped": 0,
+      "form_xobjects_modified": 19,
+      "link_contents_set": 134,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 226,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 414,
       "rule_ids": [
         "5-1",
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
         "7.21.3.2-1",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.3-1"
+        "7.21.5-1"
       ]
     },
     "ua_vera_after": {
@@ -7054,14 +7311,14 @@
       "compliant": false,
       "failed_rules": 6,
       "passed_rules": 100,
-      "violation_count": 225,
+      "violation_count": 213,
       "rule_ids": [
         "7.1-3",
+        "7.18.5-1",
         "7.21.3.2-1",
         "7.21.4.1-1",
         "7.21.4.1-2",
-        "7.21.5-1",
-        "7.3-1"
+        "7.21.5-1"
       ]
     }
   },
@@ -7145,6 +7402,9 @@
       "pages_modified": 3,
       "artifact_wrappers_inserted": 524,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 48,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -7167,7 +7427,7 @@
       "compliant": false,
       "failed_rules": 5,
       "passed_rules": 101,
-      "violation_count": 255,
+      "violation_count": 159,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
@@ -7257,6 +7517,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 660,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 33,
+      "tail_polish_changes": 1,
       "errors": []
     },
     "ua_vera_before": {
@@ -7284,16 +7547,14 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 11,
-      "passed_rules": 95,
-      "violation_count": 722,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 566,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
-        "7.2-33",
-        "7.2-34",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1",
@@ -7382,6 +7643,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 1046,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 8,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -7406,7 +7670,7 @@
       "compliant": false,
       "failed_rules": 7,
       "passed_rules": 99,
-      "violation_count": 482,
+      "violation_count": 466,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
@@ -7496,8 +7760,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 536,
+      "artifact_wrappers_inserted": 675,
       "pages_skipped": 0,
+      "form_xobjects_modified": 139,
+      "link_contents_set": 88,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -7520,14 +7787,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 490,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 217,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.21.4.1-2",
         "7.21.5-1"
@@ -7612,8 +7877,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 4,
-      "artifact_wrappers_inserted": 1194,
+      "artifact_wrappers_inserted": 1213,
       "pages_skipped": 0,
+      "form_xobjects_modified": 19,
+      "link_contents_set": 134,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -7637,14 +7905,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 413,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 213,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.3.2-1",
         "7.21.4.1-1",
         "7.21.4.1-2",
@@ -7732,6 +7998,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 90,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 10,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -7753,14 +8022,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 91,
+      "failed_rules": 4,
+      "passed_rules": 102,
+      "violation_count": 71,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.4.2-1"
       ]
@@ -7846,6 +8113,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 176,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 1,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -7868,14 +8138,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 49,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 47,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.3-1",
         "7.4.2-1"
@@ -7962,6 +8230,9 @@
       "pages_modified": 4,
       "artifact_wrappers_inserted": 69,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8066,37 +8337,38 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 146,
+      "artifact_wrappers_inserted": 154,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 117,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 110,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.10-1",
         "7.21.4.2-2",
-        "7.3-1",
-        "7.4.2-1"
+        "7.3-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 5,
-      "passed_rules": 101,
-      "violation_count": 116,
+      "failed_rules": 4,
+      "passed_rules": 102,
+      "violation_count": 109,
       "rule_ids": [
         "7.1-3",
         "7.10-1",
         "7.21.4.2-2",
-        "7.3-1",
-        "7.4.2-1"
+        "7.3-1"
       ]
     }
   },
@@ -8178,8 +8450,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 6,
+      "artifact_wrappers_inserted": 9,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8187,7 +8462,7 @@
       "compliant": false,
       "failed_rules": 3,
       "passed_rules": 103,
-      "violation_count": 92,
+      "violation_count": 90,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -8199,7 +8474,7 @@
       "compliant": false,
       "failed_rules": 2,
       "passed_rules": 104,
-      "violation_count": 57,
+      "violation_count": 21,
       "rule_ids": [
         "7.1-3",
         "7.21.4.1-1"
@@ -8284,8 +8559,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 105,
+      "artifact_wrappers_inserted": 90,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 10,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8295,28 +8573,26 @@
       "passed_rules": 99,
       "violation_count": 137,
       "rule_ids": [
-        "5-1",
         "7.1-3",
+        "7.1-8",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1"
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 66,
+      "failed_rules": 4,
+      "passed_rules": 102,
+      "violation_count": 71,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1"
+        "7.4.2-1"
       ]
     }
   },
@@ -8398,8 +8674,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 163,
+      "artifact_wrappers_inserted": 176,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 1,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8422,14 +8701,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 46,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 47,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.3-1",
         "7.4.2-1"
@@ -8514,8 +8791,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 4,
-      "artifact_wrappers_inserted": 57,
+      "artifact_wrappers_inserted": 69,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8525,8 +8805,8 @@
       "passed_rules": 103,
       "violation_count": 105,
       "rule_ids": [
-        "5-1",
         "7.1-3",
+        "7.1-8",
         "7.21.4.1-1"
       ]
     },
@@ -8535,7 +8815,7 @@
       "compliant": false,
       "failed_rules": 2,
       "passed_rules": 104,
-      "violation_count": 39,
+      "violation_count": 38,
       "rule_ids": [
         "7.1-3",
         "7.21.4.1-1"
@@ -8619,9 +8899,12 @@
     },
     "ua_fix_track_a": {
       "success": true,
-      "pages_modified": 4,
-      "artifact_wrappers_inserted": 64,
-      "pages_skipped": 1,
+      "pages_modified": 5,
+      "artifact_wrappers_inserted": 154,
+      "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8629,7 +8912,7 @@
       "compliant": false,
       "failed_rules": 5,
       "passed_rules": 101,
-      "violation_count": 116,
+      "violation_count": 110,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -8643,7 +8926,7 @@
       "compliant": false,
       "failed_rules": 4,
       "passed_rules": 102,
-      "violation_count": 115,
+      "violation_count": 109,
       "rule_ids": [
         "7.1-3",
         "7.10-1",
@@ -8730,8 +9013,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 5,
+      "artifact_wrappers_inserted": 9,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8739,7 +9025,7 @@
       "compliant": false,
       "failed_rules": 3,
       "passed_rules": 103,
-      "violation_count": 80,
+      "violation_count": 90,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -8751,7 +9037,7 @@
       "compliant": false,
       "failed_rules": 2,
       "passed_rules": 104,
-      "violation_count": 50,
+      "violation_count": 21,
       "rule_ids": [
         "7.1-3",
         "7.21.4.1-1"
@@ -8838,6 +9124,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 90,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 10,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8859,14 +9148,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 91,
+      "failed_rules": 4,
+      "passed_rules": 102,
+      "violation_count": 71,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.4.2-1"
       ]
@@ -8952,6 +9239,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 176,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 1,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -8974,14 +9264,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 49,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 47,
       "rule_ids": [
         "7.1-3",
-        "7.18.1-2",
         "7.18.5-1",
-        "7.18.5-2",
         "7.21.4.1-1",
         "7.3-1",
         "7.4.2-1"
@@ -9068,6 +9356,9 @@
       "pages_modified": 4,
       "artifact_wrappers_inserted": 69,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -9172,8 +9463,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 153,
+      "artifact_wrappers_inserted": 154,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -9284,6 +9578,9 @@
       "pages_modified": 2,
       "artifact_wrappers_inserted": 9,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -9388,29 +9685,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 192,
+      "artifact_wrappers_inserted": 140,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 1,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 10,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     }
   },
@@ -9492,8 +9794,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 454,
+      "artifact_wrappers_inserted": 214,
       "pages_skipped": 0,
+      "form_xobjects_modified": 21,
+      "link_contents_set": 0,
+      "tail_polish_changes": 2,
       "errors": []
     },
     "ua_vera_before": {
@@ -9515,13 +9820,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 25,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 31,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.3-1"
@@ -9606,30 +9910,47 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 160,
+      "artifact_wrappers_inserted": 93,
       "pages_skipped": 0,
+      "form_xobjects_modified": 16,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 3,
-      "passed_rules": 103,
-      "violation_count": 102,
+      "failed_rules": 10,
+      "passed_rules": 96,
+      "violation_count": 121,
       "rule_ids": [
         "5-1",
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.7-1",
+        "7.21.8-1",
         "7.3-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 3,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 60,
       "rule_ids": [
         "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.7-1",
+        "7.21.8-1",
         "7.3-1"
       ]
     }
@@ -9712,21 +10033,23 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 12,
+      "artifact_wrappers_inserted": 25,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 2,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 116,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 121,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
@@ -9736,13 +10059,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 60,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 110,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
@@ -9828,29 +10150,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 293,
+      "artifact_wrappers_inserted": 100,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 6,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 5,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-1"
       ]
     }
   },
@@ -9932,29 +10259,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 192,
+      "artifact_wrappers_inserted": 140,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 1,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 10,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     }
   },
@@ -10036,23 +10368,27 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 454,
+      "artifact_wrappers_inserted": 214,
       "pages_skipped": 0,
+      "form_xobjects_modified": 21,
+      "link_contents_set": 0,
+      "tail_polish_changes": 2,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 112,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 116,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
         "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2"
+        "7.18.5-2",
+        "7.3-1"
       ]
     },
     "ua_vera_after": {
@@ -10060,13 +10396,13 @@
       "compliant": false,
       "failed_rules": 5,
       "passed_rules": 101,
-      "violation_count": 21,
+      "violation_count": 31,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2"
+        "7.18.5-2",
+        "7.3-1"
       ]
     }
   },
@@ -10148,29 +10484,48 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 160,
+      "artifact_wrappers_inserted": 93,
       "pages_skipped": 0,
+      "form_xobjects_modified": 16,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 10,
+      "passed_rules": 96,
+      "violation_count": 121,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.7-1",
+        "7.21.8-1",
+        "7.3-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 2,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 60,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.7-1",
+        "7.21.8-1",
+        "7.3-1"
       ]
     }
   },
@@ -10252,8 +10607,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 13,
+      "artifact_wrappers_inserted": 25,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 2,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -10261,15 +10619,15 @@
       "compliant": false,
       "failed_rules": 7,
       "passed_rules": 99,
-      "violation_count": 115,
+      "violation_count": 121,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.1-1"
+        "7.21.4.1-1",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
@@ -10277,14 +10635,14 @@
       "compliant": false,
       "failed_rules": 6,
       "passed_rules": 100,
-      "violation_count": 58,
+      "violation_count": 110,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.1-1"
+        "7.21.4.1-1",
+        "7.4.2-1"
       ]
     }
   },
@@ -10366,29 +10724,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 293,
+      "artifact_wrappers_inserted": 100,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
+      "failed_rules": 2,
+      "passed_rules": 104,
       "violation_count": 5,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-1"
       ]
     }
   },
@@ -10470,29 +10833,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 199,
+      "artifact_wrappers_inserted": 140,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 1,
+      "failed_rules": 2,
+      "passed_rules": 104,
+      "violation_count": 10,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.4.2-1"
       ]
     }
   },
@@ -10574,23 +10942,27 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 469,
+      "artifact_wrappers_inserted": 214,
       "pages_skipped": 0,
+      "form_xobjects_modified": 21,
+      "link_contents_set": 0,
+      "tail_polish_changes": 2,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 112,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 116,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
         "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2"
+        "7.18.5-2",
+        "7.3-1"
       ]
     },
     "ua_vera_after": {
@@ -10598,13 +10970,13 @@
       "compliant": false,
       "failed_rules": 5,
       "passed_rules": 101,
-      "violation_count": 18,
+      "violation_count": 31,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
-        "7.18.5-2"
+        "7.18.5-2",
+        "7.3-1"
       ]
     }
   },
@@ -10686,29 +11058,48 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 165,
+      "artifact_wrappers_inserted": 93,
       "pages_skipped": 0,
+      "form_xobjects_modified": 16,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 10,
+      "passed_rules": 96,
+      "violation_count": 121,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.7-1",
+        "7.21.8-1",
+        "7.3-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
-      "violation_count": 6,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 60,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.21.4.1-2",
+        "7.21.7-1",
+        "7.21.8-1",
+        "7.3-1"
       ]
     }
   },
@@ -10790,21 +11181,23 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 9,
+      "artifact_wrappers_inserted": 25,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 2,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 116,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 121,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
@@ -10814,13 +11207,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 58,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 110,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
@@ -10906,29 +11298,34 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 295,
+      "artifact_wrappers_inserted": 100,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 2,
-      "passed_rules": 104,
-      "violation_count": 101,
+      "failed_rules": 3,
+      "passed_rules": 103,
+      "violation_count": 102,
       "rule_ids": [
         "5-1",
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 1,
-      "passed_rules": 105,
+      "failed_rules": 2,
+      "passed_rules": 104,
       "violation_count": 5,
       "rule_ids": [
-        "7.1-3"
+        "7.1-3",
+        "7.21.4.1-1"
       ]
     }
   },
@@ -11010,8 +11407,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 139,
+      "artifact_wrappers_inserted": 140,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -11116,8 +11516,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 192,
+      "artifact_wrappers_inserted": 214,
       "pages_skipped": 0,
+      "form_xobjects_modified": 21,
+      "link_contents_set": 0,
+      "tail_polish_changes": 2,
       "errors": []
     },
     "ua_vera_before": {
@@ -11139,13 +11542,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 33,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 31,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.3-1"
@@ -11230,8 +11632,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 1,
-      "artifact_wrappers_inserted": 77,
+      "artifact_wrappers_inserted": 93,
       "pages_skipped": 0,
+      "form_xobjects_modified": 16,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -11350,8 +11755,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 22,
+      "artifact_wrappers_inserted": 25,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 2,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -11375,7 +11783,7 @@
       "compliant": false,
       "failed_rules": 6,
       "passed_rules": 100,
-      "violation_count": 114,
+      "violation_count": 110,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
@@ -11464,8 +11872,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 2,
-      "artifact_wrappers_inserted": 99,
+      "artifact_wrappers_inserted": 100,
       "pages_skipped": 0,
+      "form_xobjects_modified": 1,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -11572,14 +11983,17 @@
       "pages_modified": 4,
       "artifact_wrappers_inserted": 123,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 133,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 134,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -11587,21 +12001,23 @@
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 132,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 133,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     }
@@ -11684,16 +12100,19 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 572,
+      "artifact_wrappers_inserted": 573,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 138,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 139,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -11701,6 +12120,7 @@
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
+        "7.3-1",
         "7.4.2-1",
         "7.5-1"
       ]
@@ -11708,15 +12128,16 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 114,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 115,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
+        "7.3-1",
         "7.4.2-1",
         "7.5-1"
       ]
@@ -11802,6 +12223,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 495,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -11916,8 +12340,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 8,
-      "artifact_wrappers_inserted": 1251,
+      "artifact_wrappers_inserted": 1305,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 107,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -11933,7 +12360,7 @@
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1"
+        "7.4.2-1"
       ]
     },
     "ua_vera_after": {
@@ -11948,7 +12375,7 @@
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1"
+        "7.4.2-1"
       ]
     }
   },
@@ -12030,8 +12457,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 739,
+      "artifact_wrappers_inserted": 753,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -12054,7 +12484,7 @@
       "compliant": false,
       "failed_rules": 5,
       "passed_rules": 101,
-      "violation_count": 344,
+      "violation_count": 318,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
@@ -12142,8 +12572,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 4,
-      "artifact_wrappers_inserted": 105,
+      "artifact_wrappers_inserted": 123,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -12151,7 +12584,7 @@
       "compliant": false,
       "failed_rules": 8,
       "passed_rules": 98,
-      "violation_count": 145,
+      "violation_count": 134,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -12159,7 +12592,7 @@
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     },
@@ -12168,14 +12601,14 @@
       "compliant": false,
       "failed_rules": 7,
       "passed_rules": 99,
-      "violation_count": 144,
+      "violation_count": 133,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     }
@@ -12258,16 +12691,19 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 557,
+      "artifact_wrappers_inserted": 573,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 137,
+      "failed_rules": 9,
+      "passed_rules": 97,
+      "violation_count": 139,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -12275,21 +12711,25 @@
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
+        "7.3-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 6,
-      "passed_rules": 100,
-      "violation_count": 136,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 115,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
+        "7.3-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     }
@@ -12372,8 +12812,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 501,
+      "artifact_wrappers_inserted": 495,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -12488,16 +12931,19 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 8,
-      "artifact_wrappers_inserted": 1161,
+      "artifact_wrappers_inserted": 1305,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 107,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 404,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 403,
       "rule_ids": [
         "5-1",
         "7.1-3",
@@ -12505,23 +12951,21 @@
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1",
         "7.4.2-1"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 403,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 402,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.3-1",
         "7.4.2-1"
       ]
     }
@@ -12604,8 +13048,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 739,
+      "artifact_wrappers_inserted": 753,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -12628,7 +13075,7 @@
       "compliant": false,
       "failed_rules": 5,
       "passed_rules": 101,
-      "violation_count": 344,
+      "violation_count": 318,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
@@ -12716,8 +13163,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 4,
-      "artifact_wrappers_inserted": 11,
+      "artifact_wrappers_inserted": 123,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -12725,15 +13175,15 @@
       "compliant": false,
       "failed_rules": 8,
       "passed_rules": 98,
-      "violation_count": 120,
+      "violation_count": 134,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.5-1",
-        "7.3-1",
+        "7.21.4.1-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     },
@@ -12742,14 +13192,14 @@
       "compliant": false,
       "failed_rules": 7,
       "passed_rules": 99,
-      "violation_count": 119,
+      "violation_count": 133,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.5-1",
-        "7.3-1",
+        "7.21.4.1-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     }
@@ -12832,8 +13282,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 79,
+      "artifact_wrappers_inserted": 573,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -12841,16 +13294,16 @@
       "compliant": false,
       "failed_rules": 9,
       "passed_rules": 97,
-      "violation_count": 152,
+      "violation_count": 139,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.21.7-1",
+        "7.3-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     },
@@ -12859,15 +13312,15 @@
       "compliant": false,
       "failed_rules": 8,
       "passed_rules": 98,
-      "violation_count": 151,
+      "violation_count": 115,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
-        "7.21.7-1",
+        "7.3-1",
+        "7.4.2-1",
         "7.5-1"
       ]
     }
@@ -12950,21 +13403,23 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 106,
+      "artifact_wrappers_inserted": 495,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 9,
-      "passed_rules": 97,
-      "violation_count": 141,
+      "failed_rules": 8,
+      "passed_rules": 98,
+      "violation_count": 145,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
@@ -12975,13 +13430,12 @@
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 140,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 144,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
         "7.21.4.1-1",
@@ -13056,7 +13510,7 @@
       "violation_count": 420,
       "error": ""
     },
-    "ua_fix_status": "track_a_no_improvement_kept_c",
+    "ua_fix_status": "success",
     "ua_fix_track_c": {
       "success": true,
       "changes": [
@@ -13068,28 +13522,44 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 8,
-      "artifact_wrappers_inserted": 14,
+      "artifact_wrappers_inserted": 1305,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 107,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 420,
+      "failed_rules": 7,
+      "passed_rules": 99,
+      "violation_count": 403,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.7-1",
-        "7.3-1"
+        "7.21.4.1-1",
+        "7.4.2-1"
       ]
     },
-    "ua_vera_after": null
+    "ua_vera_after": {
+      "success": true,
+      "compliant": false,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 402,
+      "rule_ids": [
+        "7.1-3",
+        "7.18.1-2",
+        "7.18.5-1",
+        "7.18.5-2",
+        "7.21.4.1-1",
+        "7.4.2-1"
+      ]
+    }
   },
   {
     "pdf_path": "/tmp/PDF-Accessibility-Benchmark/data/processed/table_structure/not_present/W2922538610.pdf",
@@ -13169,41 +13639,40 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 5,
-      "artifact_wrappers_inserted": 102,
+      "artifact_wrappers_inserted": 753,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
       "success": true,
       "compliant": false,
-      "failed_rules": 8,
-      "passed_rules": 98,
-      "violation_count": 408,
+      "failed_rules": 6,
+      "passed_rules": 100,
+      "violation_count": 402,
       "rule_ids": [
         "5-1",
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.2-2",
-        "7.5-1"
+        "7.21.4.2-2"
       ]
     },
     "ua_vera_after": {
       "success": true,
       "compliant": false,
-      "failed_rules": 7,
-      "passed_rules": 99,
-      "violation_count": 407,
+      "failed_rules": 5,
+      "passed_rules": 101,
+      "violation_count": 318,
       "rule_ids": [
         "7.1-3",
         "7.18.1-2",
-        "7.18.3-1",
         "7.18.5-1",
         "7.18.5-2",
-        "7.21.4.2-2",
-        "7.5-1"
+        "7.21.4.2-2"
       ]
     }
   },
@@ -13287,6 +13756,9 @@
       "pages_modified": 4,
       "artifact_wrappers_inserted": 123,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -13403,6 +13875,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 573,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -13521,6 +13996,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 495,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -13635,8 +14113,11 @@
     "ua_fix_track_a": {
       "success": true,
       "pages_modified": 8,
-      "artifact_wrappers_inserted": 1303,
+      "artifact_wrappers_inserted": 1305,
       "pages_skipped": 0,
+      "form_xobjects_modified": 2,
+      "link_contents_set": 107,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {
@@ -13751,6 +14232,9 @@
       "pages_modified": 5,
       "artifact_wrappers_inserted": 753,
       "pages_skipped": 0,
+      "form_xobjects_modified": 0,
+      "link_contents_set": 0,
+      "tail_polish_changes": 0,
       "errors": []
     },
     "ua_vera_before": {

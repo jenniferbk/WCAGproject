@@ -3,8 +3,62 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Phase**: Benchmark — honest detection at 77.6%, full remediation pipeline **84.9% PDF/UA failed-check reduction** via Track A v2 + Track C + Bucket 2/4 post-processing. Working on `feat/pdf-ua-fixes` branch.
-- **Tests**: 963 passing (was 938; +25 from this branch)
+- **Phase**: Benchmark — honest detection at **78.4%** (was 77.6%), full remediation pipeline **86.7% PDF/UA failed-check reduction**. All on master, deployed. Vision benchmark experiments on `feat/vision-benchmark`.
+- **Tests**: 977 passing (was 963; +14 from Phase 2b)
+- **ASSETS 2026 deadline**: April 22, 2026 (13 days)
+- **Kumar et al. outreach**: Emailing first author re: cannot_tell methodology (2026-04-09)
+
+## Benchmark Vision Experiments — feat/vision-benchmark (2026-04-09)
+
+### alt_text_quality: 65% → 70%
+- Clean trailing `\000` PDF escape sequences before quality scoring
+- Stricter rule: ANY bad alt text prevents "passed" verdict
+
+### Kumar et al. methodology finding
+Investigated why GPT-4-Turbo scored 85% vs our 78.4%. Key discovery:
+- Kumar et al. **withheld criterion-specific evidence** for "cannot_tell" prompts (paper §4.2)
+- GPT-4-Turbo's 97.1% on cannot_tell is trivially achievable when the model isn't given the data
+- We verified: cannot_tell and passed PDFs are **byte-identical** for 5/5 reading order docs, 2/5 color contrast docs
+- Vision classification (Gemini 3 Flash) gets 5/5 passed + 5/5 failed on color_contrast but 0/5 cannot_tell
+- Our 78.4% is near the theoretical ceiling (~82-85%) for a tool analyzing full PDFs
+- **Action**: emailing Kumar/Wang to discuss before citing in ASSETS paper
+
+### Vision infrastructure built but not active
+- `_vision_classify()` with Gemini 3 Flash, per-task WCAG prompts
+- Evidence builders for all 7 criteria
+- `--vision` CLI flag (logged, not used as override)
+- Finding: vision perfectly separates passed/failed but never outputs "cannot_tell"
+
+## Phase 2b: Link Bidirectional Integration (2026-04-09)
+
+### `populate_link_parent_tree()` — new post-processor in pdf_writer.py
+For every link annotation without a valid `/StructParent` → `/ParentTree` chain:
+1. Creates a `/Link` struct element under `/Document` with `/Alt` + `/ActualText`
+2. Adds `/OBJR` kid pointing to the annotation
+3. Sets `/StructParent N` on the annotation
+4. Populates `/ParentTree` number tree on `StructTreeRoot`
+
+Fixes veraPDF rules **7.18.1-2** (annotation in struct tree) and **7.18.5-1** (link tagged per ISO 32000).
+
+### Bug fix: `_extract_uri_from_annotation()` — indirect URI resolution
+WeasyPrint/iText output uses double-indirect action references:
+`annotation → /A 111 0 R → /URI 112 0 R → (http://...)`
+
+Old code only searched the annotation's own object text for `/URI (...)`. New helper follows indirect `/A` and `/URI` refs. This also fixed `populate_link_annotation_contents()` (rule 7.18.5-2) for all PDFs with indirect action dicts.
+
+### Stale `/StructParent` detection
+`strip_struct_tree()` removes the StructTreeRoot but leaves old `/StructParent` values on annotations. The function now checks whether each value resolves to a valid ParentTree entry; stale values are overwritten.
+
+### Benchmark impact
+- **125-doc benchmark**: 84.9% → **86.7%** failed-check reduction (+1.8pp)
+- 65/65 docs with links improved
+- 3,622 annotations linked, 3,436 fewer failed checks
+- Rules 7.18.1-2 and 7.18.5-1 eliminated on every doc with links
+
+### Remaining (from v2 analysis)
+- **7.1-3** (125 docs): untagged content in form XObjects — needs deeper recursion
+- **7.21.x** (64+ docs): font embedding — needs fontTools, risk of visual breakage
+- **7.4.2-1** (38 docs): font tagging — related to 7.21.x
 
 ## PDF/UA Compliance Post-Processing — feat/pdf-ua-fixes branch (2026-04-07)
 
@@ -68,10 +122,10 @@ Aggregate: 2505 → 263 failed checks (−89.5%), 41 → 22 failed rules.
 Confirms executor integration produces dramatically cleaner output
 than the baseline pipeline. Cost was $0.57 for 5 docs.
 
-### What's still deferred (would push us beyond 84.9%)
+### What's still deferred (would push beyond 86.7%)
 
-- **Phase 2b link bidirectional integration** (rules 7.18.1-2, 7.18.5-1, 7.18.5-2): ~7,440 remaining checks. Requires populating empty ParentTrees iText leaves behind. ~3-4 hours of bookkeeping. Would push reduction to ~88.7%.
-- **Bucket 3 font repair** (rules 7.21.x): ~5,543 remaining checks. Requires fontTools-based glyph re-embedding, real risk of breaking visual rendering. 1-2 days of work. Would push to ~91.5%.
+- ~~**Phase 2b link bidirectional integration**: DONE (2026-04-09), +1.8pp~~
+- **Bucket 3 font repair** (rules 7.21.x): ~5,543 remaining checks. Requires fontTools-based glyph re-embedding, real risk of breaking visual rendering. 1-2 days of work. Would push to ~89.5%.
 - **Deeper form XObject recursion** (nested XObjects, content the v1 walker still can't reach): ~16,186 remaining 7.1-3 checks. Approach unclear; may need iText config changes.
 
 ### Branch state

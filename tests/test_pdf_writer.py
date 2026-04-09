@@ -1023,3 +1023,461 @@ class TestMarkUntaggedContent:
             f"violations did not decrease: {baseline_vera.violation_count} "
             f"→ {post_vera.violation_count}"
         )
+
+
+# ── Phase 2b: Link ParentTree tests ─────────────────────────────────
+
+class TestExtractUri:
+    """Tests for _extract_uri_from_annotation covering indirect refs."""
+
+    def test_inline_uri(self, tmp_path):
+        """Annotation with /A << /S /URI /URI (http://...) >> inline."""
+        from src.tools.pdf_writer import _extract_uri_from_annotation
+
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_link({
+            "kind": fitz.LINK_URI,
+            "from": fitz.Rect(72, 72, 200, 92),
+            "uri": "https://inline.example.com",
+        })
+        out = tmp_path / "inline.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        doc = fitz.open(str(out))
+        for xref in range(1, doc.xref_length()):
+            try:
+                st = doc.xref_get_key(xref, "Subtype")
+            except Exception:
+                continue
+            if st[0] == "name" and st[1] == "/Link":
+                uri = _extract_uri_from_annotation(doc, xref)
+                assert "inline.example.com" in uri
+                break
+        doc.close()
+
+    def test_indirect_action_and_uri(self, tmp_path):
+        """Annotation with /A N 0 R where action has /URI M 0 R (double indirect)."""
+        from src.tools.pdf_writer import _extract_uri_from_annotation
+
+        doc = fitz.open()
+        page = doc.new_page()
+
+        # Create the deep indirect structure manually
+        uri_xref = doc.get_new_xref()
+        doc.update_object(uri_xref, "(https://deep.example.com/page)")
+
+        action_xref = doc.get_new_xref()
+        doc.update_object(
+            action_xref,
+            f"<< /S /URI /Type /Action /URI {uri_xref} 0 R >>",
+        )
+
+        annot_xref = doc.get_new_xref()
+        doc.update_object(
+            annot_xref,
+            f"<< /Type /Annot /Subtype /Link "
+            f"/Rect [72 72 200 92] "
+            f"/A {action_xref} 0 R >>",
+        )
+
+        # Add to page's Annots
+        doc.xref_set_key(page.xref, "Annots", f"[{annot_xref} 0 R]")
+
+        out = tmp_path / "indirect.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        doc = fitz.open(str(out))
+        uri = _extract_uri_from_annotation(doc, annot_xref)
+        assert "deep.example.com" in uri, f"Got: {uri!r}"
+        doc.close()
+
+
+class TestLinkParentTreeHelpers:
+    """Unit tests for Phase 2b helper functions."""
+
+    def _make_pdf_with_links(self, tmp_path, num_links=2, add_struct_tree=True):
+        """Create a minimal PDF with link annotations for testing."""
+        doc = fitz.open()
+        page = doc.new_page()
+
+        # Add link annotations
+        for i in range(num_links):
+            rect = fitz.Rect(72, 72 + i * 30, 300, 92 + i * 30)
+            page.insert_link({
+                "kind": fitz.LINK_URI,
+                "from": rect,
+                "uri": f"https://example.com/link{i}",
+            })
+
+        if add_struct_tree:
+            # Create a minimal struct tree with a /Document element
+            cat = doc.pdf_catalog()
+            doc_elem_xref = doc.get_new_xref()
+            st_root_xref = doc.get_new_xref()
+            doc.update_object(
+                doc_elem_xref,
+                f"<< /Type /StructElem /S /Document /P {st_root_xref} 0 R /K [] >>",
+            )
+            doc.update_object(
+                st_root_xref,
+                f"<< /Type /StructTreeRoot /K {doc_elem_xref} 0 R >>",
+            )
+            doc.xref_set_key(cat, "StructTreeRoot", f"{st_root_xref} 0 R")
+            doc.xref_set_key(cat, "MarkInfo", "<</Marked true>>")
+
+        out = tmp_path / "links.pdf"
+        doc.save(str(out))
+        doc.close()
+        return out
+
+    def test_get_link_annotation_xrefs(self, tmp_path):
+        from src.tools.pdf_writer import _get_link_annotation_xrefs
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=3)
+        doc = fitz.open(str(pdf_path))
+        page = doc[0]
+        xrefs = _get_link_annotation_xrefs(doc, page)
+        assert len(xrefs) == 3
+        # Each should be a /Link annotation
+        for xref in xrefs:
+            st = doc.xref_get_key(xref, "Subtype")
+            assert st[1] == "/Link"
+        doc.close()
+
+    def test_get_annot_alt_text_from_contents(self, tmp_path):
+        from src.tools.pdf_writer import _get_annot_alt_text
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=1)
+        doc = fitz.open(str(pdf_path))
+        page = doc[0]
+        # Find the link annotation and set /Contents on it
+        for xref in range(1, doc.xref_length()):
+            try:
+                st = doc.xref_get_key(xref, "Subtype")
+            except Exception:
+                continue
+            if st[0] == "name" and st[1] == "/Link":
+                doc.xref_set_key(xref, "Contents", "(Example Link Text)")
+                alt = _get_annot_alt_text(doc, xref)
+                assert alt == "Example Link Text"
+                break
+        doc.close()
+
+    def test_get_annot_alt_text_fallback_to_uri(self, tmp_path):
+        from src.tools.pdf_writer import _get_annot_alt_text
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=1)
+        doc = fitz.open(str(pdf_path))
+        # Find link — it shouldn't have /Contents yet
+        for xref in range(1, doc.xref_length()):
+            try:
+                st = doc.xref_get_key(xref, "Subtype")
+            except Exception:
+                continue
+            if st[0] == "name" and st[1] == "/Link":
+                alt = _get_annot_alt_text(doc, xref)
+                assert "example.com" in alt
+                break
+        doc.close()
+
+    def test_find_document_elem(self, tmp_path):
+        from src.tools.pdf_writer import _find_document_elem
+
+        pdf_path = self._make_pdf_with_links(tmp_path)
+        doc = fitz.open(str(pdf_path))
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        st_root = int(st_key[1].split()[0])
+        doc_elem = _find_document_elem(doc, st_root)
+        assert doc_elem is not None
+        obj = doc.xref_object(doc_elem) or ""
+        assert "/Document" in obj
+        doc.close()
+
+    def test_find_next_struct_parent_empty(self, tmp_path):
+        from src.tools.pdf_writer import _find_next_struct_parent
+
+        pdf_path = self._make_pdf_with_links(tmp_path)
+        doc = fitz.open(str(pdf_path))
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        st_root = int(st_key[1].split()[0])
+        # Fresh PDF with no StructParent entries → should return 0
+        next_sp = _find_next_struct_parent(doc, st_root)
+        assert next_sp == 0
+        doc.close()
+
+    def test_create_link_struct_elem(self, tmp_path):
+        from src.tools.pdf_writer import _create_link_struct_elem
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=1)
+        doc = fitz.open(str(pdf_path))
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        st_root = int(st_key[1].split()[0])
+
+        # Find /Document element
+        from src.tools.pdf_writer import _find_document_elem
+        doc_elem = _find_document_elem(doc, st_root)
+
+        # Find an annotation
+        from src.tools.pdf_writer import _get_link_annotation_xrefs
+        page = doc[0]
+        annot_xrefs = _get_link_annotation_xrefs(doc, page)
+        assert len(annot_xrefs) >= 1
+        annot_xref = annot_xrefs[0]
+
+        # Create struct element
+        link_xref = _create_link_struct_elem(
+            doc, doc_elem, annot_xref, "Test Link"
+        )
+        obj = doc.xref_object(link_xref) or ""
+        assert "/Link" in obj
+        assert "/OBJR" in obj
+        assert str(annot_xref) in obj
+        assert "Test Link" in obj
+        doc.close()
+
+
+class TestLinkParentTree:
+    """Integration tests for populate_link_parent_tree()."""
+
+    def _make_pdf_with_links(self, tmp_path, num_links=2):
+        """Create a minimal PDF with link annotations and struct tree."""
+        doc = fitz.open()
+        page = doc.new_page()
+
+        for i in range(num_links):
+            rect = fitz.Rect(72, 72 + i * 30, 300, 92 + i * 30)
+            page.insert_link({
+                "kind": fitz.LINK_URI,
+                "from": rect,
+                "uri": f"https://example.com/link{i}",
+            })
+
+        # Create struct tree
+        cat = doc.pdf_catalog()
+        doc_elem_xref = doc.get_new_xref()
+        st_root_xref = doc.get_new_xref()
+        doc.update_object(
+            doc_elem_xref,
+            f"<< /Type /StructElem /S /Document /P {st_root_xref} 0 R /K [] >>",
+        )
+        doc.update_object(
+            st_root_xref,
+            f"<< /Type /StructTreeRoot /K {doc_elem_xref} 0 R >>",
+        )
+        doc.xref_set_key(cat, "StructTreeRoot", f"{st_root_xref} 0 R")
+        doc.xref_set_key(cat, "MarkInfo", "<</Marked true>>")
+
+        out = tmp_path / "links.pdf"
+        doc.save(str(out))
+        doc.close()
+        return out
+
+    def test_basic_link_parent_tree(self, tmp_path):
+        """Core test: annotations get StructParent and ParentTree is populated."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=3)
+        result = populate_link_parent_tree(pdf_path)
+
+        assert result.success
+        assert result.annotations_linked == 3
+        assert result.struct_elements_created == 3
+        assert result.parent_tree_entries == 3
+
+        # Verify annotations now have /StructParent
+        doc = fitz.open(str(pdf_path))
+        for xref in range(1, doc.xref_length()):
+            try:
+                st = doc.xref_get_key(xref, "Subtype")
+            except Exception:
+                continue
+            if st[0] == "name" and st[1] == "/Link":
+                sp = doc.xref_get_key(xref, "StructParent")
+                assert sp[0] not in ("null", "undefined"), (
+                    f"annotation xref {xref} still missing /StructParent"
+                )
+
+        # Verify ParentTree exists on StructTreeRoot
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        st_root = int(st_key[1].split()[0])
+        pt_key = doc.xref_get_key(st_root, "ParentTree")
+        assert pt_key[0] == "xref", "ParentTree not set on StructTreeRoot"
+
+        # Verify ParentTreeNextKey
+        nk = doc.xref_get_key(st_root, "ParentTreeNextKey")
+        assert nk[0] not in ("null", "undefined")
+        assert int(nk[1]) == 3
+
+        doc.close()
+
+    def test_idempotent(self, tmp_path):
+        """Running twice should be a no-op the second time."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=2)
+
+        r1 = populate_link_parent_tree(pdf_path)
+        assert r1.success
+        assert r1.annotations_linked == 2
+
+        r2 = populate_link_parent_tree(pdf_path)
+        assert r2.success
+        assert r2.annotations_linked == 0  # all already have StructParent
+
+    def test_no_struct_tree(self, tmp_path):
+        """PDF without StructTreeRoot returns failure gracefully."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+
+        doc = fitz.open()
+        doc.new_page()
+        out = tmp_path / "no_struct.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        result = populate_link_parent_tree(out)
+        assert not result.success
+        assert "StructTreeRoot" in result.error
+
+    def test_no_links_is_noop(self, tmp_path):
+        """PDF with struct tree but no link annotations is a no-op."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+
+        doc = fitz.open()
+        doc.new_page()
+        cat = doc.pdf_catalog()
+        doc_elem = doc.get_new_xref()
+        st_root = doc.get_new_xref()
+        doc.update_object(
+            doc_elem,
+            f"<< /Type /StructElem /S /Document /P {st_root} 0 R /K [] >>",
+        )
+        doc.update_object(
+            st_root,
+            f"<< /Type /StructTreeRoot /K {doc_elem} 0 R >>",
+        )
+        doc.xref_set_key(cat, "StructTreeRoot", f"{st_root} 0 R")
+        out = tmp_path / "no_links.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        result = populate_link_parent_tree(out)
+        assert result.success
+        assert result.annotations_linked == 0
+
+    def test_file_not_found(self):
+        from src.tools.pdf_writer import populate_link_parent_tree
+
+        result = populate_link_parent_tree("/nonexistent.pdf")
+        assert not result.success
+        assert "not found" in result.error.lower()
+
+    def test_struct_elements_have_objr(self, tmp_path):
+        """Each created /Link struct element should have an OBJR kid."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=2)
+        populate_link_parent_tree(pdf_path)
+
+        doc = fitz.open(str(pdf_path))
+        # Find all /Link struct elements
+        link_struct_count = 0
+        for xref in range(1, doc.xref_length()):
+            try:
+                obj = doc.xref_object(xref) or ""
+            except Exception:
+                continue
+            if "/S /Link" in obj and "/OBJR" in obj:
+                link_struct_count += 1
+        assert link_struct_count == 2
+        doc.close()
+
+    def test_parent_tree_entries_resolve_to_link(self, tmp_path):
+        """ParentTree entries should resolve to /Link struct elements."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=1)
+        populate_link_parent_tree(pdf_path)
+
+        doc = fitz.open(str(pdf_path))
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        st_root = int(st_key[1].split()[0])
+        pt_key = doc.xref_get_key(st_root, "ParentTree")
+        pt_xref = int(pt_key[1].split()[0])
+        pt_obj = doc.xref_object(pt_xref) or ""
+
+        # Extract the value xref from the /Nums array
+        import re
+        nums_match = re.search(r"/Nums\s*\[\s*0\s+(\d+)\s+0\s+R", pt_obj)
+        assert nums_match, f"Could not find entry in ParentTree: {pt_obj}"
+        elem_xref = int(nums_match.group(1))
+
+        # Verify it's a /Link
+        elem_obj = doc.xref_object(elem_xref) or ""
+        assert "/S /Link" in elem_obj
+        doc.close()
+
+    def test_on_real_syllabus_pdf(self, tmp_path):
+        """Test on the real syllabus PDF which has 9 link annotations."""
+        from src.tools.pdf_writer import (
+            populate_link_annotation_contents,
+            populate_link_parent_tree,
+        )
+
+        if not SYLLABUS_PDF.exists():
+            pytest.skip("syllabus PDF not available")
+
+        dst = tmp_path / "syllabus.pdf"
+        shutil.copy2(SYLLABUS_PDF, dst)
+
+        # Need to set up a struct tree first (syllabus may not have one)
+        doc = fitz.open(str(dst))
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        if st_key[0] != "xref":
+            # Create minimal struct tree
+            doc_elem = doc.get_new_xref()
+            st_root = doc.get_new_xref()
+            doc.update_object(
+                doc_elem,
+                f"<< /Type /StructElem /S /Document /P {st_root} 0 R /K [] >>",
+            )
+            doc.update_object(
+                st_root,
+                f"<< /Type /StructTreeRoot /K {doc_elem} 0 R >>",
+            )
+            doc.xref_set_key(cat, "StructTreeRoot", f"{st_root} 0 R")
+            doc.xref_set_key(cat, "MarkInfo", "<</Marked true>>")
+            doc.save(str(dst), incremental=True, encryption=0)
+        doc.close()
+
+        # First set /Contents on annotations
+        contents_result = populate_link_annotation_contents(dst)
+        assert contents_result.success
+
+        # Then populate ParentTree
+        result = populate_link_parent_tree(dst)
+        assert result.success
+        assert result.annotations_linked > 0, "Expected some annotations to be linked"
+
+        # Verify all link annotations now have /StructParent
+        doc = fitz.open(str(dst))
+        unlinked = 0
+        for xref in range(1, doc.xref_length()):
+            try:
+                st = doc.xref_get_key(xref, "Subtype")
+            except Exception:
+                continue
+            if st[0] == "name" and st[1] == "/Link":
+                sp = doc.xref_get_key(xref, "StructParent")
+                if sp[0] in ("null", "undefined"):
+                    unlinked += 1
+        assert unlinked == 0, f"{unlinked} link annotations still unlinked"
+        doc.close()

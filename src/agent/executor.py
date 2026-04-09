@@ -37,6 +37,7 @@ from src.tools.pdf_writer import (
     apply_pdf_ua_tail_polish,
     mark_untagged_content_as_artifact,
     populate_link_annotation_contents,
+    populate_link_parent_tree,
     repair_broken_uris_in_pdf,
     strip_struct_tree,
     update_existing_figure_alt_texts,
@@ -398,6 +399,31 @@ def execute_pdf(
                     )
             except Exception as exc:
                 logger.warning("Link /Contents pass failed: %s", exc)
+
+            # PDF/UA Phase 2b — bidirectional annotation ↔ struct tree
+            # links.  Creates /Link struct elements with OBJR kids for
+            # every link annotation, populates /ParentTree.  Fixes
+            # rules 7.18.1-2 and 7.18.5-1.  Must run AFTER
+            # populate_link_annotation_contents (which sets /Contents
+            # used as the /Alt source).
+            try:
+                pt_result = populate_link_parent_tree(tagged_pdf_path)
+                if pt_result.success and pt_result.annotations_linked:
+                    logger.info(
+                        "Linked %d annotation(s) to struct tree, "
+                        "created %d /Link element(s), "
+                        "%d ParentTree entries in %s",
+                        pt_result.annotations_linked,
+                        pt_result.struct_elements_created,
+                        pt_result.parent_tree_entries,
+                        tagged_pdf_path,
+                    )
+                elif not pt_result.success:
+                    logger.warning(
+                        "Link ParentTree pass failed: %s", pt_result.error
+                    )
+            except Exception as exc:
+                logger.warning("Link ParentTree pass failed: %s", exc)
 
             # PDF/UA tail polish — catalog /Lang, page /Tabs /S,
             # /Figure /Alt fallback. Eliminates rules 7.2-34, 7.18.3-1,

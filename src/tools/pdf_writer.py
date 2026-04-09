@@ -2350,6 +2350,59 @@ class LinkContentsResult:
     error: str = ""
 
 
+def _extract_uri_from_annotation(doc: "fitz.Document", annot_xref: int) -> str:
+    """Extract the URI string from a link annotation, following indirect refs.
+
+    Handles three common layouts:
+
+    1. Inline:     ``/A << /URI (http://...) >>``
+    2. Indirect A: ``/A 111 0 R`` → ``<< /URI (http://...) >>``
+    3. Double indirect: ``/A 111 0 R`` → ``<< /URI 112 0 R >>``
+       → ``(http://...)``
+
+    Returns the URI string, or ``""`` if not found.
+    """
+    try:
+        # Step 1: find the action dict (may be inline or indirect)
+        a_key = doc.xref_get_key(annot_xref, "A")
+        if a_key[0] == "xref":
+            # Indirect action reference
+            action_xref = int(a_key[1].split()[0])
+            action_text = doc.xref_object(action_xref) or ""
+        elif a_key[0] == "dict":
+            action_text = a_key[1]
+        else:
+            # No /A key — try the annotation's own object
+            action_text = doc.xref_object(annot_xref) or ""
+
+        # Step 2: look for /URI in the action dict
+        # First try inline string: /URI (http://...)
+        m = re.search(r"/URI\s*\(((?:[^()\\]|\\.)*)\)", action_text)
+        if m:
+            return m.group(1)
+
+        # Then try indirect ref: /URI 112 0 R
+        m = re.search(r"/URI\s+(\d+)\s+0\s+R", action_text)
+        if m:
+            uri_xref = int(m.group(1))
+            uri_obj = doc.xref_object(uri_xref) or ""
+            # The object is a raw PDF string: (http://...)
+            m2 = re.match(r"\(((?:[^()\\]|\\.)*)\)", uri_obj.strip())
+            if m2:
+                return m2.group(1)
+            # Sometimes it's just the bare string
+            return uri_obj.strip().strip("()")
+
+        # Step 3: fall back to /D for GoTo links
+        m = re.search(r"/D\s*\(((?:[^()\\]|\\.)*)\)", action_text)
+        if m:
+            return f"Reference: {m.group(1)}"
+
+    except Exception:
+        pass
+    return ""
+
+
 def populate_link_annotation_contents(
     pdf_path: "str | Path",
 ) -> LinkContentsResult:
@@ -2409,26 +2462,9 @@ def populate_link_annotation_contents(
                 continue
 
             # Pull the alt-text source from the annotation's action
-            # dict. Prefer /URI for external links; fall back to
-            # /D (named destination) for internal GoTo links so
-            # citation links and table-of-contents anchors also get
-            # a description.
-            alt_text = ""
-            try:
-                obj_text = doc.xref_object(xref) or ""
-                m = re.search(
-                    r"/URI\s*\(((?:[^()\\]|\\.)*)\)", obj_text
-                )
-                if m:
-                    alt_text = m.group(1)
-                else:
-                    m = re.search(
-                        r"/D\s*\(((?:[^()\\]|\\.)*)\)", obj_text
-                    )
-                    if m:
-                        alt_text = f"Reference: {m.group(1)}"
-            except Exception:
-                pass
+            # dict. Handles inline, indirect, and double-indirect
+            # /URI layouts.
+            alt_text = _extract_uri_from_annotation(doc, xref)
 
             if not alt_text:
                 skipped += 1
@@ -2458,6 +2494,425 @@ def populate_link_annotation_contents(
     return LinkContentsResult(
         success=True, annotations_modified=modified, annotations_skipped=skipped
     )
+
+
+@dataclass
+class LinkParentTreeResult:
+    """Result of populate_link_parent_tree()."""
+    success: bool
+    annotations_linked: int = 0
+    struct_elements_created: int = 0
+    parent_tree_entries: int = 0
+    error: str = ""
+
+
+def populate_link_parent_tree(
+    pdf_path: "str | Path",
+) -> LinkParentTreeResult:
+    """Create bidirectional annotation ↔ struct-tree links for PDF/UA.
+
+    For each link annotation that lacks a ``/StructParent`` entry:
+
+    1. Create a ``/Link`` struct element under the root ``/Document``
+       element with ``/Alt`` and ``/ActualText`` taken from the
+       annotation's ``/Contents`` (set earlier by
+       ``populate_link_annotation_contents``) or ``/URI`` fallback.
+    2. Add an ``/OBJR`` (object reference) kid to the struct element
+       pointing back to the annotation.
+    3. Set ``/StructParent N`` on the annotation.
+    4. Add entry ``N → struct_elem`` in the ``/ParentTree`` number tree
+       on the ``/StructTreeRoot``.
+
+    This satisfies veraPDF rules:
+
+    - **7.18.1-2**: every annotation has a ``/StructParent`` and
+      corresponding ``/ParentTree`` entry.
+    - **7.18.5-1**: the ``/ParentTree`` entry resolves to a ``/Link``
+      struct element.
+
+    Existing ``/Link`` struct elements created by iText (which lack
+    OBJRs) are left in place — they carry rich ``/ActualText`` for
+    screen readers and don't trigger veraPDF failures.
+
+    Args:
+        pdf_path: Path to the PDF file.  Modified in place.
+
+    Returns:
+        LinkParentTreeResult with counts.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return LinkParentTreeResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return LinkParentTreeResult(success=False, error=f"Open failed: {exc}")
+
+    try:
+        return _populate_link_parent_tree_inner(doc, path)
+    except Exception as exc:
+        return LinkParentTreeResult(
+            success=False, error=f"populate_link_parent_tree: {exc}"
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+
+def _populate_link_parent_tree_inner(
+    doc: "fitz.Document", path: Path
+) -> LinkParentTreeResult:
+    """Core logic for populate_link_parent_tree (separated for testability)."""
+    cat = doc.pdf_catalog()
+
+    # ── Find StructTreeRoot ──────────────────────────────────────────
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        return LinkParentTreeResult(
+            success=False, error="No StructTreeRoot on catalog"
+        )
+    try:
+        st_root_xref = int(st_key[1].split()[0])
+    except (ValueError, IndexError):
+        return LinkParentTreeResult(
+            success=False, error="Malformed StructTreeRoot reference"
+        )
+
+    # ── Find the /Document struct element (first /S /Document kid) ───
+    doc_elem_xref = _find_document_elem(doc, st_root_xref)
+    if doc_elem_xref is None:
+        return LinkParentTreeResult(
+            success=False, error="No /Document struct element found"
+        )
+
+    # ── Determine next available StructParent number ─────────────────
+    # Scan all xrefs for the highest existing /StructParent or
+    # /StructParents value, then start above it.  Also check
+    # /ParentTreeNextKey on the StructTreeRoot.
+    next_sp = _find_next_struct_parent(doc, st_root_xref)
+
+    # ── Collect existing ParentTree entries (to merge later) ─────────
+    existing_pt_xref, existing_nums = _read_existing_parent_tree(
+        doc, st_root_xref
+    )
+    valid_sp_keys = {k for k, _ in existing_nums}
+
+    # ── Walk pages, find link annotations needing StructParent ───────
+    new_entries: list[tuple[int, int]] = []  # (struct_parent_num, link_elem_xref)
+    created = 0
+
+    for page_idx in range(doc.page_count):
+        page = doc[page_idx]
+        annot_xrefs = _get_link_annotation_xrefs(doc, page)
+        for annot_xref in annot_xrefs:
+            # Skip annotations whose /StructParent resolves to a valid
+            # ParentTree entry.  Stale /StructParent values (left over
+            # from a stripped struct tree) must be overwritten — veraPDF
+            # correctly flags them as orphaned.
+            sp = doc.xref_get_key(annot_xref, "StructParent")
+            if sp[0] not in ("null", "undefined"):
+                try:
+                    sp_val = int(sp[1])
+                    if sp_val in valid_sp_keys:
+                        continue  # legitimately linked
+                except (ValueError, TypeError):
+                    pass
+                # Stale or unparseable — will be overwritten below
+
+            # Get alt text from /Contents (set by earlier pass) or /URI
+            alt_text = _get_annot_alt_text(doc, annot_xref)
+
+            # Create /Link struct element with OBJR kid
+            link_elem_xref = _create_link_struct_elem(
+                doc, doc_elem_xref, annot_xref, alt_text
+            )
+
+            # Set /StructParent on the annotation
+            sp_num = next_sp
+            doc.xref_set_key(annot_xref, "StructParent", str(sp_num))
+            next_sp += 1
+
+            new_entries.append((sp_num, link_elem_xref))
+            created += 1
+
+    if not new_entries:
+        doc.close()
+        return LinkParentTreeResult(
+            success=True, annotations_linked=0,
+            struct_elements_created=0, parent_tree_entries=0,
+        )
+
+    # ── Build / update ParentTree ────────────────────────────────────
+    all_nums = dict(existing_nums)  # copy
+    for sp_num, elem_xref in new_entries:
+        all_nums[sp_num] = elem_xref
+
+    _write_parent_tree(doc, st_root_xref, all_nums, next_sp, existing_pt_xref)
+
+    doc.save(str(path), incremental=True, encryption=0)
+
+    return LinkParentTreeResult(
+        success=True,
+        annotations_linked=created,
+        struct_elements_created=created,
+        parent_tree_entries=len(new_entries),
+    )
+
+
+def _find_document_elem(doc: "fitz.Document", st_root_xref: int) -> int | None:
+    """Find the first /Document struct element under the StructTreeRoot."""
+    obj = doc.xref_object(st_root_xref) or ""
+    # /K can be a direct reference or an array
+    for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+        kid_xref = int(m.group(1))
+        try:
+            kid_obj = doc.xref_object(kid_xref) or ""
+        except Exception:
+            continue
+        if re.search(r"/S\s*/Document\b", kid_obj):
+            return kid_xref
+    return None
+
+
+def _find_next_struct_parent(doc: "fitz.Document", st_root_xref: int) -> int:
+    """Find the next available StructParent number.
+
+    Checks ``/ParentTreeNextKey`` on the StructTreeRoot first (iText
+    sets this).  Falls back to scanning all xrefs for the highest
+    ``/StructParent`` or ``/StructParents`` value.
+    """
+    # Check ParentTreeNextKey first
+    try:
+        nk = doc.xref_get_key(st_root_xref, "ParentTreeNextKey")
+        if nk[0] not in ("null", "undefined"):
+            val = int(nk[1])
+            if val > 0:
+                return val
+    except (ValueError, TypeError):
+        pass
+
+    max_sp = -1
+    for xref in range(1, doc.xref_length()):
+        try:
+            for key in ("StructParent", "StructParents"):
+                sp = doc.xref_get_key(xref, key)
+                if sp[0] not in ("null", "undefined"):
+                    val = int(sp[1])
+                    if val > max_sp:
+                        max_sp = val
+        except (ValueError, TypeError, Exception):
+            continue
+    return max_sp + 1
+
+
+def _read_existing_parent_tree(
+    doc: "fitz.Document", st_root_xref: int
+) -> tuple[int | None, list[tuple[int, int]]]:
+    """Read existing /ParentTree entries from the StructTreeRoot.
+
+    Returns ``(parent_tree_xref, [(key, value_xref), ...])``.
+    ``parent_tree_xref`` is None if no ParentTree exists.
+    Values can be xrefs (for annotation entries) or xrefs of arrays
+    (for page MCID entries).
+    """
+    pt_key = doc.xref_get_key(st_root_xref, "ParentTree")
+    if pt_key[0] not in ("xref",):
+        return None, []
+
+    try:
+        pt_xref = int(pt_key[1].split()[0])
+    except (ValueError, IndexError):
+        return None, []
+
+    try:
+        pt_obj = doc.xref_object(pt_xref) or ""
+    except Exception:
+        return None, []
+
+    # Parse /Nums array: [key1 value1 key2 value2 ...]
+    # Values are either indirect refs (N 0 R) or inline arrays
+    nums_match = re.search(r"/Nums\s*\[([^\]]*)\]", pt_obj, re.DOTALL)
+    if not nums_match:
+        return pt_xref, []
+
+    nums_content = nums_match.group(1).strip()
+    entries: list[tuple[int, int]] = []
+
+    # Parse alternating key/value pairs
+    # Keys are integers, values are "N 0 R" indirect references or arrays
+    tokens = re.findall(r"\d+\s+0\s+R|\d+", nums_content)
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if re.match(r"^\d+$", token):
+            key = int(token)
+            # Next token should be the value (an indirect reference)
+            if i + 1 < len(tokens):
+                val_token = tokens[i + 1]
+                ref_match = re.match(r"(\d+)\s+0\s+R", val_token)
+                if ref_match:
+                    entries.append((key, int(ref_match.group(1))))
+                    i += 2
+                    continue
+        i += 1
+
+    return pt_xref, entries
+
+
+def _get_link_annotation_xrefs(
+    doc: "fitz.Document", page: "fitz.Page"
+) -> list[int]:
+    """Return xrefs of all /Link annotations on a page."""
+    xrefs: list[int] = []
+    # Read page's /Annots array
+    try:
+        annots_key = doc.xref_get_key(page.xref, "Annots")
+    except Exception:
+        return xrefs
+    if annots_key[0] in ("null", "undefined"):
+        return xrefs
+
+    # Annots can be a direct array or indirect reference
+    annots_text = annots_key[1]
+    if annots_key[0] == "xref":
+        # Indirect reference to an array object
+        try:
+            arr_xref = int(annots_text.split()[0])
+            annots_text = doc.xref_object(arr_xref) or ""
+        except Exception:
+            return xrefs
+
+    for m in re.finditer(r"(\d+)\s+0\s+R", annots_text):
+        axref = int(m.group(1))
+        try:
+            subtype = doc.xref_get_key(axref, "Subtype")
+        except Exception:
+            continue
+        if subtype[0] == "name" and subtype[1] == "/Link":
+            xrefs.append(axref)
+
+    return xrefs
+
+
+def _get_annot_alt_text(doc: "fitz.Document", annot_xref: int) -> str:
+    """Extract alt text for a link annotation.
+
+    Prefers ``/Contents`` (already set by ``populate_link_annotation_contents``).
+    Falls back to ``/URI`` via ``_extract_uri_from_annotation`` which
+    handles inline, indirect, and double-indirect action dicts.
+    """
+    try:
+        contents = doc.xref_get_key(annot_xref, "Contents")
+        if contents[0] not in ("null", "undefined"):
+            # Contents is a PDF string — strip parens
+            text = contents[1]
+            if text.startswith("(") and text.endswith(")"):
+                text = text[1:-1]
+            return text
+    except Exception:
+        pass
+
+    return _extract_uri_from_annotation(doc, annot_xref)
+
+
+def _create_link_struct_elem(
+    doc: "fitz.Document",
+    doc_elem_xref: int,
+    annot_xref: int,
+    alt_text: str,
+) -> int:
+    """Create a /Link struct element with an OBJR kid pointing to an annotation.
+
+    Returns the xref of the new struct element.
+    """
+    # Escape text for PDF string literals
+    escaped = (
+        alt_text.replace("\\", "\\\\")
+        .replace("(", "\\(")
+        .replace(")", "\\)")
+    )
+
+    # Create the /Link struct element
+    link_xref = doc.get_new_xref()
+    doc.update_object(
+        link_xref,
+        f"<< /Type /StructElem /S /Link "
+        f"/P {doc_elem_xref} 0 R "
+        f"/Alt ({escaped}) "
+        f"/ActualText ({escaped}) "
+        f"/K << /Type /OBJR /Obj {annot_xref} 0 R >> >>",
+    )
+
+    # Add the new struct element to the /Document element's /K array
+    _append_kid(doc, doc_elem_xref, link_xref)
+
+    return link_xref
+
+
+def _append_kid(doc: "fitz.Document", parent_xref: int, child_xref: int) -> None:
+    """Append a child xref to a struct element's /K array."""
+    obj_text = doc.xref_object(parent_xref) or ""
+
+    # Check if /K already exists
+    k_key = doc.xref_get_key(parent_xref, "K")
+    if k_key[0] in ("null", "undefined"):
+        # No /K yet — set it as a single reference
+        doc.xref_set_key(parent_xref, "K", f"{child_xref} 0 R")
+    elif k_key[0] == "array":
+        # Already an array — append
+        doc.xref_set_key(parent_xref, "K", f"{k_key[1][:-1]} {child_xref} 0 R]")
+    elif k_key[0] == "xref":
+        # Single reference — convert to array
+        doc.xref_set_key(
+            parent_xref, "K", f"[{k_key[1]} {child_xref} 0 R]"
+        )
+    else:
+        # Single inline value (e.g. integer MCID) — wrap in array
+        doc.xref_set_key(
+            parent_xref, "K", f"[{k_key[1]} {child_xref} 0 R]"
+        )
+
+
+def _write_parent_tree(
+    doc: "fitz.Document",
+    st_root_xref: int,
+    all_nums: dict[int, int],
+    next_key: int,
+    existing_pt_xref: int | None,
+) -> None:
+    """Write the /ParentTree number tree on the StructTreeRoot.
+
+    Merges existing entries with new annotation→struct-element mappings.
+    """
+    if not all_nums:
+        return
+
+    # Build /Nums array content: [key1 value1_ref key2 value2_ref ...]
+    sorted_keys = sorted(all_nums.keys())
+    nums_parts: list[str] = []
+    for key in sorted_keys:
+        val_xref = all_nums[key]
+        nums_parts.append(f"{key} {val_xref} 0 R")
+
+    nums_str = " ".join(nums_parts)
+
+    if existing_pt_xref is not None:
+        # Update existing ParentTree object
+        doc.update_object(
+            existing_pt_xref,
+            f"<< /Nums [{nums_str}] >>",
+        )
+    else:
+        # Create new ParentTree object
+        pt_xref = doc.get_new_xref()
+        doc.update_object(pt_xref, f"<< /Nums [{nums_str}] >>")
+        doc.xref_set_key(st_root_xref, "ParentTree", f"{pt_xref} 0 R")
+
+    # Update ParentTreeNextKey
+    doc.xref_set_key(st_root_xref, "ParentTreeNextKey", str(next_key))
 
 
 @dataclass

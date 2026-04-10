@@ -8,7 +8,7 @@
 
 ## Abstract (~150 words)
 
-The Kumar et al. (ASSETS 2025) PDF Accessibility Benchmark provides 125 expert-labeled documents for evaluating *detection* of accessibility failures. Detection alone, however, does not address the problem faculty face under the U.S. DOJ Title II ADA rule: producing accessible documents by April 2026. We present the first *remediation-outcomes* measurement on this benchmark. Our agentic pipeline reduces independently-verified veraPDF PDF/UA-1 failed checks by 86.7% across all 125 documents at $0.13/document, with zero regressions. We also identify a methodological characteristic of the benchmark: 13 of 125 items use byte-identical PDFs across label categories, with labels differentiated by what evidence is provided to the evaluator at test time rather than by document content. On the 90 items where labels are distinguishable by document analysis, our detector achieves 94.4% — exceeding all published baselines. We discuss the implications for benchmark design and for the gap between detection and remediation.
+The Kumar et al. (ASSETS 2025) PDF Accessibility Benchmark provides 125 expert-labeled documents for evaluating *detection* of accessibility failures. Detection alone, however, does not address the problem faculty face under the U.S. DOJ Title II ADA rule: producing accessible documents by April 2026. We present the first *remediation-outcomes* measurement on this benchmark. Our agentic pipeline reduces independently-verified veraPDF PDF/UA-1 failed checks by 86.7% across all 125 documents at $0.13/document, with zero regressions. We also report a methodological observation: 13 of 125 benchmark items use byte-identical PDFs across label categories, with labels differentiated by test-time evidence provided to the evaluator rather than by document content (confirmed by the benchmark authors). When these pairs are consolidated as single items, our detector scores 87.5% (98/112), compared to GPT-4-Turbo's published 85% on the full benchmark. We discuss the implications for benchmark design and for the gap between detection and remediation.
 
 ---
 
@@ -22,7 +22,7 @@ Recent work has focused on automated *detection* of accessibility failures (Kuma
 
 ### Contributions
 1. **First remediation-outcomes measurement** on the Kumar et al. benchmark: 86.7% reduction in veraPDF PDF/UA-1 failed checks across 125 documents, $0.13/doc, zero regressions.
-2. **Benchmark methodology finding**: 13 of 125 items use byte-identical PDFs across labels. On the 90 document-distinguishable items, our detector achieves 94.4%, exceeding GPT-4-Turbo's 85% overall score. We discuss implications with the benchmark authors' confirmation.
+2. **Benchmark methodology observation**: 13 of 125 items use byte-identical PDFs across label categories (confirmed by benchmark authors). When these constrained pairs are consolidated as single items, our detector scores 87.5% (98/112) vs GPT-4-Turbo's published 85%.
 3. **Two empirical findings** about PDF/UA tooling: bare `/Artifact BDC` is silently ignored without a property dict, and iText's struct-tree rebuild leaves orphan BDC markers accounting for 90%+ of pre-fix rule 7.1-3 failures.
 
 ---
@@ -87,33 +87,39 @@ Zero documents reach full PDF/UA-1 compliance because every benchmark PDF has fo
 
 ### 4.2 Detection results and benchmark methodology
 
-For completeness, we also ran the Kumar et al. detection task using our PDF analysis tools.
+We also ran the Kumar et al. detection task using our PDF analysis tools (deterministic heuristics, no LLM calls for detection).
 
-| System | Overall | Score basis |
-|---|---:|---|
-| GPT-4-Turbo (Kumar et al.) | 85.0% | LLM classification with controlled evidence |
-| Our tool (all 125 items) | 78.4% | Full PDF analysis, no metadata |
-| **Our tool (90 document-distinguishable items)** | **94.4%** | Full PDF analysis, no metadata |
+#### Byte-identical pairs
 
-#### Methodology finding
-
-We discovered that 13 of 125 benchmark items use byte-identical PDFs across label categories:
+We discovered that 13 of 125 benchmark items use byte-identical PDFs across label categories (verified via SHA-256 checksums):
 
 | Task | Identical pairs | Pattern |
 |---|---|---|
-| logical_reading_order | 4 of 5 docs | cannot_tell = passed |
 | semantic_tagging | 5 of 5 docs | failed = cannot_tell |
+| logical_reading_order | 4 of 5 docs | cannot_tell = passed |
 | color_contrast | 2 of 5 docs | cannot_tell = passed |
 | table_structure | 1 of 5 docs | cannot_tell = passed |
 | alt_text_quality | 1 doc | not_present = cannot_tell |
 
-Additional documents have text-identical content across labels despite different file hashes (alt text metadata or struct tree order is the only difference — precisely the criterion being assessed).
+The benchmark authors confirm (personal communication) that these items use the same PDFs with different test-time evidence provided to the LLM: "we assume that something failed during [criterion] extraction such that the information is not available to the LLM to assess [criterion] quality." This is a reasonable evaluation of whether LLMs correctly abstain under incomplete evidence, but any tool analyzing full PDFs will produce the same prediction for both items in a byte-identical pair.
 
-The benchmark authors confirm (personal communication) that "cannot_tell" items use the same PDFs as "passed" items, with different test-time evidence provided to the LLM: "we assume that something failed during [criterion] extraction such that the information is not available to the LLM to assess." This is a valid evaluation of LLM evidence-interpretation, but it means a tool analyzing full PDFs cannot distinguish these label pairs.
+#### Consolidated scoring
 
-On the 90 items where labels are distinguishable by document content, our tool achieves **94.4%** (85/90), exceeding all published baselines. The remaining 5 errors are on tasks where our heuristics have known blind spots (borderline contrast cases, complex table structures).
+Since a content-based tool must predict identically for byte-identical documents, we consolidate each pair as a single item, crediting it if either label matches. This yields 112 items (99 unpaired + 13 consolidated pairs).
 
-**Implication for future benchmarks:** Label differences should be grounded in document content when the benchmark is intended to evaluate document-level assessment tools, not just LLM evidence interpretation. We suggest separating these two evaluation goals in future benchmark design.
+| System | Basis | Items | Score |
+|---|---|---:|---:|
+| GPT-4-Turbo (Kumar et al.) | LLM + controlled evidence | 125 | 85.0% |
+| **Our tool (consolidated)** | **Heuristics, full PDF** | **112** | **87.5%** |
+| Our tool (full benchmark) | Heuristics, full PDF | 125 | 78.4% |
+
+On the 99 unpaired items (where no byte-identity constraint exists), our accuracy is 87.9%. The two consolidated-pair errors are documents where neither label in the pair matches our prediction.
+
+We emphasize that GPT-4-Turbo's 85% and our 78.4% measure different things: their score reflects LLM classification with selectively provided evidence; ours reflects deterministic heuristics applied to complete documents. The consolidated 87.5% adjusts for the 13 items where the benchmark's evidence-withholding methodology creates predictions that are correct-by-construction for LLMs but impossible for document-analysis tools.
+
+#### Implication for future benchmarks
+
+The Kumar et al. benchmark effectively evaluates two capabilities: (1) LLM evidence-interpretation, including appropriate abstention, and (2) document-level accessibility assessment. These are both valuable, but tools designed for (2) cannot be fairly scored on items designed for (1). We suggest future benchmarks separate these evaluation goals, or at minimum flag items where labels are differentiated by test-time input rather than document content.
 
 ---
 
@@ -162,7 +168,7 @@ Code and live deployment at [URLs anonymized for review]. Benchmark at github.co
 ## Pre-submission checklist
 
 - [ ] Update remediation numbers if they change before submission
-- [ ] Verify 94.4% calculation: exactly which 5 errors on the 90-item subset?
+- [ ] Verify 87.5% calculation: 98/112 consolidated, 11/13 pairs correct, 87/99 unpaired
 - [ ] One hero figure: per-rule before/after bar chart
 - [ ] Anonymize for double-blind review (strip GitHub URLs, author info)
 - [ ] Cut to 4 pages — Discussion can compress, per-rule table can go to supplementary

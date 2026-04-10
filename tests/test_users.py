@@ -274,3 +274,59 @@ class TestJobsMigration:
         cursor = conn.execute("PRAGMA table_info(jobs)")
         columns = {row[1] for row in cursor.fetchall()}
         assert "page_count" in columns
+
+    def test_users_table_has_email_opt_in(self):
+        """Verify migration added email_opt_in column."""
+        conn = _get_conn()
+        cursor = conn.execute("PRAGMA table_info(users)")
+        columns = {row[1] for row in cursor.fetchall()}
+        assert "email_opt_in" in columns
+
+
+class TestEmailOptIn:
+    """Tests for email opt-in/opt-out preference."""
+
+    def test_default_opt_out(self):
+        """New users default to opted out."""
+        user = create_user(email="default@test.com", password_hash="hash")
+        assert user.email_opt_in is False
+
+    def test_create_with_opt_in(self):
+        """Users can opt in during registration."""
+        user = create_user(email="optin@test.com", password_hash="hash", email_opt_in=True)
+        assert user.email_opt_in is True
+
+    def test_create_with_explicit_opt_out(self):
+        """Users can explicitly opt out during registration."""
+        user = create_user(email="optout@test.com", password_hash="hash", email_opt_in=False)
+        assert user.email_opt_in is False
+
+    def test_update_opt_in(self):
+        """Users can update their email preference."""
+        user = create_user(email="update@test.com", password_hash="hash")
+        assert user.email_opt_in is False
+        updated = update_user(user.id, email_opt_in=1)
+        assert updated is not None
+        assert updated.email_opt_in is True
+
+    def test_update_opt_out(self):
+        """Users can opt out after opting in."""
+        user = create_user(email="revert@test.com", password_hash="hash", email_opt_in=True)
+        assert user.email_opt_in is True
+        updated = update_user(user.id, email_opt_in=0)
+        assert updated is not None
+        assert updated.email_opt_in is False
+
+    def test_opt_in_in_to_dict(self):
+        """email_opt_in is included in to_dict() output."""
+        user = create_user(email="dict@test.com", password_hash="hash", email_opt_in=True)
+        d = user.to_dict()
+        assert "email_opt_in" in d
+        assert d["email_opt_in"] is True
+
+    def test_opt_in_persists_across_reads(self):
+        """email_opt_in survives a round-trip through the database."""
+        user = create_user(email="persist@test.com", password_hash="hash", email_opt_in=True)
+        reloaded = get_user(user.id)
+        assert reloaded is not None
+        assert reloaded.email_opt_in is True

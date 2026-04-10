@@ -934,3 +934,61 @@ class TestAdminAddPages:
         res = admin_client.get("/api/admin/stats")
         assert res.status_code == 200
         assert "total_pages_used" in res.json()
+
+
+class TestEmailOptInEndpoints:
+    """Tests for email opt-in/opt-out via API."""
+
+    def test_register_default_opt_out(self, client):
+        """Registration without email_opt_in defaults to false."""
+        res = client.post("/api/auth/register", json={
+            "email": "noopt@test.com",
+            "password": "testpass123",
+        })
+        assert res.status_code == 200
+        assert res.json()["user"]["email_opt_in"] is False
+
+    def test_register_with_opt_in(self, client):
+        """Registration with email_opt_in=true is persisted."""
+        res = client.post("/api/auth/register", json={
+            "email": "yesopt@test.com",
+            "password": "testpass123",
+            "email_opt_in": True,
+        })
+        assert res.status_code == 200
+        assert res.json()["user"]["email_opt_in"] is True
+
+    def test_me_returns_opt_in(self, auth_client):
+        """GET /api/auth/me includes email_opt_in field."""
+        res = auth_client.get("/api/auth/me")
+        assert res.status_code == 200
+        assert "email_opt_in" in res.json()["user"]
+
+    def test_patch_me_opt_in(self, auth_client):
+        """PATCH /api/auth/me can update email_opt_in."""
+        res = auth_client.patch("/api/auth/me", json={"email_opt_in": True})
+        assert res.status_code == 200
+        assert res.json()["user"]["email_opt_in"] is True
+
+    def test_patch_me_opt_out(self, auth_client):
+        """PATCH /api/auth/me can opt out."""
+        auth_client.patch("/api/auth/me", json={"email_opt_in": True})
+        res = auth_client.patch("/api/auth/me", json={"email_opt_in": False})
+        assert res.status_code == 200
+        assert res.json()["user"]["email_opt_in"] is False
+
+    def test_patch_me_requires_auth(self, client):
+        """PATCH /api/auth/me requires authentication."""
+        res = client.patch("/api/auth/me", json={"email_opt_in": True})
+        assert res.status_code == 401
+
+    def test_patch_me_rejects_invalid_fields(self, auth_client):
+        """PATCH /api/auth/me rejects fields not in the allowed set."""
+        res = auth_client.patch("/api/auth/me", json={"is_admin": True})
+        assert res.status_code == 400
+
+    def test_patch_me_display_name(self, auth_client):
+        """PATCH /api/auth/me can update display_name."""
+        res = auth_client.patch("/api/auth/me", json={"display_name": "New Name"})
+        assert res.status_code == 200
+        assert res.json()["user"]["display_name"] == "New Name"

@@ -31,6 +31,7 @@ class User:
     is_admin: bool = False
     pages_balance: int = 20
     pages_used: int = 0
+    email_opt_in: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +47,7 @@ class User:
             "is_admin": self.is_admin,
             "pages_balance": self.pages_balance,
             "pages_used": self.pages_used,
+            "email_opt_in": self.email_opt_in,
         }
 
 
@@ -88,6 +90,9 @@ def init_users_db() -> None:
     if "pages_used" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN pages_used INTEGER DEFAULT 0")
         conn.commit()
+    if "email_opt_in" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN email_opt_in BOOLEAN DEFAULT 0")
+        conn.commit()
 
     # Migrate: add columns to jobs if missing
     cursor = conn.execute("PRAGMA table_info(jobs)")
@@ -120,6 +125,7 @@ def init_users_db() -> None:
 def _row_to_user(row) -> User:
     d = dict(row)
     d["is_admin"] = bool(d.get("is_admin", 0))
+    d["email_opt_in"] = bool(d.get("email_opt_in", 0))
     d.setdefault("pages_balance", 20)
     d.setdefault("pages_used", 0)
     # Remove fields not in the User dataclass
@@ -134,6 +140,7 @@ def create_user(
     display_name: str = "",
     auth_provider: str = "local",
     oauth_provider_id: str = "",
+    email_opt_in: bool = False,
 ) -> User:
     """Create a new user. Returns the created User."""
     conn = _get_conn()
@@ -141,9 +148,9 @@ def create_user(
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """INSERT INTO users (id, email, password_hash, display_name, auth_provider,
-           oauth_provider_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, email, password_hash, display_name, auth_provider, oauth_provider_id, now, now),
+           oauth_provider_id, email_opt_in, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, email, password_hash, display_name, auth_provider, oauth_provider_id, int(email_opt_in), now, now),
     )
     conn.commit()
     return get_user(user_id)  # type: ignore[return-value]

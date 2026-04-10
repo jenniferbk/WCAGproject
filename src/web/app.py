@@ -244,8 +244,10 @@ async def register(data: dict, _rate=Depends(_register_limit)):
     if existing:
         return JSONResponse(status_code=409, content={"error": "An account with this email already exists"})
 
+    email_opt_in = bool(data.get("email_opt_in", False))
+
     hashed = hash_password(password)
-    user = create_user(email=email, password_hash=hashed, display_name=display_name or email.split("@")[0])
+    user = create_user(email=email, password_hash=hashed, display_name=display_name or email.split("@")[0], email_opt_in=email_opt_in)
     user = _check_admin_promotion(user)
 
     token = create_token(user.id, user.email)
@@ -288,6 +290,23 @@ async def me(user: User | None = Depends(get_current_user), _rate=Depends(_gener
     if not user:
         return JSONResponse(status_code=401, content={"error": "Not authenticated"})
     return {"user": user.to_dict()}
+
+
+@app.patch("/api/auth/me")
+async def update_me(data: dict, user: User | None = Depends(get_current_user)):
+    """Update current user's preferences."""
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Not authenticated"})
+    allowed = {"email_opt_in", "display_name"}
+    updates = {k: v for k, v in data.items() if k in allowed}
+    if not updates:
+        return JSONResponse(status_code=400, content={"error": "No valid fields to update"})
+    if "email_opt_in" in updates:
+        updates["email_opt_in"] = int(bool(updates["email_opt_in"]))
+    updated = update_user(user.id, **updates)
+    if not updated:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+    return {"user": updated.to_dict()}
 
 
 @app.post("/api/auth/forgot-password")

@@ -177,6 +177,13 @@
       color: var(--text);
     }
 
+    .email-opt-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      cursor: pointer;
+      color: var(--text-secondary, #666);
+    }
     .btn-logout {
       background: none;
       border: 1px solid var(--border);
@@ -2536,6 +2543,10 @@
     <a class="admin-link hidden" id="adminLink" onclick="showAdminView()" role="button" tabindex="0">Admin</a>
     <div class="user-menu hidden" id="userMenu">
       <span class="user-menu-name" id="userDisplayName"></span>
+      <label class="email-opt-toggle" title="Receive occasional email updates">
+        <input type="checkbox" id="emailOptInToggle" onchange="toggleEmailOptIn(this.checked)">
+        <span style="font-size:0.75rem">Email updates</span>
+      </label>
       <button class="btn-logout" onclick="handleLogout()" aria-label="Sign out">Sign out</button>
     </div>
   </div>
@@ -2621,6 +2632,12 @@
           <div id="passwordHint" style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem">
             At least 8 characters
           </div>
+        </div>
+        <div class="form-group" style="margin-top:0.5rem">
+          <label style="display:flex;align-items:flex-start;gap:0.5rem;font-size:0.85rem;cursor:pointer">
+            <input type="checkbox" id="signupEmailOptIn" style="margin-top:0.2rem">
+            <span>Send me occasional updates about new features and improvements</span>
+          </label>
         </div>
         <div class="form-error" id="signupError" role="alert" aria-live="assertive"></div>
         <button type="submit" class="btn-submit" id="signupBtn">Create account</button>
@@ -3096,6 +3113,7 @@ function showAppView() {
   document.getElementById('headerSubtitle').classList.add('hidden');
   document.getElementById('userMenu').classList.remove('hidden');
   document.getElementById('userDisplayName').textContent = currentUser.display_name || currentUser.email;
+  document.getElementById('emailOptInToggle').checked = !!currentUser.email_opt_in;
   document.getElementById('adminLink').classList.toggle('hidden', !currentUser.is_admin);
   // Show What's New link and check for unread
   document.getElementById('whatsNewLink').classList.remove('hidden');
@@ -3249,7 +3267,7 @@ async function handleSignup(e) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ email, password, display_name }),
+      body: JSON.stringify({ email, password, display_name, email_opt_in: document.getElementById('signupEmailOptIn').checked }),
     });
 
     const data = await res.json();
@@ -3349,6 +3367,24 @@ async function handleResetPassword(e) {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Reset password';
+  }
+}
+
+async function toggleEmailOptIn(checked) {
+  try {
+    const res = await fetch(`${API}/api/auth/me`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email_opt_in: checked }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = data.user;
+    }
+  } catch (e) {
+    // Revert checkbox on error
+    document.getElementById('emailOptInToggle').checked = !checked;
   }
 }
 

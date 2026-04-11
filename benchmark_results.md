@@ -2,14 +2,14 @@
 
 Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessibility-Benchmark)
 
-**Overall accuracy: 94.40%** (118/125 correct)
-**Elapsed: 151.3s**
+**Overall accuracy: 96.80%** (121/125 correct)
+**Elapsed: 1081.6s**
 
 ## Comparison to Published Baselines
 
 | System | Overall Accuracy |
 |--------|-----------------|
-| **A11y Remediate (this tool)** | **94.40%** |
+| **A11y Remediate (this tool)** | **96.80%** |
 | GPT-4-Turbo | 85.00% |
 | GPT-4o-Vision | 81.00% |
 | Gemini-1.5 | 75.00% |
@@ -21,10 +21,10 @@ Benchmark: [Kumar et al., ASSETS 2025](https://github.com/Anukriti12/PDF-Accessi
 | Task | Correct | Total | Accuracy |
 |------|---------|-------|----------|
 | alt_text_quality | 19 | 20 | 95.00% |
-| color_contrast | 13 | 15 | 86.67% |
+| color_contrast | 15 | 15 | 100.00% |
 | fonts_readability | 15 | 15 | 100.00% |
 | functional_hyperlinks | 20 | 20 | 100.00% |
-| logical_reading_order | 11 | 15 | 73.33% |
+| logical_reading_order | 12 | 15 | 80.00% |
 | semantic_tagging | 20 | 20 | 100.00% |
 | table_structure | 20 | 20 | 100.00% |
 
@@ -38,16 +38,16 @@ Rows = ground truth, columns = predicted
 |---|---|---|---|---|
 | cannot_tell | 5 | 0 | 0 | 0 |
 | failed | 0 | 5 | 0 | 0 |
-| not_present | 1 | 0 | 4 | 0 |
+| not_present | 0 | 0 | 4 | 1 |
 | passed | 0 | 0 | 0 | 5 |
 
 ### color_contrast
 
 | gold ↓ / predicted → | cannot_tell | failed | passed |
 |---|---|---|---|
-| cannot_tell | 4 | 0 | 1 |
+| cannot_tell | 5 | 0 | 0 |
 | failed | 0 | 5 | 0 |
-| passed | 1 | 0 | 4 |
+| passed | 0 | 0 | 5 |
 
 ### fonts_readability
 
@@ -71,8 +71,8 @@ Rows = ground truth, columns = predicted
 | gold ↓ / predicted → | cannot_tell | failed | passed |
 |---|---|---|---|
 | cannot_tell | 5 | 0 | 0 |
-| failed | 0 | 5 | 0 |
-| passed | 4 | 0 | 1 |
+| failed | 0 | 4 | 1 |
+| passed | 2 | 0 | 3 |
 
 ### semantic_tagging
 

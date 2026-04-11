@@ -1537,7 +1537,23 @@ def _predict_logical_reading_order(report, doc_model, facts: StructFacts, pdf_pa
         if len(paras) < 3:
             continue
         total_pages += 1
-        ys = [p.bbox[1] for p in paras]
+
+        # Filter running headers/footers: short text at extreme y
+        # positions that repeats across pages (e.g., "Author Manuscript",
+        # "JAMA. Author manuscript; available in PMC...").
+        # These cause y-coordinate jumps that aren't reading order issues.
+        filtered = [
+            p for p in paras
+            if not (
+                len(p.text.strip()) < 80
+                and p.bbox is not None
+                and (p.bbox[1] < 50 or p.bbox[1] > 700)
+            )
+        ]
+        if len(filtered) < 3:
+            continue
+
+        ys = [p.bbox[1] for p in filtered]
         descending = sum(1 for a, b in zip(ys, ys[1:]) if b < a - 20)
         if descending / max(len(ys) - 1, 1) > 0.25:
             bad_pages += 1

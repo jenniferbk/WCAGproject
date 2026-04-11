@@ -608,8 +608,14 @@ def _vision_classify(
     if client is None:
         return None
 
-    page_pngs = _render_pages(pdf_path, dpi=150, max_pages=max_pages)
-    if not page_pngs:
+    # For cannot_tell replication, check if evidence was withheld.
+    # If so, don't send page images either — for visual tasks (contrast,
+    # fonts) the model can assess from images alone, defeating the
+    # evidence-withholding methodology.
+    _evidence_withheld = evidence.startswith("(Criterion-specific data")
+
+    page_pngs = [] if _evidence_withheld else _render_pages(pdf_path, dpi=150, max_pages=max_pages)
+    if not page_pngs and not _evidence_withheld:
         return None
 
     task_prompts = {

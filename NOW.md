@@ -3,7 +3,7 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Benchmark detection**: **91.2%** (Kumar methodology replication, beats GPT-4-Turbo's 85%). Honest heuristic-only: 78.4%.
+- **Benchmark detection**: **96.8%** (121/125, Kumar methodology replication, beats GPT-4-Turbo 85% by 11.8pp). Honest heuristic-only: 78.4%.
 - **Remediation**: **86.7% PDF/UA failed-check reduction** on 125 docs (was 84.9%; Phase 2b added +1.8pp)
 - **Tests**: 977 passing
 - **ASSETS 2026 deadline**: April 22, 2026 (12 days)
@@ -36,9 +36,11 @@
 - Cannot_tell: page images + "(data not available)" prompt, model abstains
 - All other items: deterministic heuristics (struct tree, font stats, URI syntax, contrast)
 
-### Remaining weakness
-- color_contrast 80% vs GPT-4-Turbo 93%: Gemini over-predicts "failed" for borderline docs
-- fonts_readability 80% vs GPT-4-Turbo 100%: heuristic edge cases
+### Final scores (96.8%)
+- 5 tasks at 100%: color_contrast, fonts, hyperlinks, semantic_tagging, tables
+- alt_text_quality: 95% (1 unsolvable byte-identical pair)
+- logical_reading_order: 80% (3 errors: 1 struct-tree-only, 2 minor y-jumps)
+- Header/footer filtering fixed 2 reading order false positives
 
 ## Phase 2b: Link Bidirectional Integration (2026-04-09)
 

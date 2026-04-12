@@ -1515,13 +1515,47 @@ def _reading_order_displacement(pdf_path: str, max_pages: int = 5) -> float | No
     return sum(displacements) / len(displacements)
 
 
+def _collect_repeated_header_footer_texts(pages: dict[int, list]) -> set[str]:
+    """Find text that repeats at extreme y positions across multiple pages.
+
+    Running headers/footers like "Author ManuscriptAuthor Manuscript..."
+    may exceed the 80-char length filter but still appear on every page
+    at the same y-position.  Returns normalised text strings that appear
+    on 2+ pages at y < 80 or y > 680.
+    """
+    from collections import Counter
+    edge_texts: Counter = Counter()
+    for paras in pages.values():
+        seen_on_page: set[str] = set()
+        for p in paras:
+            if p.bbox is None:
+                continue
+            if p.bbox[1] < 80 or p.bbox[1] > 680:
+                norm = p.text.strip()[:120].lower()
+                if norm and norm not in seen_on_page:
+                    edge_texts[norm] += 1
+                    seen_on_page.add(norm)
+    return {t for t, count in edge_texts.items() if count >= 2}
+
+
 def _predict_logical_reading_order(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """logical_reading_order: does the document read in a sensible order?
 
-    Heuristic: look at the bbox y-coordinates of paragraphs in document order.
-    A monotonically-increasing y per page suggests good order; lots of jumping
-    suggests bad order.
+    Three signals:
+    1. Content-stream displacement (catches severely disordered streams
+       where blocks are far from their visual position)
+    2. Per-page y-coordinate jumps (catches within-page disorder)
+    3. Running header/footer detection (repeated text at page edges
+       that causes false y-jumps)
     """
+    # ── Signal 1: displacement score ──────────────────────────────────
+    # High displacement means content-stream order diverges heavily from
+    # visual layout.  Threshold is conservative (0.70) to avoid false
+    # positives on multi-column papers where column order creates
+    # moderate displacement (~0.5-0.63) that is actually correct.
+    disp = _reading_order_displacement(pdf_path) if pdf_path else None
+    if disp is not None and disp >= 0.70:
+        return "failed"
     pages: dict[int, list] = {}
     for p in doc_model.paragraphs:
         if p.bbox is None or p.page_number is None:
@@ -1531,6 +1565,9 @@ def _predict_logical_reading_order(report, doc_model, facts: StructFacts, pdf_pa
     if not pages:
         return "cannot_tell"
 
+    # Build set of repeated header/footer text across pages
+    repeated_hf = _collect_repeated_header_footer_texts(pages)
+
     bad_pages = 0
     total_pages = 0
     for page_num, paras in pages.items():
@@ -1538,16 +1575,17 @@ def _predict_logical_reading_order(report, doc_model, facts: StructFacts, pdf_pa
             continue
         total_pages += 1
 
-        # Filter running headers/footers: short text at extreme y
-        # positions that repeats across pages (e.g., "Author Manuscript",
-        # "JAMA. Author manuscript; available in PMC...").
-        # These cause y-coordinate jumps that aren't reading order issues.
+        # Filter running headers/footers: text at extreme y positions
+        # that is either short (<80 chars) or repeats across pages.
         filtered = [
             p for p in paras
             if not (
-                len(p.text.strip()) < 80
-                and p.bbox is not None
-                and (p.bbox[1] < 50 or p.bbox[1] > 700)
+                p.bbox is not None
+                and (p.bbox[1] < 80 or p.bbox[1] > 680)
+                and (
+                    len(p.text.strip()) < 80
+                    or p.text.strip()[:120].lower() in repeated_hf
+                )
             )
         ]
         if len(filtered) < 3:

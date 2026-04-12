@@ -60,6 +60,16 @@
 - **Link annotations** (rules 7.18.x) — partially addressed by link text harvest. Remaining: annotations still lacking proper struct tree linkage in some docs.
 - **Font repair** (rules 7.21.x) — font encoding issues (ToUnicode CMap, glyph widths). Requires fontTools. Risk of breaking visual rendering.
 
+## Running: Full 125-doc remediation benchmark (v3)
+
+Output dir: `/tmp/remediation_bench_v3`
+Includes all today's fixes: link text harvest + /Suspect→/Artifact conversion.
+After completion, run `scripts/verapdf_postprocess.py --results-dir /tmp/remediation_bench_v3` for PDF/UA numbers.
+
+## Shipped: /Suspect → /Artifact Conversion (2026-04-12)
+
+Non-standard `/Suspect` BDC markers (from Adobe OCR) converted to `/Artifact` in artifact marking pass. Skinner: 629 → 132 veraPDF failures (−79%). 474 markers converted across 10 pages.
+
 ## Shipped: Link Text Harvest (2026-04-12)
 
 Fixed false WCAG 2.4.4 failures where validator saw raw URLs despite agent having improved link text. Three changes:

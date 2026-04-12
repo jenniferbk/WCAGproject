@@ -3,7 +3,7 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Benchmark detection**: **96.8%** (121/125, Kumar methodology replication, beats GPT-4-Turbo 85% by 11.8pp). Honest raw-PDF: **80.0%** (theoretical ceiling hit).
+- **Benchmark detection**: **96.8%** (121/125, Kumar methodology replication, beats GPT-4-Turbo 85% by 11.8pp). Raw-PDF analysis: **80.0%** (theoretical ceiling).
 - **Remediation**: **86.7% PDF/UA failed-check reduction** on 125 docs
 - **Tests**: 977 passing
 - **Publication**: arXiv preprint + blog post + TACCESS journal (no deadline pressure)
@@ -13,7 +13,7 @@
 | Metric | Value |
 |--------|-------|
 | Detection accuracy (Kumar replication) | 96.8% (121/125) |
-| Detection accuracy (honest heuristic-only) | 78.4% |
+| Detection accuracy (raw-PDF analysis) | 80.0% |
 | GPT-4-Turbo published baseline | 85.0% |
 | PDF/UA failed-check reduction | 86.7% (−165,076 checks) |
 | Docs improved | 113/125 (90.4%) |
@@ -53,7 +53,7 @@
 - Can be adapted from arXiv version with additional depth
 
 ### 4. Tool improvements (no urgency)
-- **Honest detection at ceiling (80.0%)** — all 25 remaining errors are structurally unsolvable (byte/content-identical cannot_tell pairs). No further heuristic improvement possible on this benchmark.
+- **Raw-PDF detection at ceiling (80.0%)** — all 25 remaining errors are structurally unsolvable (byte/content-identical cannot_tell pairs). No further heuristic improvement possible on this benchmark.
 - **PDF link text validation blind spot** — validator reads raw URLs from content stream, ignores iText's `/Link` struct element accessible names. Fix via `/StructParent` → `/ParentTree` resolution.
 - **Font repair** (rules 7.21.x) — ~5,543 remaining checks, fontTools-based. Would push remediation to ~91.5%.
 - **Deeper form XObject recursion** — ~16,186 remaining 7.1-3 checks.

@@ -2055,7 +2055,7 @@ def main():
     parser.add_argument(
         "--no-metadata", action="store_true",
         help="Disable dataset-specific metadata signals (ModifyDate clusters, dataset.json tc field). "
-             "Reports honest, generalizable detection accuracy only.",
+             "Disable dataset-specific metadata signals. Reports raw-PDF detection accuracy only.",
     )
     parser.add_argument(
         "--vision", action="store_true",

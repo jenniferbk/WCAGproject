@@ -58,6 +58,24 @@
 - **Font repair** (rules 7.21.x) — ~5,543 remaining checks, fontTools-based. Would push remediation to ~91.5%.
 - **Deeper form XObject recursion** — ~16,186 remaining 7.1-3 checks.
 
+## In Progress: Link Text Validation Fix
+
+**Problem:** After iText tagging, `/Link` struct elements have good `/ActualText` (e.g., "NEI Eye Data on Low Vision"). But our validator reads link text from the content stream via `page.get_textbox()` and sees raw URLs → reports false WCAG 2.4.4 failures.
+
+**Root cause:** Parser extracts `LinkInfo.text` from visual content stream. Validator checks that text. Neither reads the struct tree's `/ActualText`.
+
+**The correct fix (not yet implemented):** For each link annotation, resolve `/StructParent` integer → look up in `/ParentTree` number tree → get the `/Link` struct element → read `/ActualText`. Use that as the link's accessible name instead of the content stream text.
+
+**Why positional matching failed (tried and reverted):** iText emits one `/Link` per logical link, but long URLs that wrap create multiple annotations (one per line rect). Positional pairing desyncs — worse than baseline because screen readers would hear wrong descriptions.
+
+**Key files:**
+- `src/tools/pdf_parser.py:811-833` — `_extract_text_blocks()` reads link text from content stream
+- `src/tools/validator.py:271-295` — `_check_2_4_4_link_purpose()` validates against `LinkInfo.text`
+- `src/tools/pdf_writer.py:2509-2662` — `populate_link_parent_tree()` creates `/Link` struct elements with `/ActualText`
+- `src/tools/itext_tagger.py:228-238` — iText link tagging plan
+
+**Status:** Context exploration complete. Next: clarifying questions → design → implement.
+
 ## Architecture Quick Reference
 - Detection: `scripts/benchmark.py` + `scripts/struct_tree_probe.py` (heuristic + Gemini vision hybrid)
 - Remediation: `src/agent/orchestrator.py` (comprehend → strategize → execute → review)

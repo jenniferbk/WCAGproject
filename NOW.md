@@ -55,8 +55,10 @@
 ### 4. Tool improvements (no urgency)
 - **Raw-PDF detection at ceiling (80.0%)** — all 25 remaining errors are structurally unsolvable (byte/content-identical cannot_tell pairs). No further heuristic improvement possible on this benchmark.
 - **~~PDF link text validation blind spot~~** — FIXED (2026-04-12). Parser now reads `/ActualText` from struct tree.
-- **Font repair** (rules 7.21.x) — ~5,543 remaining checks, fontTools-based. Would push remediation to ~91.5%.
-- **Deeper form XObject recursion** — ~16,186 remaining 7.1-3 checks.
+- **~~Form XObject recursion~~** — ALREADY SOLVED. Pass 2 walker handles form XObjects. The 16,186 figure was stale (from before the walker was added).
+- **Language tagging** (rules 7.2-34) — "/Lang" not set on content spans. Potentially large check count. Needs investigation.
+- **Link annotations** (rules 7.18.x) — partially addressed by link text harvest. Remaining: annotations still lacking proper struct tree linkage in some docs.
+- **Font repair** (rules 7.21.x) — font encoding issues (ToUnicode CMap, glyph widths). Requires fontTools. Risk of breaking visual rendering.
 
 ## Shipped: Link Text Harvest (2026-04-12)
 

@@ -958,6 +958,61 @@ class TestMarkUntaggedContent:
         assert result.success
         assert result.artifact_wrappers_inserted == 0
 
+    def test_converts_suspect_to_artifact(self, tmp_path):
+        """Content inside /Suspect BDC is converted to /Artifact."""
+        import fitz
+        import re as _re
+        from src.tools.pdf_writer import mark_untagged_content_as_artifact
+
+        doc = fitz.open()
+        page = doc.new_page(width=300, height=400)
+        page.insert_text((50, 50), "Good text")
+        page.insert_text((50, 200), "Suspect OCR text")
+        out = tmp_path / "with_suspect.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        # Wrap first text in /P BDC, second in /Suspect BDC
+        doc = fitz.open(str(out))
+        p = doc[0]
+        stream = p.read_contents()
+        bts = list(_re.finditer(rb"BT\b.*?ET", stream, flags=_re.DOTALL))
+        assert len(bts) >= 2, f"Expected 2 BT..ET, got {len(bts)}"
+        # Build new stream with tagged first and /Suspect second
+        new_stream = (
+            b"/P << /MCID 0 >> BDC\n"
+            + bts[0].group(0)
+            + b"\nEMC\n"
+            + b"/Suspect << /BBox [50 200 250 220] >> BDC\n"
+            + bts[1].group(0)
+            + b"\nEMC\n"
+        )
+        contents_ref = doc.xref_get_key(p.xref, "Contents")
+        if contents_ref[0] == "xref":
+            xref = int(contents_ref[1].split()[0])
+        else:
+            xref = int(contents_ref[1].strip("[]").split()[0])
+        doc.update_stream(xref, new_stream)
+        doc.save(str(out), incremental=True, encryption=0)
+        doc.close()
+
+        # Verify /Suspect is present before
+        doc = fitz.open(str(out))
+        assert b"/Suspect" in doc[0].read_contents()
+        doc.close()
+
+        result = mark_untagged_content_as_artifact(out)
+        assert result.success
+        assert result.artifact_wrappers_inserted >= 1
+
+        # Verify /Suspect is gone, /Artifact is there
+        doc = fitz.open(str(out))
+        content = doc[0].read_contents()
+        doc.close()
+        assert b"/Suspect" not in content
+        assert b"/Artifact" in content
+        assert b"/Type /Pagination" in content
+
     def test_idempotent(self, tmp_path):
         """Running twice inserts zero wrappers on the second call."""
         from src.tools.pdf_writer import mark_untagged_content_as_artifact

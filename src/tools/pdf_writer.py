@@ -2080,10 +2080,11 @@ def mark_untagged_content_as_artifact(
             orphans_converted = _convert_orphan_bdc_to_artifact(
                 tokens, orphan_indices
             )
+            suspects_converted = _convert_suspect_bdc_to_artifact(tokens)
 
             runs = _find_untagged_content_runs(tokens)
 
-            if not runs and not orphans_converted:
+            if not runs and not orphans_converted and not suspects_converted:
                 result.pages_skipped += 1
                 continue
 
@@ -2120,7 +2121,7 @@ def mark_untagged_content_as_artifact(
                 continue
 
             result.pages_modified += 1
-            result.artifact_wrappers_inserted += len(runs) + orphans_converted
+            result.artifact_wrappers_inserted += len(runs) + orphans_converted + suspects_converted
 
         # ── Pass 2: form XObject content streams ─────────────────────
         # Form XObjects are self-contained content streams referenced
@@ -2151,9 +2152,10 @@ def mark_untagged_content_as_artifact(
             orphans_converted = _convert_orphan_bdc_to_artifact(
                 tokens, orphan_indices
             )
+            suspects_converted = _convert_suspect_bdc_to_artifact(tokens)
             runs = _find_untagged_content_runs(tokens)
 
-            if not runs and not orphans_converted:
+            if not runs and not orphans_converted and not suspects_converted:
                 continue
 
             new_stream = _apply_artifact_wrappers(tokens, runs)
@@ -2165,7 +2167,7 @@ def mark_untagged_content_as_artifact(
                 )
                 continue
 
-            result.artifact_wrappers_inserted += len(runs) + orphans_converted
+            result.artifact_wrappers_inserted += len(runs) + orphans_converted + suspects_converted
             result.form_xobjects_modified = result.form_xobjects_modified + 1
 
         doc.save(str(path), incremental=True, encryption=0)
@@ -2337,6 +2339,47 @@ def _convert_orphan_bdc_to_artifact(
         tokens[dict_idx] = Token(
             value="<</Type /Pagination>>", type="dict"
         )
+        converted += 1
+    return converted
+
+
+def _convert_suspect_bdc_to_artifact(tokens: list[Token]) -> int:
+    """Mutate ``tokens`` in place: replace ``/Suspect <<...>> BDC``
+    with ``/Artifact <</Type /Pagination>> BDC``.
+
+    ``/Suspect`` is a non-standard marked-content tag injected by some
+    PDF producers (e.g., Adobe OCR) for low-confidence content regions.
+    PDF/UA does not recognise it, so veraPDF flags the content inside
+    as untagged (rule 7.1-3). Converting to ``/Artifact`` tells screen
+    readers to skip this content, which is the correct behaviour for
+    decorative, repeated, or OCR-uncertain material.
+
+    Returns the count of conversions.
+    """
+    converted = 0
+    for i, token in enumerate(tokens):
+        if token.type != "operator" or token.value != "BDC":
+            continue
+        # Look back for the name token
+        name_idx = None
+        dict_idx = None
+        for j in range(i - 1, max(-1, i - 10), -1):
+            if tokens[j].type == "dict" and dict_idx is None:
+                dict_idx = j
+            elif tokens[j].type == "name" and name_idx is None:
+                name_idx = j
+                break
+            elif tokens[j].type == "operator":
+                break
+        if name_idx is None:
+            continue
+        if tokens[name_idx].value != "/Suspect":
+            continue
+        tokens[name_idx] = Token(value="/Artifact", type="name")
+        if dict_idx is not None:
+            tokens[dict_idx] = Token(
+                value="<</Type /Pagination>>", type="dict"
+            )
         converted += 1
     return converted
 

@@ -400,6 +400,18 @@ def execute_pdf(
             except Exception as exc:
                 logger.warning("Link /Contents pass failed: %s", exc)
 
+            # Build URL → improved text mapping from executed set_link_text actions
+            link_text_overrides: dict[str, str] = {}
+            for ua in updated_actions:
+                if (ua.get("action_type") == "set_link_text"
+                        and ua.get("status") == "executed"):
+                    eid = ua["element_id"]
+                    idx = link_id_to_idx.get(eid)
+                    if idx is not None:
+                        link_url = model_dict.get("links", [])[idx].get("url", "")
+                        if link_url:
+                            link_text_overrides[link_url] = ua["parameters"]["new_text"]
+
             # PDF/UA Phase 2b — bidirectional annotation ↔ struct tree
             # links.  Creates /Link struct elements with OBJR kids for
             # every link annotation, populates /ParentTree.  Fixes
@@ -407,7 +419,10 @@ def execute_pdf(
             # populate_link_annotation_contents (which sets /Contents
             # used as the /Alt source).
             try:
-                pt_result = populate_link_parent_tree(tagged_pdf_path)
+                pt_result = populate_link_parent_tree(
+                    tagged_pdf_path,
+                    link_text_overrides=link_text_overrides or None,
+                )
                 if pt_result.success and pt_result.annotations_linked:
                     logger.info(
                         "Linked %d annotation(s) to struct tree, "

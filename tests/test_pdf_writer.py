@@ -1515,3 +1515,32 @@ class TestLinkParentTree:
         assert "Example Homepage" in actual_texts, f"Override text not found in {actual_texts}"
         # link1 should have raw URL
         assert any("example.com/link1" in t for t in actual_texts)
+
+    def test_url_normalization_trailing_slash(self, tmp_path):
+        """Overrides match even with trailing slash differences."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+        import re
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=1)
+        overrides = {
+            "https://example.com/link0/": "Example with slash",
+        }
+        result = populate_link_parent_tree(pdf_path, link_text_overrides=overrides)
+
+        assert result.success
+
+        doc = fitz.open(str(pdf_path))
+        actual_texts = []
+        for xref in range(1, doc.xref_length()):
+            try:
+                obj = doc.xref_object(xref)
+            except Exception:
+                continue
+            if not obj or "/S /Link" not in obj:
+                continue
+            m = re.search(r"/ActualText\s*\(([^)]*)\)", obj)
+            if m:
+                actual_texts.append(m.group(1))
+        doc.close()
+
+        assert "Example with slash" in actual_texts, f"Trailing-slash override not matched: {actual_texts}"

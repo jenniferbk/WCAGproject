@@ -2631,7 +2631,13 @@ def _populate_link_parent_tree_inner(
             raw_alt = _get_annot_alt_text(doc, annot_xref)
             if link_text_overrides:
                 uri = _extract_uri_from_annotation(doc, annot_xref)
-                alt_text = link_text_overrides.get(uri, raw_alt)
+                alt_text = link_text_overrides.get(uri)
+                if alt_text is None:
+                    alt_text = link_text_overrides.get(uri.rstrip("/"))
+                if alt_text is None:
+                    alt_text = link_text_overrides.get(uri.rstrip("/") + "/")
+                if alt_text is None:
+                    alt_text = raw_alt
             else:
                 alt_text = raw_alt
 

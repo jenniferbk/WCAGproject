@@ -1544,3 +1544,57 @@ class TestLinkParentTree:
         doc.close()
 
         assert "Example with slash" in actual_texts, f"Trailing-slash override not matched: {actual_texts}"
+
+
+class TestLinkAccessibleName:
+    """Test that the parser reads /ActualText from /Link struct elements."""
+
+    def test_parser_reads_struct_tree_link_text(self, tmp_path):
+        """After populate_link_parent_tree with overrides, parser extracts improved text."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+        from src.tools.pdf_parser import parse_pdf
+
+        # Create PDF with a link annotation and struct tree
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 150), "Visit https://example.com/test for details")
+        page.insert_link({
+            "kind": fitz.LINK_URI,
+            "from": fitz.Rect(72, 135, 400, 155),
+            "uri": "https://example.com/test",
+        })
+
+        # Create struct tree
+        cat = doc.pdf_catalog()
+        doc_elem_xref = doc.get_new_xref()
+        st_root_xref = doc.get_new_xref()
+        doc.update_object(
+            doc_elem_xref,
+            f"<< /Type /StructElem /S /Document /P {st_root_xref} 0 R /K [] >>",
+        )
+        doc.update_object(
+            st_root_xref,
+            f"<< /Type /StructTreeRoot /K {doc_elem_xref} 0 R >>",
+        )
+        doc.xref_set_key(cat, "StructTreeRoot", f"{st_root_xref} 0 R")
+        doc.xref_set_key(cat, "MarkInfo", "<</Marked true>>")
+
+        pdf_path = tmp_path / "link_with_struct.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        # Run populate_link_parent_tree with override
+        overrides = {"https://example.com/test": "Example Test Page"}
+        result = populate_link_parent_tree(pdf_path, link_text_overrides=overrides)
+        assert result.success
+
+        # Now parse the PDF and check link text
+        parse_result = parse_pdf(str(pdf_path))
+        assert parse_result.success
+
+        # Find the link with this URL
+        matching = [l for l in parse_result.document.links if l.url == "https://example.com/test"]
+        assert len(matching) >= 1, f"No link found for test URL. Links: {parse_result.document.links}"
+        assert matching[0].text == "Example Test Page", (
+            f"Expected 'Example Test Page' but got {matching[0].text!r}"
+        )

@@ -693,6 +693,71 @@ def _split_block_into_sub_paragraphs(block: dict) -> list[list[dict]]:
     return groups
 
 
+def _get_link_accessible_name(
+    doc: "fitz.Document", annot_xref: int
+) -> str | None:
+    """Resolve a link annotation's /StructParent → /ParentTree → /ActualText.
+
+    Returns the /ActualText if it's descriptive (not a raw URL), else None.
+    """
+    if annot_xref is None or annot_xref <= 0:
+        return None
+
+    # Read /StructParent
+    try:
+        sp = doc.xref_get_key(annot_xref, "StructParent")
+        if sp[0] in ("null", "undefined"):
+            return None
+        sp_num = int(sp[1])
+    except (ValueError, TypeError):
+        return None
+
+    # Resolve /ParentTree
+    try:
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        if st_key[0] != "xref":
+            return None
+        st_root = int(st_key[1].split()[0])
+        pt_key = doc.xref_get_key(st_root, "ParentTree")
+        if pt_key[0] != "xref":
+            return None
+        pt_xref = int(pt_key[1].split()[0])
+        pt_obj = doc.xref_object(pt_xref) or ""
+
+        # Parse /Nums array to find our entry
+        nums_match = re.search(r"/Nums\s*\[([^\]]*)\]", pt_obj, re.DOTALL)
+        if not nums_match:
+            return None
+
+        # Find the entry for our StructParent number
+        nums_str = nums_match.group(1)
+        pairs = re.findall(r"(\d+)\s+(\d+)\s+0\s+R", nums_str)
+        elem_xref = None
+        for k, v in pairs:
+            if int(k) == sp_num:
+                elem_xref = int(v)
+                break
+
+        if elem_xref is None:
+            return None
+
+        # Read /ActualText from the struct element
+        elem_obj = doc.xref_object(elem_xref) or ""
+        at_match = re.search(r"/ActualText\s*\(([^)]*)\)", elem_obj)
+        if not at_match:
+            return None
+
+        text = at_match.group(1).strip()
+        # Only return if it's NOT a raw URL (otherwise content-stream text is fine)
+        if text and not text.startswith(("http://", "https://", "mailto:", "ftp://")):
+            return text
+    except Exception:
+        pass
+
+    return None
+
+
 def _extract_text_blocks(
     page: fitz.Page,
     page_num: int,
@@ -815,8 +880,13 @@ def _extract_text_blocks(
                         link_id = f"link_{link_offset + len(links) + len(group_links)}"
                         # Try to get link text from the overlapping region
                         link_text = page.get_textbox(link_rect).strip()
+                        # Check struct tree for improved accessible name
+                        accessible_name = _get_link_accessible_name(page.parent, pl.get("xref"))
                         # Only add link if text appears in this sub-paragraph
-                        if link_text and link_text in full_text:
+                        # (use original content-stream text for membership check)
+                        if link_text and (link_text in full_text or accessible_name):
+                            if accessible_name:
+                                link_text = accessible_name
                             link_bbox = (
                                 round(link_rect.x0, 2),
                                 round(link_rect.y0, 2),

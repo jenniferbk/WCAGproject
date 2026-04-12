@@ -1481,3 +1481,37 @@ class TestLinkParentTree:
                     unlinked += 1
         assert unlinked == 0, f"{unlinked} link annotations still unlinked"
         doc.close()
+
+    def test_link_text_overrides(self, tmp_path):
+        """When overrides are provided, /Link elements use improved text."""
+        from src.tools.pdf_writer import populate_link_parent_tree
+        import re
+
+        pdf_path = self._make_pdf_with_links(tmp_path, num_links=2)
+        overrides = {
+            "https://example.com/link0": "Example Homepage",
+            # link1 has no override — should keep raw URL
+        }
+        result = populate_link_parent_tree(pdf_path, link_text_overrides=overrides)
+
+        assert result.success
+        assert result.annotations_linked == 2
+
+        # Read back the /Link struct elements and check /ActualText
+        doc = fitz.open(str(pdf_path))
+        actual_texts = []
+        for xref in range(1, doc.xref_length()):
+            try:
+                obj = doc.xref_object(xref)
+            except Exception:
+                continue
+            if not obj or "/S /Link" not in obj:
+                continue
+            m = re.search(r"/ActualText\s*\(([^)]*)\)", obj)
+            if m:
+                actual_texts.append(m.group(1))
+        doc.close()
+
+        assert "Example Homepage" in actual_texts, f"Override text not found in {actual_texts}"
+        # link1 should have raw URL
+        assert any("example.com/link1" in t for t in actual_texts)

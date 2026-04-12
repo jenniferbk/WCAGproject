@@ -2508,6 +2508,7 @@ class LinkParentTreeResult:
 
 def populate_link_parent_tree(
     pdf_path: "str | Path",
+    link_text_overrides: "dict[str, str] | None" = None,
 ) -> LinkParentTreeResult:
     """Create bidirectional annotation ↔ struct-tree links for PDF/UA.
 
@@ -2536,6 +2537,9 @@ def populate_link_parent_tree(
 
     Args:
         pdf_path: Path to the PDF file.  Modified in place.
+        link_text_overrides: Optional mapping of URL → improved descriptive
+            text.  When a link's URI matches a key, the override text is
+            used for ``/Alt`` and ``/ActualText`` instead of the raw URL.
 
     Returns:
         LinkParentTreeResult with counts.
@@ -2550,7 +2554,7 @@ def populate_link_parent_tree(
         return LinkParentTreeResult(success=False, error=f"Open failed: {exc}")
 
     try:
-        return _populate_link_parent_tree_inner(doc, path)
+        return _populate_link_parent_tree_inner(doc, path, link_text_overrides)
     except Exception as exc:
         return LinkParentTreeResult(
             success=False, error=f"populate_link_parent_tree: {exc}"
@@ -2563,7 +2567,8 @@ def populate_link_parent_tree(
 
 
 def _populate_link_parent_tree_inner(
-    doc: "fitz.Document", path: Path
+    doc: "fitz.Document", path: Path,
+    link_text_overrides: "dict[str, str] | None" = None,
 ) -> LinkParentTreeResult:
     """Core logic for populate_link_parent_tree (separated for testability)."""
     cat = doc.pdf_catalog()
@@ -2622,8 +2627,13 @@ def _populate_link_parent_tree_inner(
                     pass
                 # Stale or unparseable — will be overwritten below
 
-            # Get alt text from /Contents (set by earlier pass) or /URI
-            alt_text = _get_annot_alt_text(doc, annot_xref)
+            # Get alt text — prefer agent-improved text over raw URL
+            raw_alt = _get_annot_alt_text(doc, annot_xref)
+            if link_text_overrides:
+                uri = _extract_uri_from_annotation(doc, annot_xref)
+                alt_text = link_text_overrides.get(uri, raw_alt)
+            else:
+                alt_text = raw_alt
 
             # Create /Link struct element with OBJR kid
             link_elem_xref = _create_link_struct_elem(

@@ -144,3 +144,70 @@ class TestApplyContentTagWrappers:
         assert "/P <</MCID 2>> BDC" in text
         assert "/P <</MCID 3>> BDC" in text
         assert "/P <</MCID 4>> BDC" in text
+
+
+class TestExtractTextFromRun:
+    """Tests for extracting text from token runs."""
+
+    def _tokenize(self, stream_str: str):
+        return _tokenize_content_stream(stream_str.encode("latin-1"))
+
+    def test_simple_tj(self):
+        from src.tools.pdf_writer import _extract_text_from_run
+        tokens = self._tokenize("BT (Hello world) Tj ET")
+        text = _extract_text_from_run(tokens, 0, len(tokens) - 1)
+        assert "Hello world" in text
+
+    def test_tj_array(self):
+        """TJ operator with array of strings and kerning."""
+        from src.tools.pdf_writer import _extract_text_from_run
+        tokens = self._tokenize("BT [(He) -10 (llo)] TJ ET")
+        text = _extract_text_from_run(tokens, 0, len(tokens) - 1)
+        assert "Hello" in text
+
+    def test_no_text_ops_returns_empty(self):
+        from src.tools.pdf_writer import _extract_text_from_run
+        tokens = self._tokenize("/Fm0 Do")
+        text = _extract_text_from_run(tokens, 0, len(tokens) - 1)
+        assert text == ""
+
+    def test_hex_string(self):
+        """Hex-encoded string <48656C6C6F> = 'Hello'."""
+        from src.tools.pdf_writer import _extract_text_from_run
+        tokens = self._tokenize("BT <48656C6C6F> Tj ET")
+        text = _extract_text_from_run(tokens, 0, len(tokens) - 1)
+        assert "Hello" in text
+
+
+class TestIsPageFurniture:
+    """Tests for page furniture detection."""
+
+    def test_bare_page_number(self):
+        from src.tools.pdf_writer import _is_page_furniture
+        assert _is_page_furniture("3", set()) is True
+
+    def test_page_number_with_dashes(self):
+        from src.tools.pdf_writer import _is_page_furniture
+        assert _is_page_furniture("- 3 -", set()) is True
+
+    def test_roman_numeral(self):
+        from src.tools.pdf_writer import _is_page_furniture
+        assert _is_page_furniture("iv", set()) is True
+        assert _is_page_furniture("XII", set()) is True
+
+    def test_body_text_not_furniture(self):
+        from src.tools.pdf_writer import _is_page_furniture
+        assert _is_page_furniture(
+            "The results of this study demonstrate that",
+            set(),
+        ) is False
+
+    def test_repeated_header(self):
+        from src.tools.pdf_writer import _is_page_furniture
+        furniture = {"Chapter 3: Methods"}
+        assert _is_page_furniture("Chapter 3: Methods", furniture) is True
+
+    def test_empty_string_is_furniture(self):
+        from src.tools.pdf_writer import _is_page_furniture
+        assert _is_page_furniture("", set()) is True
+        assert _is_page_furniture("   ", set()) is True

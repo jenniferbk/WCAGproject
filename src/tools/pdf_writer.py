@@ -2066,6 +2066,99 @@ def _apply_content_tag_wrappers(
     return _reassemble_stream(out)
 
 
+def _decode_pdf_string_operand(s: str) -> str:
+    """Decode a PDF string operand: (text) or <hex>."""
+    s = s.strip()
+    if s.startswith("(") and s.endswith(")"):
+        return s[1:-1]
+    if s.startswith("<") and s.endswith(">"):
+        hex_str = s[1:-1]
+        try:
+            return bytes.fromhex(hex_str).decode("latin-1")
+        except (ValueError, UnicodeDecodeError):
+            return ""
+    return s
+
+
+def _decode_tj_array(s: str) -> str:
+    """Decode a TJ array like [(He) -10 (llo)] to 'Hello'."""
+    parts: list[str] = []
+    for m in re.finditer(r"\(([^)]*)\)|<([0-9A-Fa-f]+)>", s):
+        if m.group(1) is not None:
+            parts.append(m.group(1))
+        elif m.group(2) is not None:
+            try:
+                parts.append(bytes.fromhex(m.group(2)).decode("latin-1"))
+            except (ValueError, UnicodeDecodeError):
+                pass
+    return "".join(parts)
+
+
+def _extract_text_from_run(
+    tokens: list[Token], start: int, end: int
+) -> str:
+    """Extract readable text from a content stream token run.
+
+    Best-effort: collects string operands from Tj, TJ, ', " operators.
+    Handles parenthesized strings and hex strings. Font-encoded bytes
+    are decoded as latin-1 (covers ASCII range for furniture detection).
+    """
+    parts: list[str] = []
+    i = start
+    while i <= end:
+        t = tokens[i]
+        if t.type == "operator" and t.value in ("Tj", "'", '"'):
+            # Look backward for the string operand (skip whitespace tokens)
+            for j in range(i - 1, max(start - 1, i - 4), -1):
+                s = tokens[j]
+                if s.type in ("whitespace", "comment"):
+                    continue
+                if s.type == "string":
+                    parts.append(_decode_pdf_string_operand(s.value))
+                    break
+                if s.type == "hexstring":
+                    parts.append(_decode_pdf_string_operand(s.value))
+                    break
+                if s.type == "operator":
+                    break
+        elif t.type == "operator" and t.value == "TJ":
+            # Look backward for the array operand (skip whitespace tokens)
+            for j in range(i - 1, max(start - 1, i - 4), -1):
+                s = tokens[j]
+                if s.type in ("whitespace", "comment"):
+                    continue
+                if s.type == "array":
+                    parts.append(_decode_tj_array(s.value))
+                    break
+                if s.type == "operator":
+                    break
+        i += 1
+    return "".join(parts)
+
+
+_PAGE_NUMBER_RE = re.compile(
+    r"^[\s\-\u2013\u2014.]*"
+    r"(?:\d{1,4}|[ivxlcdm]{1,8})"
+    r"[\s\-\u2013\u2014.]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_page_furniture(text: str, furniture_set: set[str]) -> bool:
+    """Return True if text is page decoration (not real content).
+
+    Checks: empty/whitespace, page numbers, repeated headers/footers.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if _PAGE_NUMBER_RE.match(stripped):
+        return True
+    if stripped in furniture_set:
+        return True
+    return False
+
+
 def mark_untagged_content_as_artifact(
     pdf_path: "str | Path",
 ) -> ArtifactMarkingResult:

@@ -389,6 +389,118 @@ class TestTagOrArtifactUntaggedContent:
         assert isinstance(xref, int)
 
 
+class TestAssessStructTreeQuality:
+    """Tests for struct tree quality assessment."""
+
+    def test_no_tree_recommends_rebuild(self, tmp_path):
+        from src.tools.pdf_writer import assess_struct_tree_quality
+        doc = fitz.open()
+        doc.new_page()
+        pdf_path = tmp_path / "no_tree.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+        assessment = assess_struct_tree_quality(str(pdf_path))
+        assert assessment.has_tree is False
+        assert assessment.recommendation == "rebuild"
+
+    def _set_page_stream(self, doc, page, stream_str: str) -> None:
+        """Write stream content to a page, creating Contents xref if needed."""
+        c_ref = doc.xref_get_key(page.xref, "Contents")
+        if c_ref[0] == "xref":
+            c_xref = int(c_ref[1].split()[0])
+        else:
+            c_xref = doc.get_new_xref()
+            doc.update_object(c_xref, "<< /Length 0 >>")
+            doc.xref_set_key(page.xref, "Contents", f"{c_xref} 0 R")
+        doc.update_stream(c_xref, stream_str.encode("latin-1"))
+
+    def test_good_tree_recommends_preserve(self, tmp_path):
+        from src.tools.pdf_writer import assess_struct_tree_quality
+        doc = fitz.open()
+        page = doc.new_page()
+        stream = (
+            "/P <</MCID 0>> BDC BT (Para 1) Tj ET EMC\n"
+            "/P <</MCID 1>> BDC BT (Para 2) Tj ET EMC\n"
+            "/H1 <</MCID 2>> BDC BT (Heading) Tj ET EMC\n"
+        )
+        self._set_page_stream(doc, page, stream)
+
+        cat = doc.pdf_catalog()
+        sr = doc.get_new_xref()
+        de = doc.get_new_xref()
+        p0 = doc.get_new_xref()
+        p1 = doc.get_new_xref()
+        h1 = doc.get_new_xref()
+        doc.update_object(p0, f"<< /Type /StructElem /S /P /P {de} 0 R /Pg {page.xref} 0 R /K 0 >>")
+        doc.update_object(p1, f"<< /Type /StructElem /S /P /P {de} 0 R /Pg {page.xref} 0 R /K 1 >>")
+        doc.update_object(h1, f"<< /Type /StructElem /S /H1 /P {de} 0 R /Pg {page.xref} 0 R /K 2 >>")
+        doc.update_object(de, f"<< /Type /StructElem /S /Document /P {sr} 0 R /K [{p0} 0 R {p1} 0 R {h1} 0 R] >>")
+        doc.update_object(sr, f"<< /Type /StructTreeRoot /K [{de} 0 R] >>")
+        doc.xref_set_key(cat, "StructTreeRoot", f"{sr} 0 R")
+        doc.xref_set_key(cat, "MarkInfo", "<< /Marked true >>")
+
+        pdf_path = tmp_path / "good_tree.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        assessment = assess_struct_tree_quality(str(pdf_path))
+        assert assessment.has_tree is True
+        assert assessment.has_paragraph_tags is True
+        assert assessment.coverage_ratio >= 0.5
+        assert assessment.recommendation == "preserve"
+
+    def test_slide_tree_recommends_rebuild(self, tmp_path):
+        from src.tools.pdf_writer import assess_struct_tree_quality
+        doc = fitz.open()
+        page = doc.new_page()
+        stream = "/Slide <</MCID 0>> BDC BT (text) Tj ET EMC\n"
+        self._set_page_stream(doc, page, stream)
+
+        cat = doc.pdf_catalog()
+        sr = doc.get_new_xref()
+        sl = doc.get_new_xref()
+        doc.update_object(sl, f"<< /Type /StructElem /S /Slide /P {sr} 0 R /K 0 >>")
+        doc.update_object(sr, f"<< /Type /StructTreeRoot /K [{sl} 0 R] >>")
+        doc.xref_set_key(cat, "StructTreeRoot", f"{sr} 0 R")
+        doc.xref_set_key(cat, "MarkInfo", "<< /Marked true >>")
+
+        pdf_path = tmp_path / "slide_tree.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        assessment = assess_struct_tree_quality(str(pdf_path))
+        assert assessment.has_paragraph_tags is False
+        assert assessment.recommendation == "rebuild"
+
+    def test_invalid_page_refs_recommends_rebuild(self, tmp_path):
+        from src.tools.pdf_writer import assess_struct_tree_quality
+        doc = fitz.open()
+        page = doc.new_page()
+
+        cat = doc.pdf_catalog()
+        sr = doc.get_new_xref()
+        p0 = doc.get_new_xref()
+        doc.update_object(p0, f"<< /Type /StructElem /S /P /P {sr} 0 R /Pg 99999 0 R /K 0 >>")
+        doc.update_object(sr, f"<< /Type /StructTreeRoot /K [{p0} 0 R] >>")
+        doc.xref_set_key(cat, "StructTreeRoot", f"{sr} 0 R")
+
+        pdf_path = tmp_path / "bad_refs.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        assessment = assess_struct_tree_quality(str(pdf_path))
+        assert assessment.page_refs_valid is False
+        assert assessment.recommendation == "rebuild"
+
+    def test_real_syllabus_pdf(self):
+        from src.tools.pdf_writer import assess_struct_tree_quality
+        if not SYLLABUS_PDF.exists():
+            pytest.skip("Test PDF not available")
+        assessment = assess_struct_tree_quality(str(SYLLABUS_PDF))
+        assert isinstance(assessment.coverage_ratio, float)
+        assert assessment.recommendation in ("preserve", "rebuild")
+
+
 class TestUpdateParentTreeForMcids:
     """Tests for MCID→struct element ParentTree entries."""
 

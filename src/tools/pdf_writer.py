@@ -1969,6 +1969,21 @@ def _expand_run_starts_backward(
 
 
 @dataclass
+class TreeAssessment:
+    """Result of assess_struct_tree_quality()."""
+    has_tree: bool
+    coverage_ratio: float = 0.0
+    has_paragraph_tags: bool = False
+    mcid_orphan_rate: float = 0.0
+    page_refs_valid: bool = True
+    role_distribution: dict[str, int] = field(default_factory=dict)
+    tag_content_mismatches: int = 0
+    total_text_objects: int = 0
+    tagged_text_objects: int = 0
+    recommendation: str = "rebuild"
+
+
+@dataclass
 class ContentTaggingResult:
     """Result of tag_or_artifact_untagged_content()."""
     success: bool
@@ -1980,6 +1995,147 @@ class ContentTaggingResult:
     form_xobjects_modified: int = 0
     errors: list[str] = field(default_factory=list)
     page_mcid_map: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
+
+
+def assess_struct_tree_quality(pdf_path: "str | Path") -> TreeAssessment:
+    """Assess whether an existing struct tree is worth preserving."""
+    try:
+        doc = fitz.open(str(pdf_path))
+    except Exception:
+        return TreeAssessment(has_tree=False)
+    try:
+        return _assess_struct_tree_inner(doc)
+    except Exception as exc:
+        logger.warning("Tree assessment failed: %s", exc)
+        return TreeAssessment(has_tree=False)
+    finally:
+        doc.close()
+
+
+def _assess_struct_tree_inner(doc: "fitz.Document") -> TreeAssessment:
+    cat = doc.pdf_catalog()
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        return TreeAssessment(has_tree=False)
+
+    st_root_xref = int(st_key[1].split()[0])
+    result = TreeAssessment(has_tree=True)
+
+    # Check 1: MCID coverage
+    tree_mcids = _collect_struct_tree_mcids(doc)
+    total_text_objects = 0
+    tagged_count = 0
+
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        try:
+            stream_bytes = page.read_contents()
+        except Exception:
+            continue
+        if not stream_bytes:
+            continue
+
+        tokens = _tokenize_content_stream(stream_bytes)
+        depth = 0
+        for t in tokens:
+            if t.type == "operator":
+                if t.value in ("BDC", "BMC"):
+                    depth += 1
+                elif t.value == "EMC":
+                    depth -= 1
+                elif t.value == "BT":
+                    total_text_objects += 1
+                    if depth > 0:
+                        tagged_count += 1
+
+    result.total_text_objects = total_text_objects
+    result.tagged_text_objects = tagged_count
+    result.coverage_ratio = tagged_count / total_text_objects if total_text_objects > 0 else 0.0
+
+    # Orphan rate
+    stream_mcids: set[int] = set()
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        try:
+            stream_bytes = page.read_contents()
+        except Exception:
+            continue
+        if not stream_bytes:
+            continue
+        tokens = _tokenize_content_stream(stream_bytes)
+        for t in tokens:
+            if t.type in ("dict", "operand") and "/MCID" in t.value:
+                for m in re.finditer(r"/MCID\s+(\d+)", t.value):
+                    stream_mcids.add(int(m.group(1)))
+
+    all_mcids = tree_mcids | stream_mcids
+    if all_mcids:
+        orphans = len(tree_mcids.symmetric_difference(stream_mcids))
+        result.mcid_orphan_rate = orphans / len(all_mcids)
+
+    # Check 2: Role distribution
+    role_dist: dict[str, int] = {}
+    seen_xrefs: set[int] = set()
+
+    def _walk_roles(xref: int, depth: int = 0) -> None:
+        if xref in seen_xrefs or depth > 200:
+            return
+        seen_xrefs.add(xref)
+        try:
+            obj = doc.xref_object(xref) or ""
+        except Exception:
+            return
+        s_match = re.search(r"/S\s*(/\w+)", obj)
+        if s_match:
+            role = s_match.group(1)
+            role_dist[role] = role_dist.get(role, 0) + 1
+        for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+            _walk_roles(int(m.group(1)), depth + 1)
+
+    _walk_roles(st_root_xref)
+    result.role_distribution = role_dist
+    result.has_paragraph_tags = role_dist.get("/P", 0) > 0
+
+    # Check 3: Page reference validity
+    page_xrefs = {doc[i].xref for i in range(len(doc))}
+
+    def _check_pg_refs(xref: int, checked: set[int], depth: int = 0) -> bool:
+        if xref in checked or depth > 200:
+            return True
+        checked.add(xref)
+        try:
+            obj = doc.xref_object(xref) or ""
+        except Exception:
+            return True
+        pg_match = re.search(r"/Pg\s+(\d+)\s+0\s+R", obj)
+        if pg_match:
+            pg_xref = int(pg_match.group(1))
+            if pg_xref not in page_xrefs:
+                return False
+        # Only recurse into struct elements
+        s_type = doc.xref_get_key(xref, "S")
+        if s_type[0] == "name" or xref == st_root_xref:
+            for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+                child = int(m.group(1))
+                if not _check_pg_refs(child, checked, depth + 1):
+                    return False
+        return True
+
+    result.page_refs_valid = _check_pg_refs(st_root_xref, set())
+
+    # Decision
+    if result.coverage_ratio < 0.5:
+        result.recommendation = "rebuild"
+    elif result.mcid_orphan_rate > 0.2:
+        result.recommendation = "rebuild"
+    elif not result.page_refs_valid:
+        result.recommendation = "rebuild"
+    elif not result.has_paragraph_tags:
+        result.recommendation = "rebuild"
+    else:
+        result.recommendation = "preserve"
+
+    return result
 
 
 @dataclass

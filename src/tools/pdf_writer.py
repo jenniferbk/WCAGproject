@@ -3386,6 +3386,97 @@ def _write_parent_tree(
     doc.xref_set_key(st_root_xref, "ParentTreeNextKey", str(next_key))
 
 
+def _update_parent_tree_for_mcids(
+    doc: "fitz.Document",
+    page_mcid_map: dict[int, list[tuple[int, int]]],
+) -> int:
+    """Update ParentTree with MCID→struct element mappings.
+
+    For each page in page_mcid_map:
+    1. Check if page already has /StructParents → read existing array
+    2. Build array where array[mcid] = struct_elem_xref
+    3. If page has no /StructParents, assign next available number
+    4. Write/update ParentTree entries
+
+    Args:
+        doc: Open fitz.Document (modified in place, caller must save).
+        page_mcid_map: {page_idx: [(mcid, struct_elem_xref), ...]}.
+
+    Returns:
+        Count of ParentTree entries added/updated.
+    """
+    if not page_mcid_map:
+        return 0
+
+    cat = doc.pdf_catalog()
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        return 0
+    st_root_xref = int(st_key[1].split()[0])
+
+    # Read existing ParentTree
+    existing_pt_xref, existing_nums = _read_existing_parent_tree(
+        doc, st_root_xref
+    )
+    all_nums = dict(existing_nums)
+
+    # Find next available StructParents number
+    next_sp = _find_next_struct_parent(doc, st_root_xref)
+
+    entries_added = 0
+
+    for page_idx, mcid_entries in page_mcid_map.items():
+        if not mcid_entries:
+            continue
+
+        page = doc[page_idx]
+
+        # Check if page already has /StructParents
+        sp_key = doc.xref_get_key(page.xref, "StructParents")
+        if sp_key[0] not in ("null", "undefined"):
+            sp_num = int(sp_key[1])
+            # Read existing array from ParentTree
+            existing_array_xref = all_nums.get(sp_num)
+            existing_mcid_map_local: dict[int, int] = {}
+            if existing_array_xref is not None:
+                arr_obj = doc.xref_object(existing_array_xref) or ""
+                for idx, m in enumerate(
+                    re.finditer(r"(\d+)\s+0\s+R|null", arr_obj)
+                ):
+                    if m.group(1):
+                        existing_mcid_map_local[idx] = int(m.group(1))
+        else:
+            sp_num = next_sp
+            next_sp += 1
+            doc.xref_set_key(page.xref, "StructParents", str(sp_num))
+            existing_mcid_map_local = {}
+
+        # Merge new entries
+        for mcid, elem_xref in mcid_entries:
+            existing_mcid_map_local[mcid] = elem_xref
+
+        # Build array: [elem0_ref elem1_ref null elem3_ref ...]
+        if existing_mcid_map_local:
+            max_mcid = max(existing_mcid_map_local.keys())
+            parts = []
+            for i in range(max_mcid + 1):
+                if i in existing_mcid_map_local:
+                    parts.append(f"{existing_mcid_map_local[i]} 0 R")
+                else:
+                    parts.append("null")
+            arr_content = " ".join(parts)
+
+            arr_xref = doc.get_new_xref()
+            doc.update_object(arr_xref, f"[{arr_content}]")
+            all_nums[sp_num] = arr_xref
+            entries_added += 1
+
+    # Write updated ParentTree
+    _write_parent_tree(doc, st_root_xref, all_nums, next_sp, existing_pt_xref)
+
+    return entries_added
+
+
 @dataclass
 class TailPolishResult:
     """Result of apply_pdf_ua_tail_polish()."""

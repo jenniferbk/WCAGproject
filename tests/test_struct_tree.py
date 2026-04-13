@@ -387,3 +387,80 @@ class TestTagOrArtifactUntaggedContent:
         mcid, xref = entries[0]
         assert isinstance(mcid, int)
         assert isinstance(xref, int)
+
+
+class TestUpdateParentTreeForMcids:
+    """Tests for MCID→struct element ParentTree entries."""
+
+    def _make_tagged_pdf(self, tmp_path) -> Path:
+        """Create a PDF with a struct tree, some MCIDs, and /P elements."""
+        doc = fitz.open()
+        page = doc.new_page()
+        xref = page.xref
+        contents = doc.xref_get_key(xref, "Contents")
+        if contents[0] == "xref":
+            c_xref = int(contents[1].split()[0])
+        else:
+            c_xref = doc.get_new_xref()
+            doc.update_object(c_xref, "<< /Length 0 >>")
+            doc.xref_set_key(xref, "Contents", f"{c_xref} 0 R")
+        stream = (
+            "/H1 <</MCID 0>> BDC\nBT (Heading) Tj ET\nEMC\n"
+            "/P <</MCID 1>> BDC\nBT (Body) Tj ET\nEMC\n"
+        )
+        doc.update_stream(c_xref, stream.encode("latin-1"))
+
+        cat = doc.pdf_catalog()
+        sroot_xref = doc.get_new_xref()
+        doc_elem_xref = doc.get_new_xref()
+        h1_xref = doc.get_new_xref()
+        p_xref = doc.get_new_xref()
+
+        doc.update_object(h1_xref,
+            f"<< /Type /StructElem /S /H1 /P {doc_elem_xref} 0 R /Pg {page.xref} 0 R /K 0 >>")
+        doc.update_object(p_xref,
+            f"<< /Type /StructElem /S /P /P {doc_elem_xref} 0 R /Pg {page.xref} 0 R /K 1 >>")
+        doc.update_object(doc_elem_xref,
+            f"<< /Type /StructElem /S /Document /P {sroot_xref} 0 R /K [{h1_xref} 0 R {p_xref} 0 R] >>")
+        doc.update_object(sroot_xref,
+            f"<< /Type /StructTreeRoot /K [{doc_elem_xref} 0 R] >>")
+        doc.xref_set_key(cat, "StructTreeRoot", f"{sroot_xref} 0 R")
+        doc.xref_set_key(cat, "MarkInfo", "<< /Marked true >>")
+
+        pdf_path = tmp_path / "tagged.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+        return pdf_path
+
+    def test_creates_parent_tree_entries(self, tmp_path):
+        """Page MCID map produces ParentTree with array entries."""
+        from src.tools.pdf_writer import _update_parent_tree_for_mcids
+        pdf_path = self._make_tagged_pdf(tmp_path)
+        doc = fitz.open(str(pdf_path))
+
+        p_elem_xref = doc.get_new_xref()
+        doc.update_object(p_elem_xref, "<< /Type /StructElem /S /P >>")
+
+        page_mcid_map = {0: [(2, p_elem_xref)]}
+        count = _update_parent_tree_for_mcids(doc, page_mcid_map)
+        doc.save(str(pdf_path), incremental=True, encryption=0)
+        doc.close()
+
+        assert count >= 1
+
+        # Verify ParentTree exists
+        doc2 = fitz.open(str(pdf_path))
+        cat2 = doc2.pdf_catalog()
+        st2 = doc2.xref_get_key(cat2, "StructTreeRoot")
+        st2_xref = int(st2[1].split()[0])
+        pt_key = doc2.xref_get_key(st2_xref, "ParentTree")
+        assert pt_key[0] == "xref", "ParentTree should exist"
+        doc2.close()
+
+    def test_empty_map_does_nothing(self, tmp_path):
+        from src.tools.pdf_writer import _update_parent_tree_for_mcids
+        pdf_path = self._make_tagged_pdf(tmp_path)
+        doc = fitz.open(str(pdf_path))
+        count = _update_parent_tree_for_mcids(doc, {})
+        doc.close()
+        assert count == 0

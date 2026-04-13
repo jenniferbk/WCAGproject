@@ -1969,6 +1969,20 @@ def _expand_run_starts_backward(
 
 
 @dataclass
+class ContentTaggingResult:
+    """Result of tag_or_artifact_untagged_content()."""
+    success: bool
+    pages_modified: int = 0
+    paragraphs_tagged: int = 0
+    lists_tagged: int = 0
+    artifacts_tagged: int = 0
+    pages_skipped: int = 0
+    form_xobjects_modified: int = 0
+    errors: list[str] = field(default_factory=list)
+    page_mcid_map: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
+
+
+@dataclass
 class ArtifactMarkingResult:
     """Result of mark_untagged_content_as_artifact()."""
     success: bool
@@ -2196,6 +2210,199 @@ def _scan_page_furniture(pdf_path: "str | Path") -> set[str]:
         doc.close()
 
     return {text for text, count in text_counts.items() if count >= 3}
+
+
+def tag_or_artifact_untagged_content(
+    pdf_path: "str | Path",
+) -> ContentTaggingResult:
+    """Walk PDF content streams and tag depth-0 untagged content.
+
+    Replaces mark_untagged_content_as_artifact(). Instead of wrapping
+    all untagged content as /Artifact, classifies each run:
+    - Body text → /P struct element with MCID + BDC/EMC
+    - Page furniture (page numbers, repeated headers/footers) → /Artifact
+
+    Creates struct elements in the StructTreeRoot for /P runs.
+    Populates result.page_mcid_map for subsequent ParentTree update.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return ContentTaggingResult(
+            success=False, errors=[f"File not found: {path}"]
+        )
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return ContentTaggingResult(
+            success=False, errors=[f"Open failed: {exc}"]
+        )
+
+    result = ContentTaggingResult(success=True)
+
+    # Collect referenced MCIDs for orphan detection (existing behavior)
+    referenced_mcids = _collect_struct_tree_mcids(doc)
+
+    # Pre-scan for repeated headers/footers
+    try:
+        furniture_set = _scan_page_furniture(pdf_path)
+    except Exception:
+        furniture_set = set()
+
+    # Find /Document struct element for parenting new elements
+    cat = doc.pdf_catalog()
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        doc.close()
+        return ContentTaggingResult(
+            success=False, errors=["No StructTreeRoot found"]
+        )
+    st_root_xref = int(st_key[1].split()[0])
+    doc_elem_xref = _find_document_elem(doc, st_root_xref)
+    if doc_elem_xref is None:
+        doc.close()
+        return ContentTaggingResult(
+            success=False, errors=["No /Document struct element found"]
+        )
+
+    try:
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            try:
+                stream_bytes = page.read_contents()
+            except Exception as exc:
+                result.errors.append(
+                    f"page {page_idx}: read_contents failed: {exc}"
+                )
+                result.pages_skipped += 1
+                continue
+
+            if not stream_bytes:
+                result.pages_skipped += 1
+                continue
+
+            tokens = _tokenize_content_stream(stream_bytes)
+
+            # Convert orphan and suspect BDCs (existing behavior)
+            orphan_indices = _find_orphan_bdc_openings(
+                tokens, referenced_mcids
+            )
+            orphans_converted = _convert_orphan_bdc_to_artifact(
+                tokens, orphan_indices
+            )
+            suspects_converted = _convert_suspect_bdc_to_artifact(tokens)
+
+            runs = _find_untagged_content_runs(tokens)
+
+            if not runs and not orphans_converted and not suspects_converted:
+                result.pages_skipped += 1
+                continue
+
+            # Classify each run and assign MCIDs
+            next_mcid = _get_max_mcid_for_page(tokens) + 1
+            tagged_runs: list[TaggedRun] = []
+            page_mcid_entries: list[tuple[int, int]] = []
+
+            for start, end in runs:
+                text = _extract_text_from_run(tokens, start, end)
+                if _is_page_furniture(text, furniture_set):
+                    tagged_runs.append(TaggedRun(
+                        start=start, end=end,
+                        tag_type="/Artifact", mcid=None,
+                    ))
+                    result.artifacts_tagged += 1
+                else:
+                    mcid = next_mcid
+                    next_mcid += 1
+                    tagged_runs.append(TaggedRun(
+                        start=start, end=end,
+                        tag_type="/P", mcid=mcid,
+                    ))
+
+                    # Create /P struct element
+                    p_xref = doc.get_new_xref()
+                    p_obj = (
+                        f"<< /Type /StructElem /S /P"
+                        f" /P {doc_elem_xref} 0 R"
+                        f" /Pg {page.xref} 0 R"
+                        f" /K {mcid} >>"
+                    )
+                    doc.update_object(p_xref, p_obj)
+
+                    # Add to /Document's /K array
+                    k_val = doc.xref_get_key(doc_elem_xref, "K")
+                    if k_val[0] == "array":
+                        existing = k_val[1].strip("[]").strip()
+                        if existing:
+                            new_k = f"[{existing} {p_xref} 0 R]"
+                        else:
+                            new_k = f"[{p_xref} 0 R]"
+                    elif k_val[0] == "xref":
+                        new_k = f"[{k_val[1]} {p_xref} 0 R]"
+                    else:
+                        new_k = f"[{p_xref} 0 R]"
+                    doc.xref_set_key(doc_elem_xref, "K", new_k)
+
+                    page_mcid_entries.append((mcid, p_xref))
+                    result.paragraphs_tagged += 1
+
+            if page_mcid_entries:
+                result.page_mcid_map[page_idx] = page_mcid_entries
+
+            # Rewrite content stream
+            new_stream = _apply_content_tag_wrappers(tokens, tagged_runs)
+
+            contents_ref = doc.xref_get_key(page.xref, "Contents")
+            if contents_ref[0] == "xref":
+                xref = int(contents_ref[1].split()[0])
+                doc.update_stream(xref, new_stream)
+            elif contents_ref[0] == "array":
+                refs = [
+                    int(piece.split()[0])
+                    for piece in contents_ref[1].strip("[]").split("R")
+                    if piece.strip()
+                ]
+                if refs:
+                    doc.update_stream(refs[0], new_stream)
+                    for xref_clear in refs[1:]:
+                        doc.update_stream(xref_clear, b"")
+
+            result.pages_modified += 1
+
+        # Pass 2: form XObjects — still use /Artifact (no struct tree
+        # integration for form XObject content in v1)
+        form_xrefs = _find_form_xobject_xrefs(doc)
+        for fx in form_xrefs:
+            try:
+                stream_bytes = doc.xref_stream(fx)
+                if not stream_bytes:
+                    continue
+                tokens = _tokenize_content_stream(stream_bytes)
+                runs = _find_untagged_content_runs(tokens)
+                if not runs:
+                    continue
+                tagged_runs_fx = [
+                    TaggedRun(start=s, end=e, tag_type="/Artifact", mcid=None)
+                    for s, e in runs
+                ]
+                new_stream = _apply_content_tag_wrappers(tokens, tagged_runs_fx)
+                doc.update_stream(fx, new_stream)
+                result.form_xobjects_modified += 1
+            except Exception as exc:
+                result.errors.append(f"form XObject {fx}: {exc}")
+
+        doc.save(str(path), incremental=True, encryption=0)
+
+    except Exception as exc:
+        result.success = False
+        result.errors.append(f"tag_or_artifact_untagged_content: {exc}")
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return result
 
 
 def mark_untagged_content_as_artifact(

@@ -245,3 +245,145 @@ class TestScanPageFurniture:
 
         furniture = _scan_page_furniture(str(pdf_path))
         assert len(furniture) == 0
+
+
+class TestTagOrArtifactUntaggedContent:
+    """End-to-end tests for the new content tagging function."""
+
+    def _make_pdf_with_content(self, tmp_path, stream_str: str) -> Path:
+        """Create a 1-page PDF with the given content stream and minimal struct tree."""
+        doc = fitz.open()
+        page = doc.new_page()
+        xref = page.xref
+        contents = doc.xref_get_key(xref, "Contents")
+        if contents[0] == "xref":
+            c_xref = int(contents[1].split()[0])
+        else:
+            c_xref = doc.get_new_xref()
+            doc.update_object(c_xref, "<< /Length 0 >>")
+            doc.xref_set_key(xref, "Contents", f"{c_xref} 0 R")
+
+        doc.update_stream(c_xref, stream_str.encode("latin-1"))
+
+        # Add a minimal struct tree with /Document element
+        cat = doc.pdf_catalog()
+        sroot_xref = doc.get_new_xref()
+        doc_elem_xref = doc.get_new_xref()
+        doc.update_object(doc_elem_xref,
+            f"<< /Type /StructElem /S /Document /P {sroot_xref} 0 R /K [] >>")
+        doc.update_object(sroot_xref,
+            f"<< /Type /StructTreeRoot /K [{doc_elem_xref} 0 R] >>")
+        doc.xref_set_key(cat, "StructTreeRoot", f"{sroot_xref} 0 R")
+        doc.xref_set_key(cat, "MarkInfo", "<< /Marked true >>")
+
+        pdf_path = tmp_path / "test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+        return pdf_path
+
+    def test_untagged_body_text_becomes_p(self, tmp_path):
+        """Untagged body text gets /P BDC, not /Artifact."""
+        from src.tools.pdf_writer import tag_or_artifact_untagged_content
+        pdf_path = self._make_pdf_with_content(
+            tmp_path,
+            "BT /F0 12 Tf 72 700 Td (This is body text for the paper) Tj ET"
+        )
+        result = tag_or_artifact_untagged_content(str(pdf_path))
+        assert result.success
+        assert result.paragraphs_tagged >= 1
+        doc = fitz.open(str(pdf_path))
+        stream = doc[0].read_contents().decode("latin-1")
+        doc.close()
+        assert "/P <<" in stream
+        assert "/MCID" in stream
+
+    def test_already_tagged_content_untouched(self, tmp_path):
+        """Content inside BDC/EMC is not re-tagged."""
+        from src.tools.pdf_writer import tag_or_artifact_untagged_content
+        pdf_path = self._make_pdf_with_content(
+            tmp_path,
+            "/P <</MCID 0>> BDC\nBT (tagged body) Tj ET\nEMC"
+        )
+        result = tag_or_artifact_untagged_content(str(pdf_path))
+        assert result.success
+        assert result.paragraphs_tagged == 0
+        assert result.artifacts_tagged == 0
+
+    def test_mixed_tagged_and_untagged(self, tmp_path):
+        """Tagged heading + untagged body → body gets /P with non-colliding MCID."""
+        from src.tools.pdf_writer import tag_or_artifact_untagged_content
+        stream = (
+            "/H1 <</MCID 0>> BDC\n"
+            "BT (Heading) Tj ET\n"
+            "EMC\n"
+            "BT (This is untagged body text paragraph) Tj ET\n"
+        )
+        pdf_path = self._make_pdf_with_content(tmp_path, stream)
+        result = tag_or_artifact_untagged_content(str(pdf_path))
+        assert result.success
+        assert result.paragraphs_tagged >= 1
+        doc = fitz.open(str(pdf_path))
+        stream_out = doc[0].read_contents().decode("latin-1")
+        doc.close()
+        # MCID should be 1 (next after existing 0)
+        assert "/P <</MCID 1>> BDC" in stream_out
+
+    def test_page_number_becomes_artifact(self, tmp_path):
+        """Bare page number gets /Artifact, not /P."""
+        from src.tools.pdf_writer import tag_or_artifact_untagged_content
+        pdf_path = self._make_pdf_with_content(
+            tmp_path,
+            "BT /F0 9 Tf 300 30 Td (3) Tj ET"
+        )
+        result = tag_or_artifact_untagged_content(str(pdf_path))
+        assert result.success
+        assert result.artifacts_tagged >= 1
+        doc = fitz.open(str(pdf_path))
+        stream = doc[0].read_contents().decode("latin-1")
+        doc.close()
+        assert "/Artifact" in stream
+
+    def test_struct_elements_created_in_tree(self, tmp_path):
+        """New /P struct elements appear in StructTreeRoot."""
+        from src.tools.pdf_writer import tag_or_artifact_untagged_content
+        pdf_path = self._make_pdf_with_content(
+            tmp_path,
+            "BT (paragraph one) Tj ET\nBT (paragraph two) Tj ET"
+        )
+        result = tag_or_artifact_untagged_content(str(pdf_path))
+        assert result.success
+        assert result.paragraphs_tagged >= 1
+        # Check struct tree has /P elements
+        doc = fitz.open(str(pdf_path))
+        cat = doc.pdf_catalog()
+        st = doc.xref_get_key(cat, "StructTreeRoot")
+        st_xref = int(st[1].split()[0])
+        st_obj = doc.xref_object(st_xref) or ""
+        import re as _re
+        doc_kids = _re.findall(r"(\d+)\s+0\s+R", st_obj)
+        found_p = False
+        for kid_xref_str in doc_kids:
+            kid_obj = doc.xref_object(int(kid_xref_str)) or ""
+            for m in _re.finditer(r"(\d+)\s+0\s+R", kid_obj):
+                grandkid = doc.xref_object(int(m.group(1))) or ""
+                if "/S /P" in grandkid:
+                    found_p = True
+                    break
+        doc.close()
+        assert found_p, "No /P struct elements found in tree"
+
+    def test_page_mcid_map_populated(self, tmp_path):
+        """Result includes page_mcid_map for ParentTree update."""
+        from src.tools.pdf_writer import tag_or_artifact_untagged_content
+        pdf_path = self._make_pdf_with_content(
+            tmp_path,
+            "BT (body text here) Tj ET"
+        )
+        result = tag_or_artifact_untagged_content(str(pdf_path))
+        assert result.success
+        assert 0 in result.page_mcid_map
+        entries = result.page_mcid_map[0]
+        assert len(entries) >= 1
+        mcid, xref = entries[0]
+        assert isinstance(mcid, int)
+        assert isinstance(xref, int)

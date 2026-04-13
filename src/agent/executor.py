@@ -36,7 +36,6 @@ from src.tools.pdf_writer import (
     apply_pdf_ua_metadata,
     apply_pdf_ua_tail_polish,
     assess_struct_tree_quality,
-    mark_untagged_content_as_artifact,
     populate_link_annotation_contents,
     populate_link_parent_tree,
     repair_broken_uris_in_pdf,

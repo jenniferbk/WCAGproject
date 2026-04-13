@@ -2258,6 +2258,31 @@ def _collect_struct_tree_mcids(doc: "fitz.Document") -> set[int]:
     return mcids
 
 
+def _get_max_mcid_for_page(tokens: list[Token]) -> int:
+    """Scan tokenized content stream for the highest MCID value.
+
+    MCIDs are per-page. Returns -1 if no MCIDs found.
+    Parses BDC operands like ``/P <</MCID 3>> BDC``.
+    """
+    max_mcid = -1
+    for i, token in enumerate(tokens):
+        if token.type != "operator" or token.value != "BDC":
+            continue
+        # Look backward for the dict operand containing /MCID
+        for j in range(i - 1, max(i - 5, -1), -1):
+            t = tokens[j]
+            if t.type in ("dict", "operand") and "/MCID" in t.value:
+                m = re.search(r"/MCID\s+(\d+)", t.value)
+                if m:
+                    mcid = int(m.group(1))
+                    if mcid > max_mcid:
+                        max_mcid = mcid
+                break
+            if t.type == "operator":
+                break
+    return max_mcid
+
+
 def _find_orphan_bdc_openings(
     tokens: list[Token],
     referenced_mcids: set[int],

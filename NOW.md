@@ -67,15 +67,20 @@
 **What changed:**
 - `tag_or_artifact_untagged_content()` replaces artifact marking — body text → /P struct elements with MCIDs, page furniture (page numbers, repeated headers/footers) → /Artifact
 - `assess_struct_tree_quality()` decides whether to preserve or rebuild existing struct trees (4 validation checks: coverage ratio, MCID orphan rate, page ref validity, role distribution)
-- `_update_parent_tree_for_mcids()` creates required ParentTree entries for new MCID-based /P elements
+- `_update_parent_tree_for_mcids()` creates ParentTree entries for ALL MCIDs (including iText's — iText leaves its ParentTree empty)
+- `_collect_struct_tree_mcid_mappings()` walks entire struct tree to find all MCID→struct element mappings
 - iText reuses existing /Document root on preserve path (no more duplicate /Document elements)
 - `filter_tagging_plan_for_existing_tree()` prevents duplicate /Figure elements on preserve path
+- Form XObject `Do` runs classified as artifact (not /P) to avoid nested artifact-inside-tagged violations
+- Form XObject pass 2 artifact wrapping removed (content inherits parent tagged context)
 - 38 new tests, 1035 total passing, 0 regressions
 
 **Spec:** `docs/superpowers/specs/2026-04-13-struct-tree-complete-tagging-design.md`
 **Plan:** `docs/superpowers/plans/2026-04-13-struct-tree-complete-tagging.md`
 
-**TODO:** Run v4 benchmark with API keys to measure improvement over v3's 38.8%. Expect significant gains — body text is no longer hidden.
+**Early result:** W2460269320 → **0 veraPDF violations** (first fully PDF/UA-compliant benchmark doc). 209 input violations → 0 output.
+
+**v4 benchmark running** (`/tmp/remediation_bench_v4`). Full 125-doc run in progress.
 
 **v3 baseline for comparison:** 125/125 succeeded, 6 fully compliant, 52,544→32,146 failed checks (38.8% reduction). Top remaining rules: 7.1-3 (4,808), 7.18.x (1,952), 7.21.x (1,884).
 

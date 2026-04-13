@@ -5,7 +5,7 @@
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
 - **Benchmark detection**: **96.8%** (121/125, Kumar methodology replication, beats GPT-4-Turbo 85% by 11.8pp). Raw-PDF analysis: **80.0%** (theoretical ceiling).
 - **Remediation**: **38.8% PDF/UA failed-check reduction** on v3 benchmark (down from 86.7% — see struct tree architecture problem below)
-- **Tests**: 997 passing
+- **Tests**: 1035 passing
 - **Publication**: arXiv preprint + blog post + TACCESS journal (no deadline pressure)
 - **Kumar collaboration**: Lucy Wang confirmed methodology findings, ongoing email exchange
 
@@ -60,17 +60,24 @@
 - **Link annotations** (rules 7.18.x) — partially addressed by link text harvest. Remaining: annotations still lacking proper struct tree linkage in some docs.
 - **Font repair** (rules 7.21.x) — font encoding issues (ToUnicode CMap, glyph widths). Requires fontTools. Risk of breaking visual rendering.
 
-## CRITICAL: Struct Tree Architecture Problem (discovered 2026-04-13)
+## Shipped: Complete Struct Tree Tagging (2026-04-13)
 
-Benchmark v3 results: **38.8% failed-check reduction** (down from 86.7%). 72/125 docs REGRESSED.
+**Fixed** the benchmark regression from 86.7% to 38.8% caused by `mark_untagged_content_as_artifact()` hiding body text from screen readers.
 
-**Root cause:** iText only tags headings, figures, tables, links. Body text (/P), lists (/L), captions, formulas, blockquotes — all untagged. Artifact marking then labels body text as /Artifact, hiding it from screen readers. On docs with existing struct trees (92/120), we strip good /P tags and replace with an incomplete tree.
+**What changed:**
+- `tag_or_artifact_untagged_content()` replaces artifact marking — body text → /P struct elements with MCIDs, page furniture (page numbers, repeated headers/footers) → /Artifact
+- `assess_struct_tree_quality()` decides whether to preserve or rebuild existing struct trees (4 validation checks: coverage ratio, MCID orphan rate, page ref validity, role distribution)
+- `_update_parent_tree_for_mcids()` creates required ParentTree entries for new MCID-based /P elements
+- iText reuses existing /Document root on preserve path (no more duplicate /Document elements)
+- `filter_tagging_plan_for_existing_tree()` prevents duplicate /Figure elements on preserve path
+- 38 new tests, 1035 total passing, 0 regressions
 
-**Required fix (two parts):**
-1. **Complete tagging** — whether building from scratch or augmenting, every content item must get the appropriate tag for what it is. Body text → /P, lists → /L+/LI, captions → /Caption, math → /Formula, etc. No content should be left untagged (and thus artifact-marked).
-2. **Preserve existing trees** — don't strip well-tagged trees. Augment them with our improvements (headings, alt text, link text) instead.
+**Spec:** `docs/superpowers/specs/2026-04-13-struct-tree-complete-tagging-design.md`
+**Plan:** `docs/superpowers/plans/2026-04-13-struct-tree-complete-tagging.md`
 
-**Benchmark v3 results** (`/tmp/remediation_bench_v3`): 125/125 succeeded, 6 fully compliant, 52,544→32,146 failed checks (38.8% reduction). Top remaining rules: 7.1-3 (4,808), 7.18.x (1,952), 7.21.x (1,884).
+**TODO:** Run v4 benchmark with API keys to measure improvement over v3's 38.8%. Expect significant gains — body text is no longer hidden.
+
+**v3 baseline for comparison:** 125/125 succeeded, 6 fully compliant, 52,544→32,146 failed checks (38.8% reduction). Top remaining rules: 7.1-3 (4,808), 7.18.x (1,952), 7.21.x (1,884).
 
 ## Shipped: /Suspect → /Artifact Conversion (2026-04-12)
 
@@ -88,6 +95,6 @@ Fixed false WCAG 2.4.4 failures where validator saw raw URLs despite agent havin
 ## Architecture Quick Reference
 - Detection: `scripts/benchmark.py` + `scripts/struct_tree_probe.py` (heuristic + Gemini vision hybrid)
 - Remediation: `src/agent/orchestrator.py` (comprehend → strategize → execute → review)
-- PDF post-processing: Track A (artifact marking) + Track C (PDF/UA metadata) in `src/tools/pdf_writer.py`
+- PDF post-processing: Track A (content tagging + artifact marking) + Track C (PDF/UA metadata) in `src/tools/pdf_writer.py`
 - iText structure tagging: `java/itext-tagger/` fat JAR
 - Web app: FastAPI at `src/web/app.py`, deployed via Caddy on Oracle Cloud

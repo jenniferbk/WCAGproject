@@ -220,6 +220,20 @@ def _run_one(doc: dict, output_dir: Path) -> dict:
     """Run the remediation pipeline on one document and summarize the result."""
     pdf_path = doc["pdf_path"]
     per_doc_out = output_dir / f"{doc['task']}_{doc['label']}_{doc['openalex_id']}"
+
+    # Resume support: skip if a remediated PDF already exists in the output dir
+    if per_doc_out.exists():
+        existing = list(per_doc_out.glob("*_remediated.pdf"))
+        if existing:
+            logger.info("Skipping %s (already remediated)", per_doc_out.name)
+            return {
+                **doc,
+                "success": True,
+                "skipped_existing": True,
+                "output_path": str(existing[0]),
+                "elapsed_seconds": 0,
+            }
+
     per_doc_out.mkdir(parents=True, exist_ok=True)
 
     request = RemediationRequest(
@@ -445,7 +459,9 @@ def main():
         print(f"[{i}/{len(docs)}] {doc['task']}/{doc['label']}/{doc['openalex_id']}")
         r = _run_one(doc, args.output_dir)
         results.append(r)
-        if r.get("success"):
+        if r.get("skipped_existing"):
+            print(f"    ⏭ already remediated, skipping")
+        elif r.get("success"):
             print(
                 f"    ✓ {r['issues_before']} → {r['issues_after']} "
                 f"(fixed {r['issues_fixed']}) in {r['elapsed_seconds']:.0f}s "

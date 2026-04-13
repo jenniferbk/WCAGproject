@@ -90,10 +90,26 @@ public class PdfTagger {
                 return result;
             }
 
-            // Add a document-level structure element
-            PdfStructElem docElem = structRoot.addKid(
-                new PdfStructElem(pdfDoc, PdfName.Document)
-            );
+            // Use existing /Document element if present, otherwise create new.
+            // On the "preserve" path the PDF already has a struct tree —
+            // creating a second /Document would produce duplicates.
+            PdfStructElem docElem = null;
+            if (structRoot.getKids() != null) {
+                for (IStructureNode kid : structRoot.getKids()) {
+                    if (kid instanceof PdfStructElem) {
+                        PdfStructElem elem = (PdfStructElem) kid;
+                        if (PdfName.Document.equals(elem.getRole())) {
+                            docElem = elem;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (docElem == null) {
+                docElem = structRoot.addKid(
+                    new PdfStructElem(pdfDoc, PdfName.Document)
+                );
+            }
 
             if (plan.elements != null) {
                 // Track MCIDs per page to avoid conflicts.

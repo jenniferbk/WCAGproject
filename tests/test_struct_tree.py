@@ -13,6 +13,7 @@ from src.tools.pdf_writer import (
 
 TESTDOCS = Path(__file__).parent.parent / "testdocs"
 SYLLABUS_PDF = TESTDOCS / "EMAT 8030 syllabus spring 2026.pdf"
+LESSON_PDF = TESTDOCS / "Lesson 2 Behaviorism and Structuralism.pdf"
 
 
 class TestGetMaxMcidForPage:
@@ -637,3 +638,84 @@ class TestFilterTaggingPlanForExistingTree:
         }
         filtered = filter_tagging_plan_for_existing_tree(plan, str(pdf_path))
         assert len(filtered["elements"]) == 1
+
+
+class TestITextPreservePath:
+    """Integration test: iText with existing struct tree."""
+
+    def test_itext_preserves_existing_document_element(self, tmp_path):
+        """iText should reuse existing /Document, not create a second one."""
+        import re as _re
+        from src.tools.itext_tagger import build_tagging_plan, tag_pdf
+        from src.models.document import DocumentModel, ParagraphInfo, MetadataInfo
+        from src.models.pipeline import RemediationStrategy, RemediationAction
+
+        # Use Lesson PDF which has an existing struct tree
+        if not LESSON_PDF.exists():
+            pytest.skip("Test PDF not available")
+
+        test_pdf = tmp_path / "input.pdf"
+        shutil.copy2(LESSON_PDF, test_pdf)
+
+        # Check original has a struct tree
+        doc = fitz.open(str(test_pdf))
+        cat = doc.pdf_catalog()
+        st = doc.xref_get_key(cat, "StructTreeRoot")
+        has_tree = st[0] == "xref"
+        doc.close()
+
+        if not has_tree:
+            pytest.skip("Syllabus PDF has no struct tree")
+
+        # Build minimal strategy with one heading
+        strategy = RemediationStrategy(
+            document_type="syllabus",
+            actions=[
+                RemediationAction(
+                    action_type="set_heading_level",
+                    element_id="p_0",
+                    parameters={"level": 1},
+                    wcag_criterion="1.3.1",
+                    rationale="test",
+                ),
+            ],
+            summary="test",
+        )
+        doc_model = DocumentModel(
+            paragraphs=[ParagraphInfo(
+                id="p_0", text="Test Heading",
+                style_name="Normal", is_heading=False,
+                font_size=14.0, is_bold=True,
+                bbox=[72, 700, 500, 720],
+                page_number=0,
+            )],
+            metadata=MetadataInfo(),
+        )
+
+        output_pdf = tmp_path / "output.pdf"
+        plan = build_tagging_plan(
+            strategy, doc_model,
+            input_path=str(test_pdf),
+            output_path=str(output_pdf),
+        )
+        result = tag_pdf(plan)
+
+        if not result.success:
+            pytest.skip(f"iText tagging failed: {result.errors}")
+
+        # Verify: should have exactly ONE /Document element, not two
+        doc2 = fitz.open(str(output_pdf))
+        cat2 = doc2.pdf_catalog()
+        st2 = doc2.xref_get_key(cat2, "StructTreeRoot")
+        assert st2[0] == "xref"
+        st_xref = int(st2[1].split()[0])
+        st_obj = doc2.xref_object(st_xref) or ""
+
+        doc_count = 0
+        for m in _re.finditer(r"(\d+)\s+0\s+R", st_obj):
+            kid_obj = doc2.xref_object(int(m.group(1))) or ""
+            if "/S /Document" in kid_obj or "/S/Document" in kid_obj:
+                doc_count += 1
+        doc2.close()
+
+        assert doc_count == 1, f"Expected 1 /Document element, found {doc_count}"

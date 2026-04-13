@@ -4,8 +4,8 @@
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
 - **Benchmark detection**: **96.8%** (121/125, Kumar methodology replication, beats GPT-4-Turbo 85% by 11.8pp). Raw-PDF analysis: **80.0%** (theoretical ceiling).
-- **Remediation**: **86.7% PDF/UA failed-check reduction** on 125 docs
-- **Tests**: 977 passing
+- **Remediation**: **38.8% PDF/UA failed-check reduction** on v3 benchmark (down from 86.7% — see struct tree architecture problem below)
+- **Tests**: 997 passing
 - **Publication**: arXiv preprint + blog post + TACCESS journal (no deadline pressure)
 - **Kumar collaboration**: Lucy Wang confirmed methodology findings, ongoing email exchange
 
@@ -15,9 +15,9 @@
 | Detection accuracy (Kumar replication) | 96.8% (121/125) |
 | Detection accuracy (raw-PDF analysis) | 80.0% |
 | GPT-4-Turbo published baseline | 85.0% |
-| PDF/UA failed-check reduction | 86.7% (−165,076 checks) |
-| Docs improved | 113/125 (90.4%) |
-| Docs regressed | 4/125 |
+| PDF/UA failed-check reduction | 38.8% on v3 (struct tree problem — see below) |
+| Docs improved | 50/125 on v3 |
+| Docs regressed | 72/125 on v3 (caused by incomplete struct tree tagging) |
 | Average cost per doc | $0.13 |
 | Total cost (125 docs) | $16.23 |
 | Wall time (125 docs) | 5h20m (median 112s/doc) |

@@ -2159,6 +2159,45 @@ def _is_page_furniture(text: str, furniture_set: set[str]) -> bool:
     return False
 
 
+def _scan_page_furniture(pdf_path: "str | Path") -> set[str]:
+    """Pre-scan all pages for repeated short text at top/bottom margins.
+
+    Text appearing on 3+ pages at similar y-coordinates (within top/bottom
+    10% of page height) and shorter than 50 chars is classified as page
+    furniture (headers, footers, running titles).
+
+    Returns set of normalized text strings.
+    """
+    doc = fitz.open(str(pdf_path))
+    text_counts: dict[str, int] = {}
+    try:
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            height = page.rect.height
+            margin_top = height * 0.10
+            margin_bottom = height * 0.90
+
+            blocks = page.get_text("blocks")
+            for block in blocks:
+                if block[6] != 0:  # skip image blocks
+                    continue
+                y0 = block[1]
+                y1 = block[3]
+                text = block[4].strip()
+
+                if not text or len(text) > 50:
+                    continue
+
+                if y1 <= margin_top or y0 >= margin_bottom:
+                    normalized = text.strip()
+                    if normalized:
+                        text_counts[normalized] = text_counts.get(normalized, 0) + 1
+    finally:
+        doc.close()
+
+    return {text for text, count in text_counts.items() if count >= 3}
+
+
 def mark_untagged_content_as_artifact(
     pdf_path: "str | Path",
 ) -> ArtifactMarkingResult:

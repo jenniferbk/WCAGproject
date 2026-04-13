@@ -211,3 +211,37 @@ class TestIsPageFurniture:
         from src.tools.pdf_writer import _is_page_furniture
         assert _is_page_furniture("", set()) is True
         assert _is_page_furniture("   ", set()) is True
+
+
+class TestScanPageFurniture:
+    """Tests for repeated header/footer detection across pages."""
+
+    def test_repeated_text_detected(self, tmp_path):
+        """Text appearing on 3+ pages at similar positions → furniture."""
+        from src.tools.pdf_writer import _scan_page_furniture
+        doc = fitz.open()
+        for i in range(5):
+            page = doc.new_page()
+            page.insert_text((72, 30), "Journal of Education Vol. 12", fontsize=9)
+            page.insert_text((72, 300), f"Content of page {i + 1}", fontsize=12)
+            page.insert_text((300, 780), str(i + 1), fontsize=9)
+        pdf_path = tmp_path / "test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        furniture = _scan_page_furniture(str(pdf_path))
+        assert "Journal of Education Vol. 12" in furniture
+
+    def test_unique_text_not_detected(self, tmp_path):
+        """Text appearing on only 1 page is not furniture."""
+        from src.tools.pdf_writer import _scan_page_furniture
+        doc = fitz.open()
+        for i in range(3):
+            page = doc.new_page()
+            page.insert_text((72, 300), f"Unique content {i}", fontsize=12)
+        pdf_path = tmp_path / "test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        furniture = _scan_page_furniture(str(pdf_path))
+        assert len(furniture) == 0

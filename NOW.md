@@ -67,7 +67,7 @@ Benchmark v3 results: **38.8% failed-check reduction** (down from 86.7%). 72/125
 **Root cause:** iText only tags headings, figures, tables, links. Body text (/P), lists (/L), captions, formulas, blockquotes — all untagged. Artifact marking then labels body text as /Artifact, hiding it from screen readers. On docs with existing struct trees (92/120), we strip good /P tags and replace with an incomplete tree.
 
 **Required fix (two parts):**
-1. **Complete tagging** — whether building from scratch or augmenting, output must include ALL valid tags: /P, /L, /LI, /Span, /Caption, /Formula, /BlockQuote, /Note, /TOC, etc.
+1. **Complete tagging** — whether building from scratch or augmenting, every content item must get the appropriate tag for what it is. Body text → /P, lists → /L+/LI, captions → /Caption, math → /Formula, etc. No content should be left untagged (and thus artifact-marked).
 2. **Preserve existing trees** — don't strip well-tagged trees. Augment them with our improvements (headings, alt text, link text) instead.
 
 **Benchmark v3 results** (`/tmp/remediation_bench_v3`): 125/125 succeeded, 6 fully compliant, 52,544→32,146 failed checks (38.8% reduction). Top remaining rules: 7.1-3 (4,808), 7.18.x (1,952), 7.21.x (1,884).

@@ -2525,27 +2525,19 @@ def tag_or_artifact_untagged_content(
 
             result.pages_modified += 1
 
-        # Pass 2: form XObjects — still use /Artifact (no struct tree
-        # integration for form XObject content in v1)
-        form_xrefs = _find_form_xobject_xrefs(doc)
-        for fx in form_xrefs:
-            try:
-                stream_bytes = doc.xref_stream(fx)
-                if not stream_bytes:
-                    continue
-                tokens = _tokenize_content_stream(stream_bytes)
-                runs = _find_untagged_content_runs(tokens)
-                if not runs:
-                    continue
-                tagged_runs_fx = [
-                    TaggedRun(start=s, end=e, tag_type="/Artifact", mcid=None)
-                    for s, e in runs
-                ]
-                new_stream = _apply_content_tag_wrappers(tokens, tagged_runs_fx)
-                doc.update_stream(fx, new_stream)
-                result.form_xobjects_modified += 1
-            except Exception as exc:
-                result.errors.append(f"form XObject {fx}: {exc}")
+        # Pass 2: form XObjects — SKIP artifact wrapping.
+        # Form XObjects referenced via `Do` inside tagged BDC regions
+        # inherit their parent's tagging context. Wrapping their content
+        # as /Artifact creates 7.1-1 violations ("Artifact inside tagged
+        # content") and 7.1-2 violations ("Tagged content inside Artifact").
+        # Leaving form XObject content unwrapped is safe — veraPDF treats
+        # it as part of the parent tagged region.
+        #
+        # The old mark_untagged_content_as_artifact() had the same pass 2
+        # but it ran when ALL page content was artifact-wrapped, so there
+        # was no nesting conflict. With /P tagging on pages, the conflict
+        # is unavoidable unless we also struct-tag form XObject content
+        # (deferred to v2).
 
         doc.save(str(path), incremental=True, encryption=0)
 

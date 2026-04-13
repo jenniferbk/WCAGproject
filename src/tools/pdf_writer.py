@@ -3542,17 +3542,77 @@ def _write_parent_tree(
     doc.xref_set_key(st_root_xref, "ParentTreeNextKey", str(next_key))
 
 
+def _collect_struct_tree_mcid_mappings(
+    doc: "fitz.Document",
+) -> dict[int, list[tuple[int, int]]]:
+    """Walk the struct tree and collect per-page MCID→struct element mappings.
+
+    Returns {page_xref: [(mcid, struct_elem_xref), ...]}.
+    This captures ALL MCID mappings — including those created by iText
+    which doesn't populate its own ParentTree arrays.
+    """
+    cat = doc.pdf_catalog()
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        return {}
+
+    st_root_xref = int(st_key[1].split()[0])
+    result: dict[int, list[tuple[int, int]]] = {}
+    seen: set[int] = set()
+
+    def _walk(xref: int, depth: int = 0) -> None:
+        if xref in seen or depth > 400:
+            return
+        seen.add(xref)
+        try:
+            obj = doc.xref_object(xref) or ""
+        except Exception:
+            return
+
+        # Check if this is a struct element with MCIDs
+        s_match = re.search(r"/S\s*/\w+", obj)
+        if s_match:
+            # Get page xref for this element
+            pg_match = re.search(r"/Pg\s+(\d+)\s+0\s+R", obj)
+            pg_xref = int(pg_match.group(1)) if pg_match else None
+
+            # Check for direct integer MCID: /K N (not followed by 0 R)
+            k_direct = re.search(r"/K\s+(\d+)\b(?!\s+0\s+R)", obj)
+            if k_direct and pg_xref is not None:
+                mcid = int(k_direct.group(1))
+                result.setdefault(pg_xref, []).append((mcid, xref))
+
+            # Check for MCID in MCR dict: /MCID N
+            for m in re.finditer(r"/MCID\s+(\d+)", obj):
+                mcid = int(m.group(1))
+                if pg_xref is not None:
+                    # Avoid duplicates from /K N also matching /MCID N
+                    existing = result.get(pg_xref, [])
+                    if not any(e[0] == mcid and e[1] == xref for e in existing):
+                        result.setdefault(pg_xref, []).append((mcid, xref))
+
+        # Recurse into children
+        for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+            _walk(int(m.group(1)), depth + 1)
+
+    _walk(st_root_xref)
+    return result
+
+
 def _update_parent_tree_for_mcids(
     doc: "fitz.Document",
     page_mcid_map: dict[int, list[tuple[int, int]]],
 ) -> int:
     """Update ParentTree with MCID→struct element mappings.
 
-    For each page in page_mcid_map:
-    1. Check if page already has /StructParents → read existing array
-    2. Build array where array[mcid] = struct_elem_xref
-    3. If page has no /StructParents, assign next available number
-    4. Write/update ParentTree entries
+    Handles BOTH our gap-fill /P elements AND iText-created elements
+    (headings, figures, etc.) which iText doesn't add to the ParentTree.
+
+    For each page with MCIDs:
+    1. Collect all MCID→struct element mappings from the struct tree
+    2. Merge with our gap-fill mappings from page_mcid_map
+    3. Build/update the ParentTree array for that page
+    4. Set /StructParents on the page if missing
 
     Args:
         doc: Open fitz.Document (modified in place, caller must save).
@@ -3561,9 +3621,6 @@ def _update_parent_tree_for_mcids(
     Returns:
         Count of ParentTree entries added/updated.
     """
-    if not page_mcid_map:
-        return 0
-
     cat = doc.pdf_catalog()
     st_key = doc.xref_get_key(cat, "StructTreeRoot")
     if st_key[0] != "xref":
@@ -3579,10 +3636,37 @@ def _update_parent_tree_for_mcids(
     # Find next available StructParents number
     next_sp = _find_next_struct_parent(doc, st_root_xref)
 
+    # Collect ALL MCID→struct element mappings from the struct tree.
+    # This includes iText-created elements that iText didn't add to
+    # the ParentTree (iText leaves /Nums empty).
+    tree_mcid_map = _collect_struct_tree_mcid_mappings(doc)
+
+    # Build page_xref→page_idx lookup
+    page_xref_to_idx = {doc[i].xref: i for i in range(len(doc))}
+
+    # Merge tree_mcid_map (keyed by page xref) into page_mcid_map (keyed by page idx)
+    merged: dict[int, dict[int, int]] = {}  # page_idx → {mcid → elem_xref}
+
+    for pg_xref, entries in tree_mcid_map.items():
+        page_idx = page_xref_to_idx.get(pg_xref)
+        if page_idx is None:
+            continue
+        for mcid, elem_xref in entries:
+            merged.setdefault(page_idx, {})[mcid] = elem_xref
+
+    # Overlay our gap-fill entries (these take precedence)
+    for page_idx, entries in page_mcid_map.items():
+        for mcid, elem_xref in entries:
+            merged.setdefault(page_idx, {})[mcid] = elem_xref
+
+    if not merged:
+        return 0
+
     entries_added = 0
 
-    for page_idx, mcid_entries in page_mcid_map.items():
-        if not mcid_entries:
+    for page_idx in sorted(merged.keys()):
+        mcid_to_elem = merged[page_idx]
+        if not mcid_to_elem:
             continue
 
         page = doc[page_idx]
@@ -3591,41 +3675,37 @@ def _update_parent_tree_for_mcids(
         sp_key = doc.xref_get_key(page.xref, "StructParents")
         if sp_key[0] not in ("null", "undefined"):
             sp_num = int(sp_key[1])
-            # Read existing array from ParentTree
+            # Read existing array from ParentTree (may have real entries
+            # from a preserved tree)
             existing_array_xref = all_nums.get(sp_num)
-            existing_mcid_map_local: dict[int, int] = {}
             if existing_array_xref is not None:
                 arr_obj = doc.xref_object(existing_array_xref) or ""
                 for idx, m in enumerate(
                     re.finditer(r"(\d+)\s+0\s+R|null", arr_obj)
                 ):
                     if m.group(1):
-                        existing_mcid_map_local[idx] = int(m.group(1))
+                        # Only add if not already in our merged map
+                        if idx not in mcid_to_elem:
+                            mcid_to_elem[idx] = int(m.group(1))
         else:
             sp_num = next_sp
             next_sp += 1
             doc.xref_set_key(page.xref, "StructParents", str(sp_num))
-            existing_mcid_map_local = {}
-
-        # Merge new entries
-        for mcid, elem_xref in mcid_entries:
-            existing_mcid_map_local[mcid] = elem_xref
 
         # Build array: [elem0_ref elem1_ref null elem3_ref ...]
-        if existing_mcid_map_local:
-            max_mcid = max(existing_mcid_map_local.keys())
-            parts = []
-            for i in range(max_mcid + 1):
-                if i in existing_mcid_map_local:
-                    parts.append(f"{existing_mcid_map_local[i]} 0 R")
-                else:
-                    parts.append("null")
-            arr_content = " ".join(parts)
+        max_mcid = max(mcid_to_elem.keys())
+        parts = []
+        for i in range(max_mcid + 1):
+            if i in mcid_to_elem:
+                parts.append(f"{mcid_to_elem[i]} 0 R")
+            else:
+                parts.append("null")
+        arr_content = " ".join(parts)
 
-            arr_xref = doc.get_new_xref()
-            doc.update_object(arr_xref, f"[{arr_content}]")
-            all_nums[sp_num] = arr_xref
-            entries_added += 1
+        arr_xref = doc.get_new_xref()
+        doc.update_object(arr_xref, f"[{arr_content}]")
+        all_nums[sp_num] = arr_xref
+        entries_added += 1
 
     # Write updated ParentTree
     _write_parent_tree(doc, st_root_xref, all_nums, next_sp, existing_pt_xref)

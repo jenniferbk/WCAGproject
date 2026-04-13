@@ -570,13 +570,17 @@ class TestUpdateParentTreeForMcids:
         assert pt_key[0] == "xref", "ParentTree should exist"
         doc2.close()
 
-    def test_empty_map_does_nothing(self, tmp_path):
+    def test_empty_map_still_fixes_itext_mcids(self, tmp_path):
+        """Even with empty page_mcid_map, iText MCIDs get ParentTree entries."""
         from src.tools.pdf_writer import _update_parent_tree_for_mcids
         pdf_path = self._make_tagged_pdf(tmp_path)
         doc = fitz.open(str(pdf_path))
+        # The tagged PDF has MCIDs 0 and 1 from struct elements —
+        # _update_parent_tree_for_mcids should find and register them
         count = _update_parent_tree_for_mcids(doc, {})
+        doc.save(str(pdf_path), incremental=True, encryption=0)
         doc.close()
-        assert count == 0
+        assert count >= 1  # should create entries for existing MCIDs
 
 
 class TestFilterTaggingPlanForExistingTree:

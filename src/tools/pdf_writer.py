@@ -2461,7 +2461,15 @@ def tag_or_artifact_untagged_content(
 
             for start, end in runs:
                 text = _extract_text_from_run(tokens, start, end)
-                if _is_page_furniture(text, furniture_set):
+                # Runs containing form XObject Do operators should be
+                # artifact-wrapped — form XObjects often contain their
+                # own BDC markers (including /Artifact) and tagging the
+                # Do as /P creates nested artifact-inside-tagged violations.
+                has_do = any(
+                    tokens[j].type == "operator" and tokens[j].value == "Do"
+                    for j in range(start, min(end + 1, len(tokens)))
+                )
+                if has_do or _is_page_furniture(text, furniture_set):
                     tagged_runs.append(TaggedRun(
                         start=start, end=end,
                         tag_type="/Artifact", mcid=None,

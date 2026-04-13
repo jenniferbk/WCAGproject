@@ -719,3 +719,20 @@ class TestITextPreservePath:
         doc2.close()
 
         assert doc_count == 1, f"Expected 1 /Document element, found {doc_count}"
+
+
+class TestEndToEndRealPdfs:
+    """End-to-end tests on real PDF files."""
+
+    def test_lesson_pdf_assessment(self):
+        """Lesson PDF (PowerPoint export) has a struct tree and gets assessed."""
+        from src.tools.pdf_writer import assess_struct_tree_quality
+        if not LESSON_PDF.exists():
+            pytest.skip("Lesson PDF not available")
+
+        assessment = assess_struct_tree_quality(str(LESSON_PDF))
+        assert assessment.has_tree is True
+        assert isinstance(assessment.coverage_ratio, float)
+        assert assessment.recommendation in ("preserve", "rebuild")
+        # Lesson PDF has /Slide + /P + /Figure roles
+        assert "/Slide" in assessment.role_distribution

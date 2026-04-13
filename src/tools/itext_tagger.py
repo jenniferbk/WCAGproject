@@ -341,6 +341,76 @@ def _auto_detect_headings(doc_model: DocumentModel, title: str = "") -> list[dic
     return elements
 
 
+def filter_tagging_plan_for_existing_tree(
+    plan: dict, pdf_path: str,
+) -> dict:
+    """Remove elements from the tagging plan that already exist in the struct tree.
+
+    For the preserve path: inspects the existing struct tree and removes
+    figure elements that would create duplicates. Headings are always kept
+    (existing trees rarely have correct heading levels).
+
+    Args:
+        plan: Tagging plan dict with "elements" list.
+        pdf_path: Path to the PDF with the existing struct tree.
+
+    Returns:
+        Filtered plan dict (shallow copy with filtered elements list).
+    """
+    import fitz
+    import re
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return plan
+
+    try:
+        cat = doc.pdf_catalog()
+        st_key = doc.xref_get_key(cat, "StructTreeRoot")
+        if st_key[0] != "xref":
+            return plan
+
+        st_root_xref = int(st_key[1].split()[0])
+
+        existing_figure_xrefs: set[int] = set()
+        seen: set[int] = set()
+
+        def _walk(xref: int, depth: int = 0) -> None:
+            if xref in seen or depth > 200:
+                return
+            seen.add(xref)
+            try:
+                obj = doc.xref_object(xref) or ""
+            except Exception:
+                return
+            if re.search(r"/S\s*/Figure", obj):
+                xref_match = re.search(r"/A11yXref\s+(\d+)", obj)
+                if xref_match:
+                    existing_figure_xrefs.add(int(xref_match.group(1)))
+            for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+                _walk(int(m.group(1)), depth + 1)
+
+        _walk(st_root_xref)
+    finally:
+        doc.close()
+
+    filtered_elements = []
+    for elem in plan.get("elements", []):
+        if elem["type"] == "image_alt":
+            if elem.get("xref") in existing_figure_xrefs:
+                logger.info(
+                    "Filtered existing /Figure xref=%d from tagging plan",
+                    elem["xref"],
+                )
+                continue
+        filtered_elements.append(elem)
+
+    result = dict(plan)
+    result["elements"] = filtered_elements
+    return result
+
+
 def _find_java() -> str | None:
     """Find the Java executable. Checks JAVA_HOME, then PATH."""
     # Check our known Homebrew location first

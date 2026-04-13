@@ -576,3 +576,64 @@ class TestUpdateParentTreeForMcids:
         count = _update_parent_tree_for_mcids(doc, {})
         doc.close()
         assert count == 0
+
+
+class TestFilterTaggingPlanForExistingTree:
+    """Tests for duplicate prevention on preserve path."""
+
+    def _make_tagged_pdf_with_figure(self, tmp_path) -> Path:
+        """PDF with an existing /Figure struct element."""
+        doc = fitz.open()
+        page = doc.new_page()
+        cat = doc.pdf_catalog()
+        sr = doc.get_new_xref()
+        de = doc.get_new_xref()
+        fig = doc.get_new_xref()
+        doc.update_object(fig,
+            f"<< /Type /StructElem /S /Figure /P {de} 0 R /Alt (old alt) /A11yXref 10 >>")
+        doc.update_object(de,
+            f"<< /Type /StructElem /S /Document /P {sr} 0 R /K [{fig} 0 R] >>")
+        doc.update_object(sr,
+            f"<< /Type /StructTreeRoot /K [{de} 0 R] >>")
+        doc.xref_set_key(cat, "StructTreeRoot", f"{sr} 0 R")
+        pdf_path = tmp_path / "with_figure.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+        return pdf_path
+
+    def test_existing_figure_removed_from_plan(self, tmp_path):
+        from src.tools.itext_tagger import filter_tagging_plan_for_existing_tree
+        pdf_path = self._make_tagged_pdf_with_figure(tmp_path)
+        plan = {
+            "input_path": str(pdf_path),
+            "output_path": str(tmp_path / "out.pdf"),
+            "elements": [
+                {"type": "image_alt", "xref": 10, "alt_text": "new alt",
+                 "page": 0, "bbox": [0, 0, 100, 100]},
+                {"type": "heading", "level": 1, "text": "Title",
+                 "page": 0, "bbox": [72, 700, 500, 720]},
+            ],
+        }
+        filtered = filter_tagging_plan_for_existing_tree(plan, str(pdf_path))
+        types = [e["type"] for e in filtered["elements"]]
+        assert "heading" in types
+        assert "image_alt" not in types
+
+    def test_no_tree_returns_plan_unchanged(self, tmp_path):
+        from src.tools.itext_tagger import filter_tagging_plan_for_existing_tree
+        doc = fitz.open()
+        doc.new_page()
+        pdf_path = tmp_path / "no_tree.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        plan = {
+            "input_path": str(pdf_path),
+            "output_path": str(tmp_path / "out.pdf"),
+            "elements": [
+                {"type": "image_alt", "xref": 10, "alt_text": "alt",
+                 "page": 0, "bbox": [0, 0, 100, 100]},
+            ],
+        }
+        filtered = filter_tagging_plan_for_existing_tree(plan, str(pdf_path))
+        assert len(filtered["elements"]) == 1

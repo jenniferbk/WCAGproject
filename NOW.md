@@ -60,11 +60,17 @@
 - **Link annotations** (rules 7.18.x) — partially addressed by link text harvest. Remaining: annotations still lacking proper struct tree linkage in some docs.
 - **Font repair** (rules 7.21.x) — font encoding issues (ToUnicode CMap, glyph widths). Requires fontTools. Risk of breaking visual rendering.
 
-## Running: Full 125-doc remediation benchmark (v3)
+## CRITICAL: Struct Tree Architecture Problem (discovered 2026-04-13)
 
-Output dir: `/tmp/remediation_bench_v3`
-Includes all today's fixes: link text harvest + /Suspect→/Artifact conversion.
-After completion, run `scripts/verapdf_postprocess.py --results-dir /tmp/remediation_bench_v3` for PDF/UA numbers.
+Benchmark v3 results: **38.8% failed-check reduction** (down from 86.7%). 72/125 docs REGRESSED.
+
+**Root cause:** iText only tags headings, figures, tables, links. Body text (/P), lists (/L), captions, formulas, blockquotes — all untagged. Artifact marking then labels body text as /Artifact, hiding it from screen readers. On docs with existing struct trees (92/120), we strip good /P tags and replace with an incomplete tree.
+
+**Required fix (two parts):**
+1. **Complete tagging** — whether building from scratch or augmenting, output must include ALL valid tags: /P, /L, /LI, /Span, /Caption, /Formula, /BlockQuote, /Note, /TOC, etc.
+2. **Preserve existing trees** — don't strip well-tagged trees. Augment them with our improvements (headings, alt text, link text) instead.
+
+**Benchmark v3 results** (`/tmp/remediation_bench_v3`): 125/125 succeeded, 6 fully compliant, 52,544→32,146 failed checks (38.8% reduction). Top remaining rules: 7.1-3 (4,808), 7.18.x (1,952), 7.21.x (1,884).
 
 ## Shipped: /Suspect → /Artifact Conversion (2026-04-12)
 

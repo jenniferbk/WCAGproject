@@ -28,19 +28,21 @@ from src.tools.alt_text import set_alt_text, set_alt_text_pptx, set_decorative
 from src.tools.contrast import check_contrast, fix_all_document_contrast, fix_contrast
 from src.tools.headings import set_heading_level
 from src.tools.html_builder import build_html
-from src.tools.itext_tagger import build_tagging_plan, tag_pdf
+from src.tools.itext_tagger import build_tagging_plan, filter_tagging_plan_for_existing_tree, tag_pdf
 from src.tools.metadata import set_language, set_language_pptx, set_title, set_title_pptx
 from src.tools.pdf_writer import (
     apply_contrast_fixes_to_pdf,
     apply_pdf_fixes,
     apply_pdf_ua_metadata,
     apply_pdf_ua_tail_polish,
-    mark_untagged_content_as_artifact,
+    assess_struct_tree_quality,
     populate_link_annotation_contents,
     populate_link_parent_tree,
     repair_broken_uris_in_pdf,
     strip_struct_tree,
+    tag_or_artifact_untagged_content,
     update_existing_figure_alt_texts,
+    _update_parent_tree_for_mcids,
 )
 from src.tools.links import set_link_text
 from src.tools.tables import mark_header_rows
@@ -272,22 +274,35 @@ def execute_pdf(
     tagged_pdf_path = str(out_dir / f"{input_path.stem}_remediated.pdf")
 
     if not is_latex:
-        # Strip existing structure tree before iText processes the PDF.
-        # This prevents duplicate /Figure elements when the original PDF
-        # already has structure tags (e.g., from PowerPoint export).
-        # iText will create a fresh, clean structure tree.
-        stripped_input = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                suffix=".pdf", delete=False, dir=str(out_dir),
-            ) as tmp:
-                stripped_input = tmp.name
-            if strip_struct_tree(str(input_path), stripped_input):
-                itext_input = stripped_input
-            else:
+        # Assess existing struct tree quality to decide preserve vs rebuild
+        tree_assessment = assess_struct_tree_quality(str(input_path))
+        logger.info(
+            "Struct tree assessment: coverage=%.2f, orphan_rate=%.2f, "
+            "has_p=%s, recommendation=%s",
+            tree_assessment.coverage_ratio,
+            tree_assessment.mcid_orphan_rate,
+            tree_assessment.has_paragraph_tags,
+            tree_assessment.recommendation,
+        )
+
+        if tree_assessment.recommendation == "rebuild":
+            # Rebuild path: strip existing tree, iText builds fresh
+            stripped_input = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".pdf", delete=False, dir=str(out_dir),
+                ) as tmp:
+                    stripped_input = tmp.name
+                if strip_struct_tree(str(input_path), stripped_input):
+                    itext_input = stripped_input
+                else:
+                    itext_input = str(input_path)
+            except Exception:
                 itext_input = str(input_path)
-        except Exception:
+        else:
+            # Preserve path: keep existing tree, iText augments
             itext_input = str(input_path)
+            stripped_input = None
 
         if on_progress:
             on_progress("Tagging PDF structure")
@@ -296,6 +311,11 @@ def execute_pdf(
             input_path=itext_input,
             output_path=tagged_pdf_path,
         )
+        # Preserve path: filter out elements that already exist in the tree
+        if tree_assessment.recommendation == "preserve":
+            tagging_plan = filter_tagging_plan_for_existing_tree(
+                tagging_plan, itext_input,
+            )
         tag_result = tag_pdf(tagging_plan)
 
         # Clean up temp file
@@ -360,29 +380,47 @@ def execute_pdf(
             except Exception as exc:
                 logger.warning("PDF/UA metadata pass failed: %s", exc)
 
-            # PDF/UA Track A — wrap depth-0 untagged content and
-            # convert orphan BDCs to /Artifact <</Type /Pagination>>.
-            # Reduces rule 7.1-3 failed checks by 50–92% on the
-            # benchmark depending on the source PDF's tagging quality.
+            # Tag untagged content as /P (or /Artifact for page furniture).
+            # Replaces the old mark_untagged_content_as_artifact() which
+            # hid body text from screen readers.
             try:
-                artifact_result = mark_untagged_content_as_artifact(tagged_pdf_path)
-                if artifact_result.success:
-                    if artifact_result.artifact_wrappers_inserted:
+                tagging_result = tag_or_artifact_untagged_content(
+                    tagged_pdf_path
+                )
+                if tagging_result.success:
+                    if tagging_result.paragraphs_tagged or tagging_result.artifacts_tagged:
                         logger.info(
-                            "Artifact-marked %d content region(s) "
-                            "across %d page(s) and %d form XObject(s) in %s",
-                            artifact_result.artifact_wrappers_inserted,
-                            artifact_result.pages_modified,
-                            artifact_result.form_xobjects_modified,
+                            "Tagged %d paragraph(s) as /P, "
+                            "%d as /Artifact across %d page(s) in %s",
+                            tagging_result.paragraphs_tagged,
+                            tagging_result.artifacts_tagged,
+                            tagging_result.pages_modified,
                             tagged_pdf_path,
                         )
+                    # Update ParentTree for new MCIDs
+                    if tagging_result.page_mcid_map:
+                        try:
+                            import fitz as _fitz
+                            _doc = _fitz.open(tagged_pdf_path)
+                            _update_parent_tree_for_mcids(
+                                _doc, tagging_result.page_mcid_map
+                            )
+                            _doc.save(
+                                tagged_pdf_path,
+                                incremental=True, encryption=0,
+                            )
+                            _doc.close()
+                        except Exception as exc:
+                            logger.warning(
+                                "ParentTree MCID update failed: %s", exc
+                            )
                 else:
                     logger.warning(
-                        "Artifact marking failed: %s",
-                        "; ".join(artifact_result.errors),
+                        "Content tagging failed: %s",
+                        "; ".join(tagging_result.errors),
                     )
             except Exception as exc:
-                logger.warning("Artifact marking pass failed: %s", exc)
+                logger.warning("Content tagging pass failed: %s", exc)
 
             # PDF/UA link contents — set /Contents on every link
             # annotation that lacks one. Satisfies rule 7.18.5-2.

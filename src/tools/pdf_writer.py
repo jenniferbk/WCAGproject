@@ -1969,6 +1969,176 @@ def _expand_run_starts_backward(
 
 
 @dataclass
+class TreeAssessment:
+    """Result of assess_struct_tree_quality()."""
+    has_tree: bool
+    coverage_ratio: float = 0.0
+    has_paragraph_tags: bool = False
+    mcid_orphan_rate: float = 0.0
+    page_refs_valid: bool = True
+    role_distribution: dict[str, int] = field(default_factory=dict)
+    tag_content_mismatches: int = 0
+    total_text_objects: int = 0
+    tagged_text_objects: int = 0
+    recommendation: str = "rebuild"
+
+
+@dataclass
+class ContentTaggingResult:
+    """Result of tag_or_artifact_untagged_content()."""
+    success: bool
+    pages_modified: int = 0
+    paragraphs_tagged: int = 0
+    lists_tagged: int = 0
+    artifacts_tagged: int = 0
+    pages_skipped: int = 0
+    form_xobjects_modified: int = 0
+    errors: list[str] = field(default_factory=list)
+    page_mcid_map: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
+
+
+def assess_struct_tree_quality(pdf_path: "str | Path") -> TreeAssessment:
+    """Assess whether an existing struct tree is worth preserving."""
+    try:
+        doc = fitz.open(str(pdf_path))
+    except Exception:
+        return TreeAssessment(has_tree=False)
+    try:
+        return _assess_struct_tree_inner(doc)
+    except Exception as exc:
+        logger.warning("Tree assessment failed: %s", exc)
+        return TreeAssessment(has_tree=False)
+    finally:
+        doc.close()
+
+
+def _assess_struct_tree_inner(doc: "fitz.Document") -> TreeAssessment:
+    cat = doc.pdf_catalog()
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        return TreeAssessment(has_tree=False)
+
+    st_root_xref = int(st_key[1].split()[0])
+    result = TreeAssessment(has_tree=True)
+
+    # Check 1: MCID coverage
+    tree_mcids = _collect_struct_tree_mcids(doc)
+    total_text_objects = 0
+    tagged_count = 0
+
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        try:
+            stream_bytes = page.read_contents()
+        except Exception:
+            continue
+        if not stream_bytes:
+            continue
+
+        tokens = _tokenize_content_stream(stream_bytes)
+        depth = 0
+        for t in tokens:
+            if t.type == "operator":
+                if t.value in ("BDC", "BMC"):
+                    depth += 1
+                elif t.value == "EMC":
+                    depth -= 1
+                elif t.value == "BT":
+                    total_text_objects += 1
+                    if depth > 0:
+                        tagged_count += 1
+
+    result.total_text_objects = total_text_objects
+    result.tagged_text_objects = tagged_count
+    result.coverage_ratio = tagged_count / total_text_objects if total_text_objects > 0 else 0.0
+
+    # Orphan rate
+    stream_mcids: set[int] = set()
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        try:
+            stream_bytes = page.read_contents()
+        except Exception:
+            continue
+        if not stream_bytes:
+            continue
+        tokens = _tokenize_content_stream(stream_bytes)
+        for t in tokens:
+            if t.type in ("dict", "operand") and "/MCID" in t.value:
+                for m in re.finditer(r"/MCID\s+(\d+)", t.value):
+                    stream_mcids.add(int(m.group(1)))
+
+    all_mcids = tree_mcids | stream_mcids
+    if all_mcids:
+        orphans = len(tree_mcids.symmetric_difference(stream_mcids))
+        result.mcid_orphan_rate = orphans / len(all_mcids)
+
+    # Check 2: Role distribution
+    role_dist: dict[str, int] = {}
+    seen_xrefs: set[int] = set()
+
+    def _walk_roles(xref: int, depth: int = 0) -> None:
+        if xref in seen_xrefs or depth > 200:
+            return
+        seen_xrefs.add(xref)
+        try:
+            obj = doc.xref_object(xref) or ""
+        except Exception:
+            return
+        s_match = re.search(r"/S\s*(/\w+)", obj)
+        if s_match:
+            role = s_match.group(1)
+            role_dist[role] = role_dist.get(role, 0) + 1
+        for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+            _walk_roles(int(m.group(1)), depth + 1)
+
+    _walk_roles(st_root_xref)
+    result.role_distribution = role_dist
+    result.has_paragraph_tags = role_dist.get("/P", 0) > 0
+
+    # Check 3: Page reference validity
+    page_xrefs = {doc[i].xref for i in range(len(doc))}
+
+    def _check_pg_refs(xref: int, checked: set[int], depth: int = 0) -> bool:
+        if xref in checked or depth > 200:
+            return True
+        checked.add(xref)
+        try:
+            obj = doc.xref_object(xref) or ""
+        except Exception:
+            return True
+        pg_match = re.search(r"/Pg\s+(\d+)\s+0\s+R", obj)
+        if pg_match:
+            pg_xref = int(pg_match.group(1))
+            if pg_xref not in page_xrefs:
+                return False
+        # Only recurse into struct elements
+        s_type = doc.xref_get_key(xref, "S")
+        if s_type[0] == "name" or xref == st_root_xref:
+            for m in re.finditer(r"(\d+)\s+0\s+R", obj):
+                child = int(m.group(1))
+                if not _check_pg_refs(child, checked, depth + 1):
+                    return False
+        return True
+
+    result.page_refs_valid = _check_pg_refs(st_root_xref, set())
+
+    # Decision
+    if result.coverage_ratio < 0.5:
+        result.recommendation = "rebuild"
+    elif result.mcid_orphan_rate > 0.2:
+        result.recommendation = "rebuild"
+    elif not result.page_refs_valid:
+        result.recommendation = "rebuild"
+    elif not result.has_paragraph_tags:
+        result.recommendation = "rebuild"
+    else:
+        result.recommendation = "preserve"
+
+    return result
+
+
+@dataclass
 class ArtifactMarkingResult:
     """Result of mark_untagged_content_as_artifact()."""
     success: bool
@@ -2016,6 +2186,379 @@ def _apply_artifact_wrappers(
             out.append(emc_close)
 
     return _reassemble_stream(out)
+
+
+@dataclass
+class TaggedRun:
+    """A content stream run classified for tagging."""
+    start: int          # token index (inclusive)
+    end: int            # token index (inclusive)
+    tag_type: str       # "/P", "/L", "/Artifact"
+    mcid: int | None    # MCID for struct-tagged runs, None for /Artifact
+
+
+def _apply_content_tag_wrappers(
+    tokens: list[Token],
+    tagged_runs: list[TaggedRun],
+) -> bytes:
+    """Reassemble token list with per-run BDC/EMC wrappers.
+
+    Unlike _apply_artifact_wrappers which applies the same wrapper to all
+    runs, this handles mixed tagging: /P runs get MCID-bearing BDCs,
+    /Artifact runs get pagination BDCs.
+    """
+    if not tagged_runs:
+        return _reassemble_stream(tokens)
+
+    # Build lookup: start_idx → TaggedRun, end_idx → TaggedRun
+    starts: dict[int, TaggedRun] = {r.start: r for r in tagged_runs}
+    ends: dict[int, TaggedRun] = {r.end: r for r in tagged_runs}
+
+    out: list[Token] = []
+    for i, t in enumerate(tokens):
+        if i in starts:
+            run = starts[i]
+            if run.tag_type == "/Artifact":
+                bdc = Token(
+                    value="/Artifact <</Type /Pagination>> BDC\n",
+                    type="operator",
+                )
+            else:
+                bdc = Token(
+                    value=f"{run.tag_type} <</MCID {run.mcid}>> BDC\n",
+                    type="operator",
+                )
+            out.append(bdc)
+        out.append(t)
+        if i in ends:
+            out.append(Token(value="\nEMC", type="operator"))
+
+    return _reassemble_stream(out)
+
+
+def _decode_pdf_string_operand(s: str) -> str:
+    """Decode a PDF string operand: (text) or <hex>."""
+    s = s.strip()
+    if s.startswith("(") and s.endswith(")"):
+        return s[1:-1]
+    if s.startswith("<") and s.endswith(">"):
+        hex_str = s[1:-1]
+        try:
+            return bytes.fromhex(hex_str).decode("latin-1")
+        except (ValueError, UnicodeDecodeError):
+            return ""
+    return s
+
+
+def _decode_tj_array(s: str) -> str:
+    """Decode a TJ array like [(He) -10 (llo)] to 'Hello'."""
+    parts: list[str] = []
+    for m in re.finditer(r"\(([^)]*)\)|<([0-9A-Fa-f]+)>", s):
+        if m.group(1) is not None:
+            parts.append(m.group(1))
+        elif m.group(2) is not None:
+            try:
+                parts.append(bytes.fromhex(m.group(2)).decode("latin-1"))
+            except (ValueError, UnicodeDecodeError):
+                pass
+    return "".join(parts)
+
+
+def _extract_text_from_run(
+    tokens: list[Token], start: int, end: int
+) -> str:
+    """Extract readable text from a content stream token run.
+
+    Best-effort: collects string operands from Tj, TJ, ', " operators.
+    Handles parenthesized strings and hex strings. Font-encoded bytes
+    are decoded as latin-1 (covers ASCII range for furniture detection).
+    """
+    parts: list[str] = []
+    i = start
+    while i <= end:
+        t = tokens[i]
+        if t.type == "operator" and t.value in ("Tj", "'", '"'):
+            # Look backward for the string operand (skip whitespace tokens)
+            for j in range(i - 1, max(start - 1, i - 4), -1):
+                s = tokens[j]
+                if s.type in ("whitespace", "comment"):
+                    continue
+                if s.type == "string":
+                    parts.append(_decode_pdf_string_operand(s.value))
+                    break
+                if s.type == "hexstring":
+                    parts.append(_decode_pdf_string_operand(s.value))
+                    break
+                if s.type == "operator":
+                    break
+        elif t.type == "operator" and t.value == "TJ":
+            # Look backward for the array operand (skip whitespace tokens)
+            for j in range(i - 1, max(start - 1, i - 4), -1):
+                s = tokens[j]
+                if s.type in ("whitespace", "comment"):
+                    continue
+                if s.type == "array":
+                    parts.append(_decode_tj_array(s.value))
+                    break
+                if s.type == "operator":
+                    break
+        i += 1
+    return "".join(parts)
+
+
+_PAGE_NUMBER_RE = re.compile(
+    r"^[\s\-\u2013\u2014.]*"
+    r"(?:\d{1,4}|[ivxlcdm]{1,8})"
+    r"[\s\-\u2013\u2014.]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_page_furniture(text: str, furniture_set: set[str]) -> bool:
+    """Return True if text is page decoration (not real content).
+
+    Checks: empty/whitespace, page numbers, repeated headers/footers.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if _PAGE_NUMBER_RE.match(stripped):
+        return True
+    if stripped in furniture_set:
+        return True
+    return False
+
+
+def _scan_page_furniture(pdf_path: "str | Path") -> set[str]:
+    """Pre-scan all pages for repeated short text at top/bottom margins.
+
+    Text appearing on 3+ pages at similar y-coordinates (within top/bottom
+    10% of page height) and shorter than 50 chars is classified as page
+    furniture (headers, footers, running titles).
+
+    Returns set of normalized text strings.
+    """
+    doc = fitz.open(str(pdf_path))
+    text_counts: dict[str, int] = {}
+    try:
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            height = page.rect.height
+            margin_top = height * 0.10
+            margin_bottom = height * 0.90
+
+            blocks = page.get_text("blocks")
+            for block in blocks:
+                if block[6] != 0:  # skip image blocks
+                    continue
+                y0 = block[1]
+                y1 = block[3]
+                text = block[4].strip()
+
+                if not text or len(text) > 50:
+                    continue
+
+                if y1 <= margin_top or y0 >= margin_bottom:
+                    normalized = text.strip()
+                    if normalized:
+                        text_counts[normalized] = text_counts.get(normalized, 0) + 1
+    finally:
+        doc.close()
+
+    return {text for text, count in text_counts.items() if count >= 3}
+
+
+def tag_or_artifact_untagged_content(
+    pdf_path: "str | Path",
+) -> ContentTaggingResult:
+    """Walk PDF content streams and tag depth-0 untagged content.
+
+    Replaces mark_untagged_content_as_artifact(). Instead of wrapping
+    all untagged content as /Artifact, classifies each run:
+    - Body text → /P struct element with MCID + BDC/EMC
+    - Page furniture (page numbers, repeated headers/footers) → /Artifact
+
+    Creates struct elements in the StructTreeRoot for /P runs.
+    Populates result.page_mcid_map for subsequent ParentTree update.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return ContentTaggingResult(
+            success=False, errors=[f"File not found: {path}"]
+        )
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return ContentTaggingResult(
+            success=False, errors=[f"Open failed: {exc}"]
+        )
+
+    result = ContentTaggingResult(success=True)
+
+    # Collect referenced MCIDs for orphan detection (existing behavior)
+    referenced_mcids = _collect_struct_tree_mcids(doc)
+
+    # Pre-scan for repeated headers/footers
+    try:
+        furniture_set = _scan_page_furniture(pdf_path)
+    except Exception:
+        furniture_set = set()
+
+    # Find /Document struct element for parenting new elements
+    cat = doc.pdf_catalog()
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        doc.close()
+        return ContentTaggingResult(
+            success=False, errors=["No StructTreeRoot found"]
+        )
+    st_root_xref = int(st_key[1].split()[0])
+    doc_elem_xref = _find_document_elem(doc, st_root_xref)
+    if doc_elem_xref is None:
+        doc.close()
+        return ContentTaggingResult(
+            success=False, errors=["No /Document struct element found"]
+        )
+
+    try:
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            try:
+                stream_bytes = page.read_contents()
+            except Exception as exc:
+                result.errors.append(
+                    f"page {page_idx}: read_contents failed: {exc}"
+                )
+                result.pages_skipped += 1
+                continue
+
+            if not stream_bytes:
+                result.pages_skipped += 1
+                continue
+
+            tokens = _tokenize_content_stream(stream_bytes)
+
+            # Convert orphan and suspect BDCs (existing behavior)
+            orphan_indices = _find_orphan_bdc_openings(
+                tokens, referenced_mcids
+            )
+            orphans_converted = _convert_orphan_bdc_to_artifact(
+                tokens, orphan_indices
+            )
+            suspects_converted = _convert_suspect_bdc_to_artifact(tokens)
+
+            runs = _find_untagged_content_runs(tokens)
+
+            if not runs and not orphans_converted and not suspects_converted:
+                result.pages_skipped += 1
+                continue
+
+            # Classify each run and assign MCIDs
+            next_mcid = _get_max_mcid_for_page(tokens) + 1
+            tagged_runs: list[TaggedRun] = []
+            page_mcid_entries: list[tuple[int, int]] = []
+
+            for start, end in runs:
+                text = _extract_text_from_run(tokens, start, end)
+                if _is_page_furniture(text, furniture_set):
+                    tagged_runs.append(TaggedRun(
+                        start=start, end=end,
+                        tag_type="/Artifact", mcid=None,
+                    ))
+                    result.artifacts_tagged += 1
+                else:
+                    mcid = next_mcid
+                    next_mcid += 1
+                    tagged_runs.append(TaggedRun(
+                        start=start, end=end,
+                        tag_type="/P", mcid=mcid,
+                    ))
+
+                    # Create /P struct element
+                    p_xref = doc.get_new_xref()
+                    p_obj = (
+                        f"<< /Type /StructElem /S /P"
+                        f" /P {doc_elem_xref} 0 R"
+                        f" /Pg {page.xref} 0 R"
+                        f" /K {mcid} >>"
+                    )
+                    doc.update_object(p_xref, p_obj)
+
+                    # Add to /Document's /K array
+                    k_val = doc.xref_get_key(doc_elem_xref, "K")
+                    if k_val[0] == "array":
+                        existing = k_val[1].strip("[]").strip()
+                        if existing:
+                            new_k = f"[{existing} {p_xref} 0 R]"
+                        else:
+                            new_k = f"[{p_xref} 0 R]"
+                    elif k_val[0] == "xref":
+                        new_k = f"[{k_val[1]} {p_xref} 0 R]"
+                    else:
+                        new_k = f"[{p_xref} 0 R]"
+                    doc.xref_set_key(doc_elem_xref, "K", new_k)
+
+                    page_mcid_entries.append((mcid, p_xref))
+                    result.paragraphs_tagged += 1
+
+            if page_mcid_entries:
+                result.page_mcid_map[page_idx] = page_mcid_entries
+
+            # Rewrite content stream
+            new_stream = _apply_content_tag_wrappers(tokens, tagged_runs)
+
+            contents_ref = doc.xref_get_key(page.xref, "Contents")
+            if contents_ref[0] == "xref":
+                xref = int(contents_ref[1].split()[0])
+                doc.update_stream(xref, new_stream)
+            elif contents_ref[0] == "array":
+                refs = [
+                    int(piece.split()[0])
+                    for piece in contents_ref[1].strip("[]").split("R")
+                    if piece.strip()
+                ]
+                if refs:
+                    doc.update_stream(refs[0], new_stream)
+                    for xref_clear in refs[1:]:
+                        doc.update_stream(xref_clear, b"")
+
+            result.pages_modified += 1
+
+        # Pass 2: form XObjects — still use /Artifact (no struct tree
+        # integration for form XObject content in v1)
+        form_xrefs = _find_form_xobject_xrefs(doc)
+        for fx in form_xrefs:
+            try:
+                stream_bytes = doc.xref_stream(fx)
+                if not stream_bytes:
+                    continue
+                tokens = _tokenize_content_stream(stream_bytes)
+                runs = _find_untagged_content_runs(tokens)
+                if not runs:
+                    continue
+                tagged_runs_fx = [
+                    TaggedRun(start=s, end=e, tag_type="/Artifact", mcid=None)
+                    for s, e in runs
+                ]
+                new_stream = _apply_content_tag_wrappers(tokens, tagged_runs_fx)
+                doc.update_stream(fx, new_stream)
+                result.form_xobjects_modified += 1
+            except Exception as exc:
+                result.errors.append(f"form XObject {fx}: {exc}")
+
+        doc.save(str(path), incremental=True, encryption=0)
+
+    except Exception as exc:
+        result.success = False
+        result.errors.append(f"tag_or_artifact_untagged_content: {exc}")
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return result
 
 
 def mark_untagged_content_as_artifact(
@@ -2256,6 +2799,31 @@ def _collect_struct_tree_mcids(doc: "fitz.Document") -> set[int]:
 
     _walk(root)
     return mcids
+
+
+def _get_max_mcid_for_page(tokens: list[Token]) -> int:
+    """Scan tokenized content stream for the highest MCID value.
+
+    MCIDs are per-page. Returns -1 if no MCIDs found.
+    Parses BDC operands like ``/P <</MCID 3>> BDC``.
+    """
+    max_mcid = -1
+    for i, token in enumerate(tokens):
+        if token.type != "operator" or token.value != "BDC":
+            continue
+        # Look backward for the dict operand containing /MCID
+        for j in range(i - 1, max(i - 5, -1), -1):
+            t = tokens[j]
+            if t.type in ("dict", "operand") and "/MCID" in t.value:
+                m = re.search(r"/MCID\s+(\d+)", t.value)
+                if m:
+                    mcid = int(m.group(1))
+                    if mcid > max_mcid:
+                        max_mcid = mcid
+                break
+            if t.type == "operator":
+                break
+    return max_mcid
 
 
 def _find_orphan_bdc_openings(
@@ -2972,6 +3540,97 @@ def _write_parent_tree(
 
     # Update ParentTreeNextKey
     doc.xref_set_key(st_root_xref, "ParentTreeNextKey", str(next_key))
+
+
+def _update_parent_tree_for_mcids(
+    doc: "fitz.Document",
+    page_mcid_map: dict[int, list[tuple[int, int]]],
+) -> int:
+    """Update ParentTree with MCID→struct element mappings.
+
+    For each page in page_mcid_map:
+    1. Check if page already has /StructParents → read existing array
+    2. Build array where array[mcid] = struct_elem_xref
+    3. If page has no /StructParents, assign next available number
+    4. Write/update ParentTree entries
+
+    Args:
+        doc: Open fitz.Document (modified in place, caller must save).
+        page_mcid_map: {page_idx: [(mcid, struct_elem_xref), ...]}.
+
+    Returns:
+        Count of ParentTree entries added/updated.
+    """
+    if not page_mcid_map:
+        return 0
+
+    cat = doc.pdf_catalog()
+    st_key = doc.xref_get_key(cat, "StructTreeRoot")
+    if st_key[0] != "xref":
+        return 0
+    st_root_xref = int(st_key[1].split()[0])
+
+    # Read existing ParentTree
+    existing_pt_xref, existing_nums = _read_existing_parent_tree(
+        doc, st_root_xref
+    )
+    all_nums = dict(existing_nums)
+
+    # Find next available StructParents number
+    next_sp = _find_next_struct_parent(doc, st_root_xref)
+
+    entries_added = 0
+
+    for page_idx, mcid_entries in page_mcid_map.items():
+        if not mcid_entries:
+            continue
+
+        page = doc[page_idx]
+
+        # Check if page already has /StructParents
+        sp_key = doc.xref_get_key(page.xref, "StructParents")
+        if sp_key[0] not in ("null", "undefined"):
+            sp_num = int(sp_key[1])
+            # Read existing array from ParentTree
+            existing_array_xref = all_nums.get(sp_num)
+            existing_mcid_map_local: dict[int, int] = {}
+            if existing_array_xref is not None:
+                arr_obj = doc.xref_object(existing_array_xref) or ""
+                for idx, m in enumerate(
+                    re.finditer(r"(\d+)\s+0\s+R|null", arr_obj)
+                ):
+                    if m.group(1):
+                        existing_mcid_map_local[idx] = int(m.group(1))
+        else:
+            sp_num = next_sp
+            next_sp += 1
+            doc.xref_set_key(page.xref, "StructParents", str(sp_num))
+            existing_mcid_map_local = {}
+
+        # Merge new entries
+        for mcid, elem_xref in mcid_entries:
+            existing_mcid_map_local[mcid] = elem_xref
+
+        # Build array: [elem0_ref elem1_ref null elem3_ref ...]
+        if existing_mcid_map_local:
+            max_mcid = max(existing_mcid_map_local.keys())
+            parts = []
+            for i in range(max_mcid + 1):
+                if i in existing_mcid_map_local:
+                    parts.append(f"{existing_mcid_map_local[i]} 0 R")
+                else:
+                    parts.append("null")
+            arr_content = " ".join(parts)
+
+            arr_xref = doc.get_new_xref()
+            doc.update_object(arr_xref, f"[{arr_content}]")
+            all_nums[sp_num] = arr_xref
+            entries_added += 1
+
+    # Write updated ParentTree
+    _write_parent_tree(doc, st_root_xref, all_nums, next_sp, existing_pt_xref)
+
+    return entries_added
 
 
 @dataclass

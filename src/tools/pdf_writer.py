@@ -2018,6 +2018,54 @@ def _apply_artifact_wrappers(
     return _reassemble_stream(out)
 
 
+@dataclass
+class TaggedRun:
+    """A content stream run classified for tagging."""
+    start: int          # token index (inclusive)
+    end: int            # token index (inclusive)
+    tag_type: str       # "/P", "/L", "/Artifact"
+    mcid: int | None    # MCID for struct-tagged runs, None for /Artifact
+
+
+def _apply_content_tag_wrappers(
+    tokens: list[Token],
+    tagged_runs: list[TaggedRun],
+) -> bytes:
+    """Reassemble token list with per-run BDC/EMC wrappers.
+
+    Unlike _apply_artifact_wrappers which applies the same wrapper to all
+    runs, this handles mixed tagging: /P runs get MCID-bearing BDCs,
+    /Artifact runs get pagination BDCs.
+    """
+    if not tagged_runs:
+        return _reassemble_stream(tokens)
+
+    # Build lookup: start_idx → TaggedRun, end_idx → TaggedRun
+    starts: dict[int, TaggedRun] = {r.start: r for r in tagged_runs}
+    ends: dict[int, TaggedRun] = {r.end: r for r in tagged_runs}
+
+    out: list[Token] = []
+    for i, t in enumerate(tokens):
+        if i in starts:
+            run = starts[i]
+            if run.tag_type == "/Artifact":
+                bdc = Token(
+                    value="/Artifact <</Type /Pagination>> BDC\n",
+                    type="operator",
+                )
+            else:
+                bdc = Token(
+                    value=f"{run.tag_type} <</MCID {run.mcid}>> BDC\n",
+                    type="operator",
+                )
+            out.append(bdc)
+        out.append(t)
+        if i in ends:
+            out.append(Token(value="\nEMC", type="operator"))
+
+    return _reassemble_stream(out)
+
+
 def mark_untagged_content_as_artifact(
     pdf_path: "str | Path",
 ) -> ArtifactMarkingResult:

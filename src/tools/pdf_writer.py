@@ -1953,10 +1953,12 @@ def _expand_run_starts_backward(
             if t.type == "operator":
                 if t.value in ("BDC", "BMC", "EMC"):
                     break
+                # BT/ET delimit text objects — hard boundaries. Sweeping
+                # past ET can cross into a tagged BDC region, causing
+                # 7.1-1 (artifact inside tagged) violations.
+                if t.value in ("BT", "ET"):
+                    break
                 if _is_state_setting_op(t.value):
-                    new_start = j
-                    continue
-                if t.value == "BT":
                     new_start = j
                     continue
                 # Any other operator (content-producing, unknown) — stop
@@ -2094,7 +2096,16 @@ def _assess_struct_tree_inner(doc: "fitz.Document") -> TreeAssessment:
 
     _walk_roles(st_root_xref)
     result.role_distribution = role_dist
-    result.has_paragraph_tags = role_dist.get("/P", 0) > 0
+    # Accept any content-covering tag type as "paragraph coverage" — not
+    # just /P. Academic PDFs often use /Span, /Link, /TD, /LBody etc.
+    # to cover body text without ever using /P.
+    _CONTENT_TAG_TYPES = {
+        "/P", "/Span", "/Link", "/TD", "/TH", "/L", "/LI", "/LBody",
+        "/Lbl", "/Caption", "/BlockQuote", "/Note", "/Formula",
+    }
+    result.has_paragraph_tags = any(
+        role_dist.get(t, 0) > 0 for t in _CONTENT_TAG_TYPES
+    )
 
     # Check 3: Page reference validity
     page_xrefs = {doc[i].xref for i in range(len(doc))}
@@ -3063,14 +3074,17 @@ def populate_link_annotation_contents(
             if subtype[0] != "name" or subtype[1] != "/Link":
                 continue
 
-            # Skip annotations that already have a non-null /Contents.
+            # Skip annotations that already have a non-empty /Contents.
             try:
                 contents = doc.xref_get_key(xref, "Contents")
             except Exception:
                 contents = ("null", "")
             if contents[0] not in ("null", "undefined"):
-                skipped += 1
-                continue
+                # Check for empty string /Contents () — treat as missing
+                val = contents[1].strip()
+                if val not in ("()", "( )", ""):
+                    skipped += 1
+                    continue
 
             # Pull the alt-text source from the annotation's action
             # dict. Handles inline, indirect, and double-indirect
@@ -3344,6 +3358,12 @@ def _read_existing_parent_tree(
     ``parent_tree_xref`` is None if no ParentTree exists.
     Values can be xrefs (for annotation entries) or xrefs of arrays
     (for page MCID entries).
+
+    Handles three ParentTree formats:
+    - Flat: ``/Nums [key1 val1 0 R key2 val2 0 R ...]``
+    - Inline arrays: ``/Nums [0 [elem0 0 R null] 1 elem1 0 R ...]``
+    - B-tree: ``/Kids [node1 0 R node2 0 R ...]`` with leaf nodes
+      containing ``/Nums`` and ``/Limits``
     """
     pt_key = doc.xref_get_key(st_root_xref, "ParentTree")
     if pt_key[0] not in ("xref",):
@@ -3359,34 +3379,146 @@ def _read_existing_parent_tree(
     except Exception:
         return None, []
 
-    # Parse /Nums array: [key1 value1 key2 value2 ...]
-    # Values are either indirect refs (N 0 R) or inline arrays
-    nums_match = re.search(r"/Nums\s*\[([^\]]*)\]", pt_obj, re.DOTALL)
-    if not nums_match:
-        return pt_xref, []
-
-    nums_content = nums_match.group(1).strip()
     entries: list[tuple[int, int]] = []
 
-    # Parse alternating key/value pairs
-    # Keys are integers, values are "N 0 R" indirect references or arrays
-    tokens = re.findall(r"\d+\s+0\s+R|\d+", nums_content)
-    i = 0
-    while i < len(tokens):
-        token = tokens[i]
-        if re.match(r"^\d+$", token):
-            key = int(token)
-            # Next token should be the value (an indirect reference)
-            if i + 1 < len(tokens):
-                val_token = tokens[i + 1]
-                ref_match = re.match(r"(\d+)\s+0\s+R", val_token)
-                if ref_match:
-                    entries.append((key, int(ref_match.group(1))))
-                    i += 2
-                    continue
-        i += 1
+    # Try /Nums on the root node first
+    _parse_nums_from_object(doc, pt_obj, entries)
+
+    # If no /Nums found, check for B-tree /Kids
+    if not entries:
+        _parse_parent_tree_kids(doc, pt_xref, entries)
 
     return pt_xref, entries
+
+
+def _parse_nums_from_object(
+    doc: "fitz.Document", obj_text: str,
+    entries: list[tuple[int, int]],
+) -> None:
+    """Parse /Nums entries from a ParentTree node object text.
+
+    Handles both simple values (``N 0 R``) and inline arrays
+    (``[elem0 0 R null elem2 0 R]``). For inline arrays, creates
+    a new xref object so the caller can reference it uniformly.
+    """
+    # Find /Nums with bracket-counting to handle nested arrays
+    nums_start = obj_text.find("/Nums")
+    if nums_start < 0:
+        return
+
+    # Find the opening [ after /Nums
+    bracket_pos = obj_text.find("[", nums_start)
+    if bracket_pos < 0:
+        return
+
+    # Count brackets to find the matching ]
+    depth = 0
+    end_pos = bracket_pos
+    for i in range(bracket_pos, len(obj_text)):
+        if obj_text[i] == "[":
+            depth += 1
+        elif obj_text[i] == "]":
+            depth -= 1
+            if depth == 0:
+                end_pos = i
+                break
+
+    nums_content = obj_text[bracket_pos + 1:end_pos].strip()
+    if not nums_content:
+        return
+
+    # Parse alternating key/value pairs.
+    # Values can be: "N 0 R" (indirect ref) or "[...]" (inline array)
+    _parse_nums_pairs(doc, nums_content, entries)
+
+
+def _parse_nums_pairs(
+    doc: "fitz.Document", nums_content: str,
+    entries: list[tuple[int, int]],
+) -> None:
+    """Parse key/value pairs from a /Nums array content string."""
+    pos = 0
+    length = len(nums_content)
+
+    while pos < length:
+        # Skip whitespace
+        while pos < length and nums_content[pos] in " \t\n\r":
+            pos += 1
+        if pos >= length:
+            break
+
+        # Read key (integer)
+        key_match = re.match(r"(\d+)", nums_content[pos:])
+        if not key_match:
+            pos += 1
+            continue
+        key = int(key_match.group(1))
+        pos += key_match.end()
+
+        # Skip whitespace
+        while pos < length and nums_content[pos] in " \t\n\r":
+            pos += 1
+        if pos >= length:
+            break
+
+        # Read value: either "N 0 R" or "[...]" inline array
+        if nums_content[pos] == "[":
+            # Inline array — find matching ]
+            depth = 0
+            arr_start = pos
+            for i in range(pos, length):
+                if nums_content[i] == "[":
+                    depth += 1
+                elif nums_content[i] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        arr_text = nums_content[arr_start:i + 1]
+                        # Create a new xref for this inline array
+                        arr_xref = doc.get_new_xref()
+                        doc.update_object(arr_xref, arr_text)
+                        entries.append((key, arr_xref))
+                        pos = i + 1
+                        break
+            else:
+                # Unmatched bracket — skip
+                pos += 1
+        else:
+            # Indirect reference: N 0 R
+            ref_match = re.match(r"(\d+)\s+0\s+R", nums_content[pos:])
+            if ref_match:
+                entries.append((key, int(ref_match.group(1))))
+                pos += ref_match.end()
+            else:
+                # Unexpected token — skip one char
+                pos += 1
+
+
+def _parse_parent_tree_kids(
+    doc: "fitz.Document", pt_xref: int,
+    entries: list[tuple[int, int]],
+    depth: int = 0,
+) -> None:
+    """Recursively walk B-tree /Kids nodes to collect all /Nums entries."""
+    if depth > 20:
+        return
+
+    try:
+        obj_text = doc.xref_object(pt_xref) or ""
+    except Exception:
+        return
+
+    # Check for /Kids array
+    kids_match = re.search(r"/Kids\s*\[([^\]]*)\]", obj_text)
+    if not kids_match:
+        # Leaf node — try /Nums
+        _parse_nums_from_object(doc, obj_text, entries)
+        return
+
+    # Recurse into kids
+    kids_content = kids_match.group(1)
+    for m in re.finditer(r"(\d+)\s+0\s+R", kids_content):
+        kid_xref = int(m.group(1))
+        _parse_parent_tree_kids(doc, kid_xref, entries, depth + 1)
 
 
 def _get_link_annotation_xrefs(
@@ -3582,11 +3714,19 @@ def _collect_struct_tree_mcid_mappings(
                 mcid = int(k_direct.group(1))
                 result.setdefault(pg_xref, []).append((mcid, xref))
 
+            # Check for /K [N1 N2 N3] — array of integer MCIDs
+            k_arr = re.search(r"/K\s*\[([^\]]*)\]", obj)
+            if k_arr and pg_xref is not None:
+                for n in re.finditer(r"\b(\d+)\b(?!\s+0\s+R)", k_arr.group(1)):
+                    mcid = int(n.group(1))
+                    existing = result.get(pg_xref, [])
+                    if not any(e[0] == mcid and e[1] == xref for e in existing):
+                        result.setdefault(pg_xref, []).append((mcid, xref))
+
             # Check for MCID in MCR dict: /MCID N
             for m in re.finditer(r"/MCID\s+(\d+)", obj):
                 mcid = int(m.group(1))
                 if pg_xref is not None:
-                    # Avoid duplicates from /K N also matching /MCID N
                     existing = result.get(pg_xref, [])
                     if not any(e[0] == mcid and e[1] == xref for e in existing):
                         result.setdefault(pg_xref, []).append((mcid, xref))

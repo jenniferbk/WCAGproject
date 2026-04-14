@@ -115,7 +115,30 @@ public class PdfTagger {
                 // Track MCIDs per page to avoid conflicts.
                 // iText's getNextMcidForPage() doesn't track manually-created MCRs,
                 // so we maintain our own counter.
+                // Seed from existing content stream MCIDs to avoid collisions
+                // on the preserve path (where the PDF already has MCIDs).
                 Map<Integer, Integer> pageMcidCounter = new HashMap<>();
+                for (int pi = 1; pi <= pdfDoc.getNumberOfPages(); pi++) {
+                    PdfPage p = pdfDoc.getPage(pi);
+                    try {
+                        byte[] streamBytes = p.getContentBytes();
+                        if (streamBytes != null) {
+                            String streamStr = new String(streamBytes, StandardCharsets.ISO_8859_1);
+                            java.util.regex.Matcher mcidMatcher =
+                                Pattern.compile("/MCID\\s+(\\d+)").matcher(streamStr);
+                            int maxMcid = -1;
+                            while (mcidMatcher.find()) {
+                                int mcid = Integer.parseInt(mcidMatcher.group(1));
+                                if (mcid > maxMcid) maxMcid = mcid;
+                            }
+                            if (maxMcid >= 0) {
+                                pageMcidCounter.put(pi, maxMcid + 1);
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Ignore — pages without content or errors
+                    }
+                }
 
                 // Group elements by page for efficient processing
                 Map<Integer, List<TaggingPlan.Element>> byPage = new LinkedHashMap<>();

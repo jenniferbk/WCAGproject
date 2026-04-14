@@ -290,7 +290,8 @@ def _run_one(doc: dict, output_dir: Path) -> dict:
 def _write_report(results: list[dict], output_path: Path, total_elapsed: float) -> None:
     """Write a human-readable markdown summary of the run."""
     n = len(results)
-    succeeded = [r for r in results if r.get("success")]
+    succeeded = [r for r in results if r.get("success") and not r.get("skipped_existing")]
+    skipped = [r for r in results if r.get("skipped_existing")]
     failed = [r for r in results if not r.get("success")]
 
     total_before = sum(r.get("issues_before", 0) for r in succeeded)
@@ -379,13 +380,15 @@ def _write_report(results: list[dict], output_path: Path, total_elapsed: float) 
         lines.append("| Task | N | Issues before | Issues after | Fixed | Fix rate | Avg cost | Median time |")
         lines.append("|---|---|---|---|---|---|---|---|")
         for task in sorted(by_task):
-            rs = by_task[task]
-            b = sum(r["issues_before"] for r in rs)
-            a = sum(r["issues_after"] for r in rs)
-            f = sum(r["issues_fixed"] for r in rs)
-            c = sum(r["cost_usd"] for r in rs)
-            times = sorted(r["elapsed_seconds"] for r in rs)
-            mt = times[len(times) // 2]
+            rs = [r for r in by_task[task] if not r.get("skipped_existing")]
+            if not rs:
+                continue
+            b = sum(r.get("issues_before", 0) for r in rs)
+            a = sum(r.get("issues_after", 0) for r in rs)
+            f = sum(r.get("issues_fixed", 0) for r in rs)
+            c = sum(r.get("cost_usd", 0) for r in rs)
+            times = sorted(r.get("elapsed_seconds", 0) for r in rs)
+            mt = times[len(times) // 2] if times else 0
             rate = f"{f/b:.0%}" if b else "—"
             lines.append(f"| {task} | {len(rs)} | {b} | {a} | {f} | {rate} | ${c/len(rs):.4f} | {mt:.0f}s |")
         lines.append("")
@@ -435,6 +438,10 @@ def main():
         help="Only process N diverse documents (for smoke testing)",
     )
     parser.add_argument(
+        "--ids", type=str, default=None,
+        help="Comma-separated OpenAlex IDs to run (e.g. W2460269320,W2642438850)",
+    )
+    parser.add_argument(
         "--report", default="remediation_benchmark_results.md", type=Path,
         help="Markdown report filename (written inside --output-dir)",
     )
@@ -449,6 +456,10 @@ def main():
     docs = _collect_unique_docs(args.benchmark_dir)
     print(f"Found {len(docs)} unique benchmark PDFs")
 
+    if args.ids:
+        wanted = {s.strip() for s in args.ids.split(",") if s.strip()}
+        docs = [d for d in docs if d["openalex_id"] in wanted]
+        print(f"Filtered to {len(docs)} docs matching --ids")
     if args.limit:
         docs = _pick_diverse(docs, args.limit)
         print(f"Smoke test: running on {len(docs)} diverse docs")

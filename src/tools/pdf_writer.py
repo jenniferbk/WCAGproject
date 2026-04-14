@@ -3954,7 +3954,19 @@ def apply_pdf_ua_tail_polish(
                 doc.xref_set_key(page.xref, "Tabs", "/S")
                 result.pages_tabs_fixed += 1
 
-        # 3. Figures without /Alt or /ActualText — mark decorative
+        # 3. RoleMap for non-standard structure types (rule 7.1-5).
+        # PDFs from academic publishers use types like /Footnote, /Aside,
+        # /Textbox etc. that aren't in the PDF/UA standard. Map them to
+        # the nearest standard type so veraPDF doesn't flag them.
+        _ROLE_MAPPINGS = {
+            "Footnote": "Note",
+            "Aside": "Note",
+            "Textbox": "Div",
+            "StyleSpan": "Span",
+            "ParagraphSpan": "Span",
+            "HyphenSpan": "Span",
+            "NonStandard": "Div",
+        }
         st_key = doc.xref_get_key(cat, "StructTreeRoot")
         if st_key[0] == "xref":
             try:
@@ -3962,6 +3974,37 @@ def apply_pdf_ua_tail_polish(
             except (ValueError, IndexError):
                 st_root = None
             if st_root:
+                # Check for existing /RoleMap
+                rm_key = doc.xref_get_key(st_root, "RoleMap")
+                if rm_key[0] == "xref":
+                    rm_xref = int(rm_key[1].split()[0])
+                    rm_obj = doc.xref_object(rm_xref) or ""
+                elif rm_key[0] == "dict":
+                    rm_obj = rm_key[1]
+                    rm_xref = None
+                else:
+                    rm_obj = ""
+                    rm_xref = None
+
+                # Add any missing mappings
+                mappings_added = 0
+                for custom, standard in _ROLE_MAPPINGS.items():
+                    if f"/{custom}" not in rm_obj:
+                        if rm_xref is not None:
+                            doc.xref_set_key(rm_xref, custom, f"/{standard}")
+                        else:
+                            # Create /RoleMap on StructTreeRoot
+                            rm_xref = doc.get_new_xref()
+                            entries = " ".join(
+                                f"/{k} /{v}" for k, v in _ROLE_MAPPINGS.items()
+                            )
+                            doc.update_object(rm_xref, f"<< {entries} >>")
+                            doc.xref_set_key(st_root, "RoleMap", f"{rm_xref} 0 R")
+                            break  # all mappings written at once
+                        mappings_added += 1
+
+        # 4. Figures without /Alt or /ActualText — mark decorative
+        if st_key[0] == "xref" and st_root:
                 seen: set[int] = set()
                 stack = [st_root]
                 while stack:

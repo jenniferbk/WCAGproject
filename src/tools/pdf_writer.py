@@ -2135,11 +2135,25 @@ def _assess_struct_tree_inner(doc: "fitz.Document") -> TreeAssessment:
     result.page_refs_valid = _check_pg_refs(st_root_xref, set())
 
     # Decision
-    if result.coverage_ratio < 0.5:
-        result.recommendation = "rebuild"
-    elif result.mcid_orphan_rate > 0.2:
+    # Count content-bearing struct elements. A tree with many /P, /Link,
+    # /TD etc. is worth preserving even if page-level coverage is low
+    # (common when text lives inside form XObjects, not page streams).
+    _CONTENT_ROLES = {"/P", "/Span", "/Link", "/TD", "/TH", "/LBody",
+                      "/Lbl", "/Caption", "/BlockQuote", "/Note"}
+    content_element_count = sum(
+        role_dist.get(r, 0) for r in _CONTENT_ROLES
+    )
+    has_rich_tree = content_element_count >= 20
+
+    if result.mcid_orphan_rate > 0.2:
         result.recommendation = "rebuild"
     elif not result.page_refs_valid:
+        result.recommendation = "rebuild"
+    elif has_rich_tree:
+        # Rich struct tree — preserve regardless of page-level coverage.
+        # Coverage metric undercounts when text is in form XObjects.
+        result.recommendation = "preserve"
+    elif result.coverage_ratio < 0.5:
         result.recommendation = "rebuild"
     elif not result.has_paragraph_tags:
         result.recommendation = "rebuild"
@@ -3019,6 +3033,24 @@ def _extract_uri_from_annotation(doc: "fitz.Document", annot_xref: int) -> str:
         m = re.search(r"/D\s*\(((?:[^()\\]|\\.)*)\)", action_text)
         if m:
             return f"Reference: {m.group(1)}"
+
+        # /D with hex-encoded destination name: /D <FEFF...>
+        m = re.search(r"/D\s*<([0-9A-Fa-f]+)>", action_text)
+        if m:
+            try:
+                dest_bytes = bytes.fromhex(m.group(1))
+                # Try UTF-16BE (starts with FEFF BOM)
+                if dest_bytes[:2] == b"\xfe\xff":
+                    dest_text = dest_bytes[2:].decode("utf-16-be", errors="replace")
+                else:
+                    dest_text = dest_bytes.decode("latin-1", errors="replace")
+                return f"Reference: {dest_text[:80]}"
+            except Exception:
+                return "Internal reference"
+
+        # /D with array destination: /D [page /Fit] or /D [N 0 R /XYZ ...]
+        if re.search(r"/D\s*\[", action_text):
+            return "Internal reference"
 
     except Exception:
         pass

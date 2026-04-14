@@ -1224,6 +1224,82 @@ class TestExtractUri:
         doc.close()
 
 
+    def test_dest_string_on_annotation(self, tmp_path):
+        """Direct /Dest (named) on annotation — no /A action dict.
+
+        Bibliography back-refs in academic PDFs commonly use this
+        form. Regression: these were returning empty, causing 7.18.5-2
+        and 7.18.1-2 violations.
+        """
+        from src.tools.pdf_writer import _extract_uri_from_annotation
+
+        doc = fitz.open()
+        page = doc.new_page()
+        annot_xref = doc.get_new_xref()
+        doc.update_object(
+            annot_xref,
+            "<< /Type /Annot /Subtype /Link "
+            "/Rect [72 72 200 92] "
+            "/Dest (frontmatter.1) >>",
+        )
+        doc.xref_set_key(page.xref, "Annots", f"[{annot_xref} 0 R]")
+        out = tmp_path / "dest_string.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        doc = fitz.open(str(out))
+        uri = _extract_uri_from_annotation(doc, annot_xref)
+        assert "frontmatter.1" in uri, f"Got: {uri!r}"
+        assert uri.startswith("Internal link"), f"Got: {uri!r}"
+        doc.close()
+
+    def test_dest_name_on_annotation(self, tmp_path):
+        """/Dest /namedDest (name object, not string)."""
+        from src.tools.pdf_writer import _extract_uri_from_annotation
+
+        doc = fitz.open()
+        page = doc.new_page()
+        annot_xref = doc.get_new_xref()
+        doc.update_object(
+            annot_xref,
+            "<< /Type /Annot /Subtype /Link "
+            "/Rect [72 72 200 92] "
+            "/Dest /introSection >>",
+        )
+        doc.xref_set_key(page.xref, "Annots", f"[{annot_xref} 0 R]")
+        out = tmp_path / "dest_name.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        doc = fitz.open(str(out))
+        uri = _extract_uri_from_annotation(doc, annot_xref)
+        assert "introSection" in uri, f"Got: {uri!r}"
+        doc.close()
+
+    def test_dest_array_on_annotation(self, tmp_path):
+        """/Dest [page /Fit] array form — falls back to generic label."""
+        from src.tools.pdf_writer import _extract_uri_from_annotation
+
+        doc = fitz.open()
+        page = doc.new_page()
+        annot_xref = doc.get_new_xref()
+        doc.update_object(
+            annot_xref,
+            "<< /Type /Annot /Subtype /Link "
+            "/Rect [72 72 200 92] "
+            f"/Dest [{page.xref} 0 R /Fit] >>",
+        )
+        doc.xref_set_key(page.xref, "Annots", f"[{annot_xref} 0 R]")
+        out = tmp_path / "dest_array.pdf"
+        doc.save(str(out))
+        doc.close()
+
+        doc = fitz.open(str(out))
+        uri = _extract_uri_from_annotation(doc, annot_xref)
+        assert uri == "Internal link", f"Got: {uri!r}"
+        doc.close()
+
+
 class TestLinkParentTreeHelpers:
     """Unit tests for Phase 2b helper functions."""
 

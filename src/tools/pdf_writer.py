@@ -3052,6 +3052,32 @@ def _extract_uri_from_annotation(doc: "fitz.Document", annot_xref: int) -> str:
         if re.search(r"/D\s*\[", action_text):
             return "Internal reference"
 
+        # Step 4: fall back to the annotation's own /Dest key — used by
+        # /Dest-based internal links (bibliography back-refs, intra-doc
+        # anchors) that don't wrap the destination inside an /A action.
+        annot_text = doc.xref_object(annot_xref) or ""
+        m = re.search(r"/Dest\s*\(((?:[^()\\]|\\.)*)\)", annot_text)
+        if m:
+            return f"Internal link: {m.group(1)}"
+        m = re.search(r"/Dest\s*<([0-9A-Fa-f]+)>", annot_text)
+        if m:
+            try:
+                dest_bytes = bytes.fromhex(m.group(1))
+                if dest_bytes[:2] == b"\xfe\xff":
+                    dest_text = dest_bytes[2:].decode("utf-16-be", errors="replace")
+                else:
+                    dest_text = dest_bytes.decode("latin-1", errors="replace")
+                return f"Internal link: {dest_text[:80]}"
+            except Exception:
+                return "Internal link"
+        if re.search(r"/Dest\s*/\w", annot_text):
+            # /Dest /namedDestination (name object, not string)
+            m = re.search(r"/Dest\s*/(\w+)", annot_text)
+            if m:
+                return f"Internal link: {m.group(1)}"
+        if re.search(r"/Dest\s*\[", annot_text):
+            return "Internal link"
+
     except Exception:
         pass
     return ""

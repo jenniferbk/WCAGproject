@@ -4,7 +4,7 @@
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
 - **Benchmark detection**: **96.8%** (121/125, Kumar methodology replication, beats GPT-4-Turbo 85% by 11.8pp). Raw-PDF analysis: **80.0%** (theoretical ceiling).
-- **Remediation**: **38.8% PDF/UA failed-check reduction** on v3 benchmark (down from 86.7% — see struct tree architecture problem below)
+- **Remediation**: **63.9% PDF/UA violation reduction** on v4 benchmark (21,623→7,797). 4 fully compliant, 116/125 improved, 9 regressed.
 - **Tests**: 1035 passing
 - **Publication**: arXiv preprint + blog post + TACCESS journal (no deadline pressure)
 - **Kumar collaboration**: Lucy Wang confirmed methodology findings, ongoing email exchange
@@ -15,14 +15,11 @@
 | Detection accuracy (Kumar replication) | 96.8% (121/125) |
 | Detection accuracy (raw-PDF analysis) | 80.0% |
 | GPT-4-Turbo published baseline | 85.0% |
-| PDF/UA failed-check reduction | 38.8% on v3 (struct tree problem — see below) |
-| Docs improved | 50/125 on v3 |
-| Docs regressed | 72/125 on v3 (caused by incomplete struct tree tagging) |
-| Average cost per doc | $0.13 |
-| Total cost (125 docs) | $16.23 |
-| Wall time (125 docs) | 5h20m (median 112s/doc) |
-| Headings added | 534 |
-| Docs gaining figure alt text | 84/125 |
+| PDF/UA violation reduction | 63.9% on v4 (21,623→7,797) |
+| Fully PDF/UA compliant | 4/125 (v4) |
+| Docs improved | 116/125 on v4 |
+| Docs regressed | 9/125 on v4 (4 unique PDFs) |
+| Average cost per doc | ~$0.11 |
 | Kumar byte-identical finding | 13/125 items share PDFs across labels |
 
 ## Per-Task Detection Scores (96.8%)
@@ -36,29 +33,48 @@
 | alt_text_quality | **95%** | 70% | +25 |
 | logical_reading_order | **80%** | 67% | +13 |
 
-## What's Next (Priority Order)
+## What's Next: Path to Zero veraPDF Violations
 
-### 1. Publication — arXiv preprint
-- Starting point: `docs/writeup/2026-assets-lbw-draft.md` (4-page LBW draft, needs expansion)
-- Expand into full arXiv paper: architecture, Kumar methodology analysis, remediation results, related work
-- Update numbers to 96.8% detection throughout
-- No deadline — post when ready
+### v4 benchmark error analysis (39,032 remaining violations)
 
-### 2. Blog post
-- Practitioner-facing writeup on remediate.jenkleiman.com
-- Targets university accessibility offices directly
+| Priority | Rule | Violations | % | Fix approach | Exemplar (small) | Exemplar (high count) |
+|----------|------|---:|---:|---|---|---|
+| 1 | 7.1-3 | 31,383 | 80% | ParentTree gaps on preserve-path docs; untagged content in complex layouts | `alt_text_quality_passed_W2460269320` (1v) | `table_structure_cannot_tell_W2296421107` (54v) |
+| 2 | 7.18.1-2 + 7.18.5-2 | 1,994 | 5% | Extend `populate_link_parent_tree` to all annotation types | `fonts_readability_failed_W2805701040` (2v) | `table_structure_passed_W2922538610` (58+58v) |
+| 3 | 7.1-1 + 7.1-2 | 943 | 2% | Form XObject nesting in color_contrast docs | `color_contrast_cannot_tell_W2642438850` (6v) | `color_contrast_failed_W2642438850` (59+61v) |
+| 4 | 7.21.x (fonts) | 4,397 | 11% | fontTools: embed fonts, fix glyph widths, add ToUnicode CMaps | `functional_hyperlinks_cannot_tell_W2893185172` (2v) | `functional_hyperlinks_not_present_W2991007371` (460v) |
+| 5 | 7.1-5 | 113 | <1% | Add `/RoleMap` for non-standard types (Footnote, Textbox, etc.) | `functional_hyperlinks_not_present_W2893185172` (15v) | `functional_hyperlinks_passed_W3069372847` (45v) |
+| 6 | 7.3-1 | 139 | <1% | Figure alt text gaps — edge cases in alt text pipeline | `alt_text_quality_not_present_W3005755974` (1v) | `functional_hyperlinks_passed_W2991007371` (18v) |
+| 7 | Other (7.4, 7.5, 7.9, 7.2, 6.2) | 63 | <1% | Table structure, document structure, notes, MarkInfo | various | various |
 
-### 3. TACCESS journal submission
-- Full paper, rolling submissions
-- Can be adapted from arXiv version with additional depth
+**By task (violations):** functional_hyperlinks: 30,484 (78%) · table_structure: 6,728 · color_contrast: 1,138 · logical_reading_order: 274 · semantic_tagging: 231 · alt_text_quality: 132 · fonts_readability: 45
 
-### 4. Tool improvements (no urgency)
-- **Raw-PDF detection at ceiling (80.0%)** — all 25 remaining errors are structurally unsolvable (byte/content-identical cannot_tell pairs). No further heuristic improvement possible on this benchmark.
-- **~~PDF link text validation blind spot~~** — FIXED (2026-04-12). Parser now reads `/ActualText` from struct tree.
-- **~~Form XObject recursion~~** — ALREADY SOLVED. Pass 2 walker handles form XObjects. The 16,186 figure was stale (from before the walker was added).
-- **Language tagging** (rules 7.2-34) — "/Lang" not set on content spans. Potentially large check count. Needs investigation.
-- **Link annotations** (rules 7.18.x) — partially addressed by link text harvest. Remaining: annotations still lacking proper struct tree linkage in some docs.
-- **Font repair** (rules 7.21.x) — font encoding issues (ToUnicode CMap, glyph widths). Requires fontTools. Risk of breaking visual rendering.
+**Fully compliant docs (0 violations):** `alt_text_quality_cannot_tell_W3005755974`, `alt_text_quality_not_present_W2460269320`, `alt_text_quality_passed_W3005755974`, `semantic_tagging_failed_W2067815167`
+
+**Regressed docs (4 unique PDFs):**
+- W1974692547 (table_structure ×3): +70-72 each, top rule 7.1-3
+- W3005911753 (functional_hyperlinks ×2): +39-55, top rule 7.21 (font)
+- W4230438091 (logical_reading_order): +44, top rule 7.1-3
+- W2895738059 (semantic_tagging): +43, top rule 7.1-3
+
+**Quick-test subsets** (run just these instead of full 125):
+- **Content tagging (7.1-3):** W2460269320, W2296421107, W1974692547, W4230438091, W2895738059
+- **Link annotations (7.18):** W2922538610, W2805701040
+- **Artifact nesting (7.1-1/2):** W2642438850
+- **Fonts (7.21):** W2991007371, W2893185172
+- **Role mapping (7.1-5):** W2893185172, W3069372847
+- **Smoke test (all categories):** W2460269320, W2642438850, W2922538610, W2991007371, W3069372847
+
+### Publication
+
+- **arXiv preprint**: `docs/writeup/2026-assets-lbw-draft.md` — update with v4 numbers (63.9% reduction, 4 compliant), expand architecture + Kumar analysis
+- **Blog post**: practitioner-facing writeup for remediate.jenkleiman.com
+- **TACCESS journal**: full paper, rolling submissions, adapted from arXiv
+
+### Other
+- **Raw-PDF detection at ceiling (80.0%)** — all 25 remaining errors are structurally unsolvable
+- **~~PDF link text validation~~** — FIXED (2026-04-12)
+- **~~Struct tree architecture~~** — FIXED (2026-04-13)
 
 ## Shipped: Complete Struct Tree Tagging (2026-04-13)
 
@@ -78,11 +94,11 @@
 **Spec:** `docs/superpowers/specs/2026-04-13-struct-tree-complete-tagging-design.md`
 **Plan:** `docs/superpowers/plans/2026-04-13-struct-tree-complete-tagging.md`
 
-**Early result:** W2460269320 → **0 veraPDF violations** (first fully PDF/UA-compliant benchmark doc). 209 input violations → 0 output.
-
-**v4 benchmark running** (`/tmp/remediation_bench_v4`). Full 125-doc run in progress.
-
-**v3 baseline for comparison:** 125/125 succeeded, 6 fully compliant, 52,544→32,146 failed checks (38.8% reduction). Top remaining rules: 7.1-3 (4,808), 7.18.x (1,952), 7.21.x (1,884).
+**v4 benchmark results** (`/tmp/remediation_bench_v4`):
+- 21,623 → 7,797 violations (**63.9% reduction**)
+- 4 fully PDF/UA compliant (0 in v3)
+- 116/125 improved, 9 regressed (vs 50 improved, 72 regressed in v3)
+- v3 baseline was: 52,544→32,146 (38.8% reduction)
 
 ## Shipped: /Suspect → /Artifact Conversion (2026-04-12)
 

@@ -769,6 +769,80 @@ class TestPdfUaMetadata:
         )
 
 
+class TestTailPolishFigureAlt:
+    """Regression tests for apply_pdf_ua_tail_polish figure /Alt handling.
+
+    veraPDF rule 7.3-1 fails on /Figure elements that have empty /Alt
+    (e.g. ``/Alt ()``) just as much as on missing /Alt. iText can emit
+    figures with empty /Alt when no caption is found, so the polish
+    pass must treat present-but-empty as equivalent to missing.
+    """
+
+    def _make_pdf_with_figure(self, tmp_path, alt_value: str | None):
+        """Create a minimal PDF with a /Figure struct element.
+
+        ``alt_value`` of None omits /Alt entirely; "" emits ``/Alt ()``;
+        a non-empty string emits ``/Alt (<string>)``.
+        """
+        import fitz
+        doc = fitz.open()
+        doc.new_page()
+        # Create struct tree with a single /Figure element
+        fig_xref = doc.get_new_xref()
+        doc.update_object(fig_xref, "<< /Type /StructElem /S /Figure >>")
+        if alt_value is not None:
+            doc.xref_set_key(fig_xref, "Alt", f"({alt_value})")
+        root_xref = doc.get_new_xref()
+        doc.update_object(
+            root_xref,
+            f"<< /Type /StructTreeRoot /K [ {fig_xref} 0 R ] >>",
+        )
+        catalog = doc.pdf_catalog()
+        doc.xref_set_key(catalog, "StructTreeRoot", f"{root_xref} 0 R")
+        out = tmp_path / "figure.pdf"
+        doc.save(str(out))
+        doc.close()
+        return out, fig_xref
+
+    def test_missing_alt_filled(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_tail_polish
+        import fitz
+        pdf, fig_xref = self._make_pdf_with_figure(tmp_path, alt_value=None)
+        r = apply_pdf_ua_tail_polish(pdf)
+        assert r.success
+        assert r.figures_alt_filled == 1
+        doc = fitz.open(str(pdf))
+        assert "/Alt (Figure)" in doc.xref_object(fig_xref)
+        doc.close()
+
+    def test_empty_alt_filled(self, tmp_path):
+        """Regression: /Alt () must be rewritten, not skipped."""
+        from src.tools.pdf_writer import apply_pdf_ua_tail_polish
+        import fitz
+        pdf, fig_xref = self._make_pdf_with_figure(tmp_path, alt_value="")
+        r = apply_pdf_ua_tail_polish(pdf)
+        assert r.success
+        assert r.figures_alt_filled == 1
+        doc = fitz.open(str(pdf))
+        obj = doc.xref_object(fig_xref)
+        assert "/Alt (Figure)" in obj
+        assert "/Alt ()" not in obj
+        doc.close()
+
+    def test_non_empty_alt_preserved(self, tmp_path):
+        from src.tools.pdf_writer import apply_pdf_ua_tail_polish
+        import fitz
+        pdf, fig_xref = self._make_pdf_with_figure(
+            tmp_path, alt_value="A pie chart showing quarterly revenue"
+        )
+        r = apply_pdf_ua_tail_polish(pdf)
+        assert r.success
+        assert r.figures_alt_filled == 0
+        doc = fitz.open(str(pdf))
+        assert "pie chart" in doc.xref_object(fig_xref)
+        doc.close()
+
+
 class TestArtifactMarkingHelpers:
     """Tests for Track A operator classification."""
 

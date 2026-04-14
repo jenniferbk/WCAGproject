@@ -4070,13 +4070,33 @@ def apply_pdf_ua_tail_polish(
                     )
                     is_figure = bool(tag_match and tag_match.group(1) == "Figure")
                     if is_figure:
-                        has_alt = "/Alt" in obj_text
-                        has_actual = "/ActualText" in obj_text
-                        if not (has_alt or has_actual):
+                        # veraPDF 7.3-1 requires a non-empty /Alt or
+                        # /ActualText. Treat empty literal strings
+                        # "()" and empty hex strings "<>" / "<feff>"
+                        # (UTF-16 BOM with no content) as missing.
+                        alt_m = re.search(
+                            r"/Alt\s*(\([^)]*\)|<[^>]*>)", obj_text
+                        )
+                        actual_m = re.search(
+                            r"/ActualText\s*(\([^)]*\)|<[^>]*>)", obj_text
+                        )
+                        def _is_empty(m):
+                            if not m:
+                                return True
+                            v = m.group(1).strip()
+                            if v in ("()", "<>"):
+                                return True
+                            if v.startswith("<") and v.endswith(">"):
+                                inner = v[1:-1].strip().lower().replace(" ", "")
+                                if inner in ("", "feff"):
+                                    return True
+                            return False
+                        alt_empty = _is_empty(alt_m)
+                        actual_empty = _is_empty(actual_m)
+                        if alt_empty and actual_empty:
                             try:
-                                # veraPDF requires non-empty /Alt for 7.3-1.
-                                # Mark as decorative — conservative when no
-                                # description is available.
+                                # Mark as decorative — conservative when
+                                # no description is available.
                                 doc.xref_set_key(xref, "Alt", "(Figure)")
                                 result.figures_alt_filled += 1
                             except Exception:

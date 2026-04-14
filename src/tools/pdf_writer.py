@@ -3986,22 +3986,38 @@ def apply_pdf_ua_tail_polish(
                     rm_obj = ""
                     rm_xref = None
 
-                # Add any missing mappings
+                # Standard PDF/UA structure types (ISO 32000-1 §14.8.4)
+                _STANDARD_TYPES = {
+                    "Document", "Part", "Art", "Sect", "Div", "BlockQuote",
+                    "Caption", "TOC", "TOCI", "Index", "NonStruct", "Private",
+                    "H", "H1", "H2", "H3", "H4", "H5", "H6", "P", "L", "LI",
+                    "Lbl", "LBody", "Table", "TR", "TH", "TD", "THead",
+                    "TBody", "TFoot", "Span", "Quote", "Note", "Reference",
+                    "BibEntry", "Code", "Link", "Annot", "Ruby", "Warichu",
+                    "RB", "RT", "RP", "WT", "WP", "Figure", "Formula", "Form",
+                }
+
+                # Add or fix mappings for non-standard types
                 mappings_added = 0
                 for custom, standard in _ROLE_MAPPINGS.items():
-                    if f"/{custom}" not in rm_obj:
-                        if rm_xref is not None:
-                            doc.xref_set_key(rm_xref, custom, f"/{standard}")
-                        else:
-                            # Create /RoleMap on StructTreeRoot
-                            rm_xref = doc.get_new_xref()
-                            entries = " ".join(
-                                f"/{k} /{v}" for k, v in _ROLE_MAPPINGS.items()
-                            )
-                            doc.update_object(rm_xref, f"<< {entries} >>")
-                            doc.xref_set_key(st_root, "RoleMap", f"{rm_xref} 0 R")
-                            break  # all mappings written at once
+                    # Check if already mapped to a valid standard type
+                    existing = re.search(
+                        rf"/{re.escape(custom)}\s*/(\w+)", rm_obj
+                    )
+                    if existing and existing.group(1) in _STANDARD_TYPES:
+                        continue  # already correctly mapped
+                    if rm_xref is not None:
+                        doc.xref_set_key(rm_xref, custom, f"/{standard}")
                         mappings_added += 1
+                    else:
+                        # Create /RoleMap on StructTreeRoot
+                        rm_xref = doc.get_new_xref()
+                        entries = " ".join(
+                            f"/{k} /{v}" for k, v in _ROLE_MAPPINGS.items()
+                        )
+                        doc.update_object(rm_xref, f"<< {entries} >>")
+                        doc.xref_set_key(st_root, "RoleMap", f"{rm_xref} 0 R")
+                        break  # all mappings written at once
 
         # 4. Figures without /Alt or /ActualText — mark decorative
         if st_key[0] == "xref" and st_root:

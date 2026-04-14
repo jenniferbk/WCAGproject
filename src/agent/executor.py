@@ -383,6 +383,7 @@ def execute_pdf(
             # Tag untagged content as /P (or /Artifact for page furniture).
             # Replaces the old mark_untagged_content_as_artifact() which
             # hid body text from screen readers.
+            tagging_result = None
             try:
                 tagging_result = tag_or_artifact_untagged_content(
                     tagged_pdf_path
@@ -397,23 +398,8 @@ def execute_pdf(
                             tagging_result.pages_modified,
                             tagged_pdf_path,
                         )
-                    # Update ParentTree for new MCIDs
-                    if tagging_result.page_mcid_map:
-                        try:
-                            import fitz as _fitz
-                            _doc = _fitz.open(tagged_pdf_path)
-                            _update_parent_tree_for_mcids(
-                                _doc, tagging_result.page_mcid_map
-                            )
-                            _doc.save(
-                                tagged_pdf_path,
-                                incremental=True, encryption=0,
-                            )
-                            _doc.close()
-                        except Exception as exc:
-                            logger.warning(
-                                "ParentTree MCID update failed: %s", exc
-                            )
+                    # ParentTree MCID update is deferred until AFTER
+                    # populate_link_parent_tree to avoid being clobbered.
                 else:
                     logger.warning(
                         "Content tagging failed: %s",
@@ -477,6 +463,27 @@ def execute_pdf(
                     )
             except Exception as exc:
                 logger.warning("Link ParentTree pass failed: %s", exc)
+
+            # Update ParentTree for ALL MCIDs (gap-fill /P elements +
+            # iText-created elements + existing struct tree elements).
+            # Must run AFTER populate_link_parent_tree which also writes
+            # to the ParentTree — running before would get clobbered.
+            if tagging_result and tagging_result.success:
+                try:
+                    import fitz as _fitz
+                    _doc = _fitz.open(tagged_pdf_path)
+                    _update_parent_tree_for_mcids(
+                        _doc, tagging_result.page_mcid_map
+                    )
+                    _doc.save(
+                        tagged_pdf_path,
+                        incremental=True, encryption=0,
+                    )
+                    _doc.close()
+                except Exception as exc:
+                    logger.warning(
+                        "ParentTree MCID update failed: %s", exc
+                    )
 
             # PDF/UA tail polish — catalog /Lang, page /Tabs /S,
             # /Figure /Alt fallback. Eliminates rules 7.2-34, 7.18.3-1,

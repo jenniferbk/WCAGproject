@@ -3816,6 +3816,16 @@ def _update_parent_tree_for_mcids(
     # Build page_xref→page_idx lookup
     page_xref_to_idx = {doc[i].xref: i for i in range(len(doc))}
 
+    # Also build a page-agnostic MCID→struct element map as fallback.
+    # Some PDFs have struct elements with /Pg pointing to the wrong page
+    # (or to a different page than where the MCID actually appears in the
+    # content stream). We use this fallback when a content stream MCID
+    # has no mapping via the /Pg-based lookup.
+    mcid_to_elem_any: dict[int, int] = {}  # mcid → elem_xref (any page)
+    for _pg, entries in tree_mcid_map.items():
+        for mcid, elem_xref in entries:
+            mcid_to_elem_any.setdefault(mcid, elem_xref)
+
     # Merge tree_mcid_map (keyed by page xref) into page_mcid_map (keyed by page idx)
     merged: dict[int, dict[int, int]] = {}  # page_idx → {mcid → elem_xref}
 
@@ -3830,6 +3840,29 @@ def _update_parent_tree_for_mcids(
     for page_idx, entries in page_mcid_map.items():
         for mcid, elem_xref in entries:
             merged.setdefault(page_idx, {})[mcid] = elem_xref
+
+    # Fallback: scan each page's content stream for MCIDs not yet in
+    # merged, and try to resolve them via the page-agnostic map.
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        try:
+            stream_bytes = page.read_contents()
+        except Exception:
+            continue
+        if not stream_bytes:
+            continue
+        tokens = _tokenize_content_stream(stream_bytes)
+        for t in tokens:
+            val = getattr(t, "value", "")
+            if "/MCID" in val:
+                for m in re.finditer(r"/MCID\s+(\d+)", val):
+                    mcid = int(m.group(1))
+                    page_merged = merged.get(page_idx, {})
+                    if mcid not in page_merged:
+                        # Try page-agnostic fallback
+                        elem = mcid_to_elem_any.get(mcid)
+                        if elem is not None:
+                            merged.setdefault(page_idx, {})[mcid] = elem
 
     if not merged:
         return 0

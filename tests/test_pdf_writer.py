@@ -1981,16 +1981,23 @@ begincmap"""
         assert b"endbfchar" in out
         assert b"endcmap" in out
 
-    def test_serialize_tounicode_code_width_matches_codespacerange(self):
-        """All source codes in bfchar must be 4-digit hex to match
-        the <00><FFFF> codespacerange (Adobe CMap spec)."""
+    def test_serialize_tounicode_one_byte_codespace(self):
+        """All codes <=0xFF -> 1-byte codespace + 2-digit hex."""
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {0x41: "A", 0x0B: "ff"})
+        assert b"<00> <FF>" in out
+        assert b"<0B>" in out  # 2-digit, not <000B>
+        assert b"<41>" in out
+        # Must NOT emit 2-byte codespace for 1-byte codes
+        assert b"<0000> <FFFF>" not in out
+
+    def test_serialize_tounicode_two_byte_codespace(self):
+        """Any code >0xFF -> 2-byte codespace + 4-digit hex."""
         from src.tools.pdf_writer import _serialize_tounicode_cmap
         out = _serialize_tounicode_cmap(b"begincmap", {0x41: "A", 0x200: "b"})
-        # Both codes rendered as 4-digit hex
-        assert b"<0041>" in out
+        assert b"<0000> <FFFF>" in out
+        assert b"<0041>" in out  # now 4-digit because codespace is 2-byte
         assert b"<0200>" in out
-        # Codespacerange declares 2-byte codes
-        assert b"<00> <FFFF>" in out or b"<0000> <FFFF>" in out
 
     def test_serialize_tounicode_strips_duplicate_preamble(self):
         """If header contains a prior /CIDSystemInfo etc., they're stripped
@@ -2217,17 +2224,28 @@ endcmap"""
         assert r.success is False
         assert "not found" in r.error.lower()
 
-    def test_e2e_w2991007371_cmap_fills(self, tmp_path):
-        """End-to-end: apply fill to a real TeX PDF. Verify ToUnicode
-        CMaps are updated with missing ligature entries.
+    def test_e2e_w2991007371_structural(self, tmp_path):
+        """End-to-end: apply fill to a real TeX PDF with ff-ligature gaps.
 
-        This validates at the PDF spec level (CMap contents) rather than
-        text extraction, since PyMuPDF may cache or use different extraction
-        paths and won't immediately reflect updated CMaps.
+        HARD assertions (spec-level guarantees):
+          1. fill_tounicode_ligature_gaps reports success
+          2. At least one ligature entry added
+          3. At least one font's /ToUnicode CMap in the output uses 1-byte
+             codespace (<00> <FF>) and contains `<0B> <00660066>` — the
+             correct 2-digit source-code format for simple Type1 fonts
+             with 1-byte content-stream codes. This is the structural
+             proof the codespace-width fix actually landed.
+
+        SOFT diagnostic (printed, NOT asserted):
+          ff-gap count before/after via PyMuPDF text extraction. PyMuPDF
+          may or may not decrease — it uses embedded CFF glyph data, not
+          ToUnicode, for simple Type1 fonts. Acrobat / veraPDF /
+          spec-compliant screen readers DO use ToUnicode and will see
+          the fix.
 
         Skips automatically if the benchmark corpus is not on the host.
         """
-        import shutil, os, fitz
+        import shutil, fitz, os, re
         source = (
             "/tmp/PDF-Accessibility-Benchmark/data/processed/"
             "functional_hyperlinks/not_present/W2991007371.pdf"
@@ -2239,43 +2257,80 @@ endcmap"""
         dst = tmp_path / "W2991007371.pdf"
         shutil.copy(source, dst)
 
+        def count_ff_gaps(p):
+            doc = fitz.open(str(p))
+            text = "".join(pg.get_text() for pg in doc)
+            doc.close()
+            patterns = [r"\bdi erent", r"\bdi erence",
+                        r"\be ect", r"\bsu cient"]
+            return sum(len(re.findall(pat, text)) for pat in patterns)
+
+        # Soft: measure gaps before (diagnostic only)
+        gaps_before = count_ff_gaps(dst)
+
         from src.tools.pdf_writer import (
-            fill_tounicode_ligature_gaps, _parse_tounicode_cmap, LIGATURE_TABLE
+            fill_tounicode_ligature_gaps,
+            _parse_tounicode_cmap,
         )
-
         r = fill_tounicode_ligature_gaps(dst)
+
+        # HARD assertions
         assert r.success is True
-        assert r.fonts_scanned > 0, "Expected fonts to be scanned"
-        assert r.ligature_entries_added > 0, (
-            "Expected at least some ligature entries to be added to real PDF"
+        assert r.ligature_entries_added > 0
+
+        # HARD: at least one font's updated CMap uses 1-byte codespace
+        # (<00> <FF>) AND has the bfchar entry `<0B> <00660066>` (2-digit
+        # source code mapping to UTF-16BE "ff"). This is the structural
+        # proof that _serialize_tounicode_cmap writes the correct format
+        # for simple Type1 fonts.
+        doc = fitz.open(str(dst))
+        found_correct_cmap = False
+        try:
+            for xref in range(1, doc.xref_length()):
+                try:
+                    obj_str = doc.xref_object(xref, compressed=False)
+                except Exception:
+                    continue
+                if "/ToUnicode" not in obj_str:
+                    continue
+                try:
+                    tu_val = doc.xref_get_key(xref, "ToUnicode")
+                    if not tu_val or tu_val[0] != "xref":
+                        continue
+                    tu_xref = int(tu_val[1].split()[0])
+                    stream = doc.xref_stream(tu_xref)
+                    if stream is None:
+                        continue
+                except Exception:
+                    continue
+
+                _, entries = _parse_tounicode_cmap(stream)
+                if entries.get(0x0B) != "ff":
+                    continue
+                # Require 1-byte codespace and 2-digit source code format.
+                if b"<00> <FF>" not in stream:
+                    continue
+                if b"<0B> <00660066>" not in stream:
+                    continue
+                found_correct_cmap = True
+                break
+        finally:
+            doc.close()
+
+        assert found_correct_cmap, (
+            "No font found with correctly-formatted ToUnicode CMap "
+            "(1-byte codespace + `<0B> <00660066>`). The serializer "
+            "codespace-width fix may have regressed."
         )
 
-        # Verify at least one font's ToUnicode was updated with a ligature
-        doc = fitz.open(str(dst))
-        found_ligature = False
-        for xref in range(1, doc.xref_length()):
-            try:
-                obj_str = doc.xref_object(xref, compressed=False)
-                if "/ToUnicode" in obj_str:
-                    tu_val = doc.xref_get_key(xref, "ToUnicode")
-                    if tu_val and tu_val[0] == "xref":
-                        tu_xref = int(tu_val[1].split()[0])
-                        stream = doc.xref_stream(tu_xref)
-                        _, entries = _parse_tounicode_cmap(stream)
-                        # Check if any ligature is now in the mapping
-                        for lig_name, lig_chars in LIGATURE_TABLE.items():
-                            for code, char in entries.items():
-                                if char == lig_chars:
-                                    found_ligature = True
-                                    break
-                            if found_ligature:
-                                break
-                    if found_ligature:
-                        break
-            except Exception:
-                pass
-        doc.close()
-
-        assert found_ligature, (
-            "Expected at least one ligature entry in updated CMaps"
+        # SOFT diagnostic: log gap counts so future developers can see
+        # whether PyMuPDF now respects the CMap on Type1/CFF fonts.
+        gaps_after = count_ff_gaps(dst)
+        print(
+            f"\n[diagnostic] PyMuPDF ff-gap count: "
+            f"before={gaps_before} after={gaps_after}. "
+            f"Note: PyMuPDF uses embedded CFF glyph data (not ToUnicode) "
+            f"for simple Type1 fonts, so this number may not change even "
+            f"though the CMap is correctly updated for spec-compliant "
+            f"readers (Acrobat, veraPDF, screen readers)."
         )

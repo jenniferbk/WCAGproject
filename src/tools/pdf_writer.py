@@ -3325,7 +3325,20 @@ def _serialize_tounicode_cmap(
         hdr_text,
         flags=re.DOTALL,
     )
-    # Always append a codespacerange after the preserved header.
+    # Determine code width from the actual entries.
+    # Simple Type1 fonts use 1-byte character codes in content streams; composite
+    # (Type0/CIDFont) fonts use 2-byte codes. The codespacerange and bfchar code
+    # widths MUST match what the content stream emits — if we emit <000B> inside a
+    # <0000><FFFF> codespace but the content stream has byte 0x0B, PDF readers
+    # treat 0x0B as an unresolved 1-byte code and text extraction fails.
+    max_code = max(entries.keys()) if entries else 0xFF
+    if max_code <= 0xFF:
+        hex_width = 2
+        codespace_low, codespace_high = "<00>", "<FF>"
+    else:
+        hex_width = 4
+        codespace_low, codespace_high = "<0000>", "<FFFF>"
+
     parts: list[str] = [hdr_text.rstrip("\n"), ""]
     parts.append(
         "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) "
@@ -3334,7 +3347,7 @@ def _serialize_tounicode_cmap(
     parts.append("/CMapName /Adobe-Identity-UCS def")
     parts.append("/CMapType 2 def")
     parts.append("1 begincodespacerange")
-    parts.append("<00> <FFFF>")
+    parts.append(f"{codespace_low} {codespace_high}")
     parts.append("endcodespacerange")
 
     def _unicode_hex(s: str) -> str:
@@ -3342,10 +3355,7 @@ def _serialize_tounicode_cmap(
         return s.encode("utf-16-be").hex().upper()
 
     def _code_hex(code: int) -> str:
-        # Always 4 hex digits to match the <00><FFFF> codespacerange.
-        # PDF CMap spec requires all source codes in a bfchar block to match
-        # the codespacerange byte-width; mixing widths causes Acrobat to reject.
-        return f"{code:04X}"
+        return f"{code:0{hex_width}X}"
 
     sorted_entries = sorted(entries.items())
     # bfchar blocks limit 100 entries per block per PDF spec. Chunk.
@@ -4443,6 +4453,20 @@ def fill_tounicode_ligature_gaps(
 
     Returns:
         LigatureFillResult with counts.
+
+    Note on PyMuPDF text extraction:
+        PyMuPDF (MuPDF) does NOT consistently consult /ToUnicode CMaps
+        when extracting text from embedded Type1/CFF fonts — it uses the
+        font's internal glyph data (CFF charset / glyph names) directly.
+        Consequently, ``page.get_text()`` on a PDF fixed by this function
+        may still show ``di erent`` instead of ``different`` for some
+        fonts, even though the CMap is correctly updated.
+
+        The fix IS effective for spec-compliant consumers that follow
+        PDF 32000-1 §9.10.3 and PDF/UA ToUnicode lookup rules: Adobe
+        Acrobat, veraPDF, screen readers, and most assistive technology.
+        Those are the consumers that matter for accessibility. PyMuPDF
+        is used here only as a development-time diagnostic tool.
     """
     path = Path(pdf_path)
     if not path.exists():

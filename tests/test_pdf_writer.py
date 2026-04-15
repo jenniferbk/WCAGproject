@@ -1852,3 +1852,53 @@ class TestFillToUnicodeLigatureGaps:
         from src.tools.pdf_writer import _parse_differences_array
         # No brackets — return empty, never raise
         assert _parse_differences_array("not an array") == {}
+
+    def test_parse_tounicode_single_bfchar_block(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        cmap = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+3 beginbfchar
+<00> <FFFD>
+<41> <0041>
+<42> <0042>
+endbfchar
+endcmap"""
+        header, entries = _parse_tounicode_cmap(cmap)
+        assert entries == {0: "\ufffd", 0x41: "A", 0x42: "B"}
+        assert b"begincmap" in header
+
+    def test_parse_tounicode_multichar_unicode(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # Ligature already mapped to fi: <0C> <00660069>
+        cmap = b"""begincmap
+1 beginbfchar
+<0C> <00660069>
+endbfchar
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries == {0x0C: "fi"}
+
+    def test_parse_tounicode_bfrange(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # <20> <7E> <0020>  means codes 0x20-0x7E map to U+0020 onward
+        cmap = b"""begincmap
+1 beginbfrange
+<20> <22> <0020>
+endbfrange
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries[0x20] == " "
+        assert entries[0x21] == "!"
+        assert entries[0x22] == '"'
+
+    def test_parse_tounicode_empty(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        _, entries = _parse_tounicode_cmap(b"begincmap endcmap")
+        assert entries == {}
+
+    def test_parse_tounicode_malformed(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # Returns empty entries, never raises
+        _, entries = _parse_tounicode_cmap(b"\x00\x01\x02 garbage")
+        assert entries == {}

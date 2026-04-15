@@ -3139,6 +3139,80 @@ def _parse_differences_array(diffs_text: str) -> dict[int, str]:
     return result
 
 
+def _parse_tounicode_cmap(stream_bytes: bytes) -> tuple[bytes, dict[int, str]]:
+    """Parse a PDF /ToUnicode CMap stream into (header_bytes, entries).
+
+    Returns:
+        - header_bytes: everything up to and including `begincmap`
+          (preserved verbatim on re-serialize)
+        - entries: dict mapping character code (int) → Unicode string
+
+    Both ``bfchar`` and ``bfrange`` blocks are parsed. Unicode values are
+    decoded from UTF-16BE hex (PDF CMap convention). Unrecognized or
+    malformed content returns an empty entries dict; never raises.
+    """
+    import re
+    entries: dict[int, str] = {}
+    header = stream_bytes
+    try:
+        text = stream_bytes.decode("latin-1", errors="replace")
+    except Exception:
+        return header, entries
+
+    # Preserve header up to first "begincmap" if present
+    hdr_match = re.search(r"begincmap", text)
+    if hdr_match:
+        header = stream_bytes[: hdr_match.end()]
+
+    def _hex_to_unicode(hex_str: str) -> str:
+        raw = bytes.fromhex(hex_str)
+        # UTF-16BE; pad odd length (shouldn't happen but defensive)
+        if len(raw) % 2 == 1:
+            raw = raw + b"\x00"
+        return raw.decode("utf-16-be", errors="replace")
+
+    # bfchar blocks: `N beginbfchar ... endbfchar`
+    for bfchar_block in re.finditer(
+        r"beginbfchar(.*?)endbfchar", text, re.DOTALL
+    ):
+        for line in re.finditer(
+            r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", bfchar_block.group(1)
+        ):
+            try:
+                code = int(line.group(1), 16)
+                entries[code] = _hex_to_unicode(line.group(2))
+            except (ValueError, UnicodeDecodeError):
+                continue
+
+    # bfrange blocks: `N beginbfrange ... endbfrange`
+    # Format: <start> <end> <unicode_start>
+    # Codes start..end map to unicode_start, unicode_start+1, ...
+    for bfrange_block in re.finditer(
+        r"beginbfrange(.*?)endbfrange", text, re.DOTALL
+    ):
+        for line in re.finditer(
+            r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>",
+            bfrange_block.group(1),
+        ):
+            try:
+                start = int(line.group(1), 16)
+                end = int(line.group(2), 16)
+                uni_start_bytes = bytes.fromhex(line.group(3))
+                if len(uni_start_bytes) % 2 == 1:
+                    uni_start_bytes += b"\x00"
+                uni_start = int.from_bytes(uni_start_bytes, "big")
+                for i in range(end - start + 1):
+                    cp = uni_start + i
+                    try:
+                        entries[start + i] = chr(cp)
+                    except (ValueError, OverflowError):
+                        continue
+            except (ValueError, UnicodeDecodeError):
+                continue
+
+    return header, entries
+
+
 def populate_link_annotation_contents(
     pdf_path: "str | Path",
 ) -> LinkContentsResult:

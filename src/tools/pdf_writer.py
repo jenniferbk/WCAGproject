@@ -4422,4 +4422,131 @@ def apply_pdf_ua_tail_polish(
         except Exception:
             pass
 
+
+def fill_tounicode_ligature_gaps(
+    pdf_path: "str | Path",
+) -> LigatureFillResult:
+    """Fill missing ligature entries in fonts' /ToUnicode CMaps.
+
+    For every font with a /ToUnicode CMap and an /Encoding /Differences
+    array that names a supported ligature glyph (/ff, /fi, /fl, /ffi,
+    /ffl), ensure the CMap has a correct Unicode entry for the
+    corresponding character code. Existing non-PUA entries are preserved;
+    PUA-mapped entries are treated as missing and overwritten.
+
+    Pure CMap edit — no font-program changes, no visual impact. Safe
+    to run unconditionally; fonts that don't meet criteria are skipped.
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place via incremental
+            save.
+
+    Returns:
+        LigatureFillResult with counts.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return LigatureFillResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return LigatureFillResult(success=False, error=f"Open failed: {exc}")
+
+    result = LigatureFillResult(success=True)
+    try:
+        for xref in range(1, doc.xref_length()):
+            try:
+                t = doc.xref_get_key(xref, "Type")
+            except Exception:
+                continue
+            if t[0] != "name" or t[1] != "/Font":
+                continue
+            result.fonts_scanned += 1
+
+            # Resolve /ToUnicode
+            tu_key = doc.xref_get_key(xref, "ToUnicode")
+            if tu_key[0] != "xref":
+                continue  # no CMap; skip silently (not counted)
+            try:
+                tu_xref = int(tu_key[1].split()[0])
+                tu_stream = doc.xref_stream(tu_xref) or b""
+            except Exception:
+                result.fonts_skipped_parse_error += 1
+                continue
+
+            # Resolve /Encoding /Differences
+            enc_key = doc.xref_get_key(xref, "Encoding")
+            if enc_key[0] == "xref":
+                try:
+                    enc_xref = int(enc_key[1].split()[0])
+                    enc_obj = doc.xref_object(enc_xref) or ""
+                except Exception:
+                    result.fonts_skipped_no_encoding += 1
+                    continue
+            elif enc_key[0] == "dict":
+                enc_obj = enc_key[1]
+            else:
+                # /Encoding is a name like /WinAnsiEncoding (no Differences)
+                result.fonts_skipped_no_encoding += 1
+                continue
+
+            diff_m = re.search(
+                r"/Differences\s*(\[[^\]]*\])", enc_obj, re.DOTALL
+            )
+            if not diff_m:
+                result.fonts_skipped_no_encoding += 1
+                continue
+            code_to_name = _parse_differences_array(diff_m.group(1))
+            if not code_to_name:
+                result.fonts_skipped_no_encoding += 1
+                continue
+
+            # Parse existing CMap
+            try:
+                header, entries = _parse_tounicode_cmap(tu_stream)
+            except Exception:
+                result.fonts_skipped_parse_error += 1
+                continue
+
+            # Determine entries to add
+            added_this_font = 0
+            for code, glyph_name in code_to_name.items():
+                if glyph_name not in LIGATURE_TABLE:
+                    continue
+                existing = entries.get(code, "")
+                if existing and not _is_pua_mapping(existing):
+                    continue  # already correct; preserve
+                entries[code] = LIGATURE_TABLE[glyph_name]
+                added_this_font += 1
+
+            if added_this_font == 0:
+                continue
+
+            # Serialize updated CMap and write back
+            try:
+                new_stream = _serialize_tounicode_cmap(header, entries)
+                doc.update_stream(tu_xref, new_stream)
+            except Exception:
+                result.fonts_skipped_parse_error += 1
+                continue
+
+            result.fonts_modified += 1
+            result.ligature_entries_added += added_this_font
+
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        return LigatureFillResult(
+            success=False,
+            error=f"fill_tounicode_ligature_gaps: {exc}",
+            fonts_scanned=result.fonts_scanned,
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    return result
+
     return result

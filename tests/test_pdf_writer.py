@@ -2031,3 +2031,188 @@ endcodespacerange"""
         from src.tools.pdf_writer import _is_pua_mapping
         # PUA followed by normal char — still PUA (treat as missing)
         assert _is_pua_mapping("\uE000A") is True
+
+    def _make_font_pdf(self, tmp_path, differences_body: str,
+                       cmap_bytes: bytes,
+                       font_xref_out: list):
+        """Build a minimal PDF with one simple font whose /Encoding has
+        a /Differences array and /ToUnicode CMap, returning the path and
+        capturing the font xref via the out-list.
+        """
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+
+        # Encoding dict with /Differences
+        enc_xref = doc.get_new_xref()
+        doc.update_object(
+            enc_xref,
+            f"<< /Type /Encoding /BaseEncoding /WinAnsiEncoding "
+            f"/Differences {differences_body} >>",
+        )
+
+        # ToUnicode stream — must initialise as dict before update_stream
+        tu_xref = doc.get_new_xref()
+        doc.update_object(tu_xref, "<< >>")
+        doc.update_stream(tu_xref, cmap_bytes, new=True)
+
+        # Font dict
+        font_xref = doc.get_new_xref()
+        doc.update_object(
+            font_xref,
+            f"<< /Type /Font /Subtype /Type1 /BaseFont /TestFont "
+            f"/Encoding {enc_xref} 0 R /ToUnicode {tu_xref} 0 R >>",
+        )
+        font_xref_out.append(font_xref)
+
+        out_path = tmp_path / "test.pdf"
+        doc.save(str(out_path))
+        doc.close()
+        return out_path
+
+    def test_fill_adds_missing_ff_entry(self, tmp_path):
+        """Subset names /ff at code 0x0B; ToUnicode has no entry for 0x0B.
+        After fill, ToUnicode has <0B> → 'ff'."""
+        from src.tools.pdf_writer import (
+            fill_tounicode_ligature_gaps, _parse_tounicode_cmap,
+        )
+        import fitz
+        cmap = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+1 beginbfchar
+<41> <0041>
+endbfchar
+endcmap"""
+        font_xrefs: list = []
+        pdf = self._make_font_pdf(
+            tmp_path,
+            "[11 /ff /fi /fl]",  # codes 0x0B=ff 0x0C=fi 0x0D=fl
+            cmap,
+            font_xrefs,
+        )
+
+        r = fill_tounicode_ligature_gaps(pdf)
+        assert r.success is True
+        assert r.fonts_scanned == 1
+        assert r.fonts_modified == 1
+        assert r.ligature_entries_added == 3  # ff, fi, fl
+
+        # Verify the updated CMap has the entries
+        doc = fitz.open(str(pdf))
+        tu_key = doc.xref_get_key(font_xrefs[0], "ToUnicode")
+        assert tu_key[0] == "xref"
+        tu_xref = int(tu_key[1].split()[0])
+        stream = doc.xref_stream(tu_xref)
+        _, entries = _parse_tounicode_cmap(stream)
+        assert entries[0x0B] == "ff"
+        assert entries[0x0C] == "fi"
+        assert entries[0x0D] == "fl"
+        assert entries[0x41] == "A"  # preserved
+        doc.close()
+
+    def test_fill_replaces_pua_mapping(self, tmp_path):
+        """Existing CMap maps /ff code to PUA; should be overwritten."""
+        from src.tools.pdf_writer import (
+            fill_tounicode_ligature_gaps, _parse_tounicode_cmap,
+        )
+        import fitz
+        cmap = b"""begincmap
+1 beginbfchar
+<0B> <E00B>
+endbfchar
+endcmap"""
+        font_xrefs: list = []
+        pdf = self._make_font_pdf(
+            tmp_path, "[11 /ff]", cmap, font_xrefs,
+        )
+
+        r = fill_tounicode_ligature_gaps(pdf)
+        assert r.success is True
+        assert r.ligature_entries_added == 1
+
+        doc = fitz.open(str(pdf))
+        tu_xref = int(
+            doc.xref_get_key(font_xrefs[0], "ToUnicode")[1].split()[0]
+        )
+        _, entries = _parse_tounicode_cmap(doc.xref_stream(tu_xref))
+        assert entries[0x0B] == "ff"
+        doc.close()
+
+    def test_fill_preserves_correct_mapping(self, tmp_path):
+        """Existing CMap maps /ff code correctly; unchanged."""
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        cmap = b"""begincmap
+1 beginbfchar
+<0B> <00660066>
+endbfchar
+endcmap"""
+        pdf = self._make_font_pdf(tmp_path, "[11 /ff]", cmap, [])
+
+        r = fill_tounicode_ligature_gaps(pdf)
+        assert r.success is True
+        assert r.fonts_modified == 0  # no change
+        assert r.ligature_entries_added == 0
+
+    def test_fill_skips_font_without_differences(self, tmp_path):
+        """Font with /Encoding /WinAnsiEncoding (no /Differences) is
+        skipped with fonts_skipped_no_encoding."""
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        tu_xref = doc.get_new_xref()
+        doc.update_object(tu_xref, "<< >>")
+        doc.update_stream(
+            tu_xref, b"begincmap 0 beginbfchar endbfchar endcmap", new=True
+        )
+        font_xref = doc.get_new_xref()
+        doc.update_object(
+            font_xref,
+            f"<< /Type /Font /Subtype /Type1 /BaseFont /TestFont "
+            f"/Encoding /WinAnsiEncoding /ToUnicode {tu_xref} 0 R >>",
+        )
+        out_path = tmp_path / "nodiff.pdf"
+        doc.save(str(out_path))
+        doc.close()
+
+        r = fill_tounicode_ligature_gaps(out_path)
+        assert r.success is True
+        assert r.fonts_scanned == 1
+        assert r.fonts_skipped_no_encoding == 1
+        assert r.fonts_modified == 0
+
+    def test_fill_skips_font_without_tounicode(self, tmp_path):
+        """Font with no /ToUnicode at all is skipped (we don't manufacture
+        a CMap from scratch — spec scope is existing-CMap patching)."""
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        enc_xref = doc.get_new_xref()
+        doc.update_object(
+            enc_xref,
+            "<< /Type /Encoding /BaseEncoding /WinAnsiEncoding "
+            "/Differences [11 /ff] >>",
+        )
+        font_xref = doc.get_new_xref()
+        doc.update_object(
+            font_xref,
+            f"<< /Type /Font /Subtype /Type1 /BaseFont /TestFont "
+            f"/Encoding {enc_xref} 0 R >>",
+        )
+        out_path = tmp_path / "notu.pdf"
+        doc.save(str(out_path))
+        doc.close()
+
+        r = fill_tounicode_ligature_gaps(out_path)
+        assert r.success is True
+        assert r.fonts_scanned == 1
+        assert r.fonts_modified == 0
+        assert r.ligature_entries_added == 0
+
+    def test_fill_missing_file(self, tmp_path):
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        r = fill_tounicode_ligature_gaps(tmp_path / "nonexistent.pdf")
+        assert r.success is False
+        assert "not found" in r.error.lower()

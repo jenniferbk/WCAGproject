@@ -2216,3 +2216,66 @@ endcmap"""
         r = fill_tounicode_ligature_gaps(tmp_path / "nonexistent.pdf")
         assert r.success is False
         assert "not found" in r.error.lower()
+
+    def test_e2e_w2991007371_cmap_fills(self, tmp_path):
+        """End-to-end: apply fill to a real TeX PDF. Verify ToUnicode
+        CMaps are updated with missing ligature entries.
+
+        This validates at the PDF spec level (CMap contents) rather than
+        text extraction, since PyMuPDF may cache or use different extraction
+        paths and won't immediately reflect updated CMaps.
+
+        Skips automatically if the benchmark corpus is not on the host.
+        """
+        import shutil, os, fitz
+        source = (
+            "/tmp/PDF-Accessibility-Benchmark/data/processed/"
+            "functional_hyperlinks/not_present/W2991007371.pdf"
+        )
+        if not os.path.exists(source):
+            import pytest
+            pytest.skip(f"Benchmark PDF not available at {source}")
+
+        dst = tmp_path / "W2991007371.pdf"
+        shutil.copy(source, dst)
+
+        from src.tools.pdf_writer import (
+            fill_tounicode_ligature_gaps, _parse_tounicode_cmap, LIGATURE_TABLE
+        )
+
+        r = fill_tounicode_ligature_gaps(dst)
+        assert r.success is True
+        assert r.fonts_scanned > 0, "Expected fonts to be scanned"
+        assert r.ligature_entries_added > 0, (
+            "Expected at least some ligature entries to be added to real PDF"
+        )
+
+        # Verify at least one font's ToUnicode was updated with a ligature
+        doc = fitz.open(str(dst))
+        found_ligature = False
+        for xref in range(1, doc.xref_length()):
+            try:
+                obj_str = doc.xref_object(xref, compressed=False)
+                if "/ToUnicode" in obj_str:
+                    tu_val = doc.xref_get_key(xref, "ToUnicode")
+                    if tu_val and tu_val[0] == "xref":
+                        tu_xref = int(tu_val[1].split()[0])
+                        stream = doc.xref_stream(tu_xref)
+                        _, entries = _parse_tounicode_cmap(stream)
+                        # Check if any ligature is now in the mapping
+                        for lig_name, lig_chars in LIGATURE_TABLE.items():
+                            for code, char in entries.items():
+                                if char == lig_chars:
+                                    found_ligature = True
+                                    break
+                            if found_ligature:
+                                break
+                    if found_ligature:
+                        break
+            except Exception:
+                pass
+        doc.close()
+
+        assert found_ligature, (
+            "Expected at least one ligature entry in updated CMaps"
+        )

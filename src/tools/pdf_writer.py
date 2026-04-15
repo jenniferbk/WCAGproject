@@ -3151,7 +3151,6 @@ def _parse_tounicode_cmap(stream_bytes: bytes) -> tuple[bytes, dict[int, str]]:
     decoded from UTF-16BE hex (PDF CMap convention). Unrecognized or
     malformed content returns an empty entries dict; never raises.
     """
-    import re
     entries: dict[int, str] = {}
     header = stream_bytes
     try:
@@ -3185,28 +3184,73 @@ def _parse_tounicode_cmap(stream_bytes: bytes) -> tuple[bytes, dict[int, str]]:
                 continue
 
     # bfrange blocks: `N beginbfrange ... endbfrange`
-    # Format: <start> <end> <unicode_start>
-    # Codes start..end map to unicode_start, unicode_start+1, ...
+    # Two forms:
+    #   Scalar: <start> <end> <unicode_start>
+    #   Array:  <start> <end> [<u1> <u2> ... <uN>]
     for bfrange_block in re.finditer(
         r"beginbfrange(.*?)endbfrange", text, re.DOTALL
     ):
+        block_text = bfrange_block.group(1)
+
+        # Process array form first to avoid scalar regex double-matching it.
+        # Pattern: <start> <end> [ <hex1> <hex2> ... ]
+        array_pattern = re.compile(
+            r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[([^\]]*)\]"
+        )
+        matched_spans: list[tuple[int, int]] = []
+        for arr_match in array_pattern.finditer(block_text):
+            try:
+                start = int(arr_match.group(1), 16)
+                end = int(arr_match.group(2), 16)
+                if end - start > 0xFFFF:
+                    matched_spans.append(arr_match.span())
+                    continue
+                hex_values = re.findall(r"<([0-9A-Fa-f]+)>", arr_match.group(3))
+                for i, hv in enumerate(hex_values):
+                    code = start + i
+                    if code > end:
+                        break
+                    try:
+                        entries[code] = _hex_to_unicode(hv)
+                    except (ValueError, UnicodeDecodeError):
+                        continue
+            except (ValueError, UnicodeDecodeError):
+                pass
+            matched_spans.append(arr_match.span())
+
+        # Remove array-form matches from block text so scalar regex won't re-match them.
+        scalar_text = block_text
+        for span_start, span_end in reversed(matched_spans):
+            scalar_text = scalar_text[:span_start] + scalar_text[span_end:]
+
+        # Scalar form: <start> <end> <unicode_start>
         for line in re.finditer(
             r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>",
-            bfrange_block.group(1),
+            scalar_text,
         ):
             try:
                 start = int(line.group(1), 16)
                 end = int(line.group(2), 16)
+                # Sanity cap: skip malformed ranges that would iterate billions of times
+                if end - start > 0xFFFF:
+                    continue
                 uni_start_bytes = bytes.fromhex(line.group(3))
                 if len(uni_start_bytes) % 2 == 1:
                     uni_start_bytes += b"\x00"
-                uni_start = int.from_bytes(uni_start_bytes, "big")
+                # Decode starting Unicode value via UTF-16BE (handles surrogate pairs)
+                uni_start_str = uni_start_bytes.decode("utf-16-be", errors="replace")
+                # Use the numeric codepoint of the last char for incrementing
+                if uni_start_str:
+                    uni_start_cp = ord(uni_start_str[-1])
+                else:
+                    continue
                 for i in range(end - start + 1):
-                    cp = uni_start + i
-                    try:
-                        entries[start + i] = chr(cp)
-                    except (ValueError, OverflowError):
-                        continue
+                    cp = uni_start_cp + i
+                    if cp <= 0x10FFFF:
+                        try:
+                            entries[start + i] = chr(cp)
+                        except (ValueError, OverflowError):
+                            continue
             except (ValueError, UnicodeDecodeError):
                 continue
 

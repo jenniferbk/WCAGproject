@@ -1902,3 +1902,41 @@ endcmap"""
         # Returns empty entries, never raises
         _, entries = _parse_tounicode_cmap(b"\x00\x01\x02 garbage")
         assert entries == {}
+
+    def test_parse_tounicode_bfrange_array_form(self):
+        """bfrange with bracketed array of individual Unicode values."""
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        cmap = b"""begincmap
+1 beginbfrange
+<20> <22> [<0041> <0042> <0043>]
+endbfrange
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries[0x20] == "A"
+        assert entries[0x21] == "B"
+        assert entries[0x22] == "C"
+
+    def test_parse_tounicode_surrogate_pair_bfchar(self):
+        """Mathematical italic A is encoded as UTF-16 surrogate pair."""
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # U+1D434 = MATHEMATICAL ITALIC CAPITAL A, encoded in UTF-16BE
+        # as the surrogate pair D835 DC34.
+        cmap = b"""begincmap
+1 beginbfchar
+<41> <D835DC34>
+endbfchar
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries[0x41] == "\U0001D434"
+
+    def test_parse_tounicode_bfrange_oversize_capped(self):
+        """Malformed huge range is skipped, not iterated billions of times."""
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        cmap = b"""begincmap
+1 beginbfrange
+<0000> <FFFFFFFF> <0041>
+endbfrange
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        # Should silently skip; implementation must not hang
+        assert entries == {}

@@ -4548,5 +4548,3 @@ def fill_tounicode_ligature_gaps(
             pass
 
     return result
-
-    return result

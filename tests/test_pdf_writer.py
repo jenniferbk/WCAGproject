@@ -1980,3 +1980,33 @@ begincmap"""
         assert b"beginbfchar" in out
         assert b"endbfchar" in out
         assert b"endcmap" in out
+
+    def test_serialize_tounicode_code_width_matches_codespacerange(self):
+        """All source codes in bfchar must be 4-digit hex to match
+        the <00><FFFF> codespacerange (Adobe CMap spec)."""
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {0x41: "A", 0x200: "b"})
+        # Both codes rendered as 4-digit hex
+        assert b"<0041>" in out
+        assert b"<0200>" in out
+        # Codespacerange declares 2-byte codes
+        assert b"<00> <FFFF>" in out or b"<0000> <FFFF>" in out
+
+    def test_serialize_tounicode_strips_duplicate_preamble(self):
+        """If header contains a prior /CIDSystemInfo etc., they're stripped
+        to prevent duplicate declarations in the output stream."""
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        header_with_preamble = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (OldName) /Supplement 0 >> def
+/CMapName /Old-CMap def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange"""
+        out = _serialize_tounicode_cmap(header_with_preamble, {0x41: "A"})
+        # Should not have duplicate /CIDSystemInfo entries
+        assert out.count(b"/CIDSystemInfo") == 1
+        assert out.count(b"/CMapName") == 1
+        assert out.count(b"/CMapType") == 1

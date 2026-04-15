@@ -3263,8 +3263,17 @@ def _serialize_tounicode_cmap(
     """Serialize (header, entries) back into a /ToUnicode CMap stream.
 
     Emits a single ``bfchar`` block. Each entry is a line
-    ``<HEX_CODE> <HEX_UTF16BE_UNICODE>``. The header is written verbatim;
-    if it's empty or missing ``begincmap``, a minimal header is synthesized.
+    ``<HEX_CODE> <HEX_UTF16BE_UNICODE>``. The header is written verbatim
+    up to its first ``begincmap``; a minimal header is synthesized if the
+    input lacks ``begincmap``.
+
+    Expected contract: ``header_bytes`` should end at or near
+    ``begincmap`` (as produced by :func:`_parse_tounicode_cmap`). We
+    defensively strip duplicate CMap preamble keys (``/CIDSystemInfo``,
+    ``/CMapName``, ``/CMapType``, codespacerange) from the header
+    because we always emit a fresh preamble below; callers that pass a
+    full prior CMap stream will therefore get a clean re-serialization
+    rather than a stream with duplicate declarations.
     """
     hdr_text = header_bytes.decode("latin-1", errors="replace")
     if "begincmap" not in hdr_text:
@@ -3273,6 +3282,24 @@ def _serialize_tounicode_cmap(
             "12 dict begin\n"
             "begincmap\n"
         )
+    # Defensive: strip any CMap-dict preamble keys that may be present in the
+    # header — we always emit a fresh preamble below. Our paired parser
+    # _parse_tounicode_cmap captures only up to `begincmap` so this is rarely
+    # needed, but it guards against other callers passing a full header.
+    hdr_text = re.sub(
+        r"/CIDSystemInfo\s*<<[^>]*>>\s*def\s*",
+        "",
+        hdr_text,
+        flags=re.DOTALL,
+    )
+    hdr_text = re.sub(r"/CMapName\s+/\S+\s+def\s*", "", hdr_text)
+    hdr_text = re.sub(r"/CMapType\s+\d+\s+def\s*", "", hdr_text)
+    hdr_text = re.sub(
+        r"\d+\s+begincodespacerange.*?endcodespacerange\s*",
+        "",
+        hdr_text,
+        flags=re.DOTALL,
+    )
     # Always append a codespacerange after the preserved header.
     parts: list[str] = [hdr_text.rstrip("\n"), ""]
     parts.append(
@@ -3290,8 +3317,10 @@ def _serialize_tounicode_cmap(
         return s.encode("utf-16-be").hex().upper()
 
     def _code_hex(code: int) -> str:
-        # 2 hex digits if ≤0xFF else 4
-        return f"{code:02X}" if code <= 0xFF else f"{code:04X}"
+        # Always 4 hex digits to match the <00><FFFF> codespacerange.
+        # PDF CMap spec requires all source codes in a bfchar block to match
+        # the codespacerange byte-width; mixing widths causes Acrobat to reject.
+        return f"{code:04X}"
 
     sorted_entries = sorted(entries.items())
     # bfchar blocks limit 100 entries per block per PDF spec. Chunk.

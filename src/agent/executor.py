@@ -36,6 +36,7 @@ from src.tools.pdf_writer import (
     apply_pdf_ua_metadata,
     apply_pdf_ua_tail_polish,
     assess_struct_tree_quality,
+    fill_tounicode_ligature_gaps,
     populate_link_annotation_contents,
     populate_link_parent_tree,
     repair_broken_uris_in_pdf,
@@ -423,6 +424,25 @@ def execute_pdf(
                     )
             except Exception as exc:
                 logger.warning("Link /Contents pass failed: %s", exc)
+
+            # ToUnicode ligature fill — inject missing ToUnicode CMap entries
+            # for common ligatures so copy-paste and screen readers get correct
+            # Unicode text.
+            try:
+                lig_result = fill_tounicode_ligature_gaps(tagged_pdf_path)
+                if lig_result.success and lig_result.ligature_entries_added:
+                    logger.info(
+                        "ToUnicode ligature fill: scanned=%d modified=%d added=%d",
+                        lig_result.fonts_scanned,
+                        lig_result.fonts_modified,
+                        lig_result.ligature_entries_added,
+                    )
+                elif not lig_result.success:
+                    logger.warning(
+                        "ToUnicode ligature fill failed: %s", lig_result.error
+                    )
+            except Exception as exc:
+                logger.warning("ToUnicode ligature fill failed: %s", exc)
 
             # Build URL → improved text mapping from executed set_link_text actions
             link_text_overrides: dict[str, str] = {}

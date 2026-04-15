@@ -1803,3 +1803,26 @@ class TestLinkAccessibleName:
         assert matching[0].text == "Example Test Page", (
             f"Expected 'Example Test Page' but got {matching[0].text!r}"
         )
+
+
+class TestFillToUnicodeLigatureGaps:
+    """Tests for fill_tounicode_ligature_gaps()."""
+
+    def test_ligature_table_has_expected_entries(self):
+        from src.tools.pdf_writer import LIGATURE_TABLE
+        assert LIGATURE_TABLE["ff"] == "\u0066\u0066"
+        assert LIGATURE_TABLE["fi"] == "\u0066\u0069"
+        assert LIGATURE_TABLE["fl"] == "\u0066\u006c"
+        assert LIGATURE_TABLE["ffi"] == "\u0066\u0066\u0069"
+        assert LIGATURE_TABLE["ffl"] == "\u0066\u0066\u006c"
+
+    def test_result_dataclass_defaults(self):
+        from src.tools.pdf_writer import LigatureFillResult
+        r = LigatureFillResult(success=True)
+        assert r.success is True
+        assert r.fonts_scanned == 0
+        assert r.fonts_modified == 0
+        assert r.ligature_entries_added == 0
+        assert r.fonts_skipped_no_encoding == 0
+        assert r.fonts_skipped_parse_error == 0
+        assert r.error == ""

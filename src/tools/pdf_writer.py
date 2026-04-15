@@ -2977,6 +2977,30 @@ def _convert_suspect_bdc_to_artifact(tokens: list[Token]) -> int:
     return converted
 
 
+# Ligature glyph names (as they appear in /Encoding /Differences arrays of
+# TeX-origin fonts) mapped to the Unicode sequence that should appear in
+# /ToUnicode CMap entries. Keyed by canonical glyph name (no leading slash).
+LIGATURE_TABLE: dict[str, str] = {
+    "ff": "\u0066\u0066",
+    "fi": "\u0066\u0069",
+    "fl": "\u0066\u006c",
+    "ffi": "\u0066\u0066\u0069",
+    "ffl": "\u0066\u0066\u006c",
+}
+
+
+@dataclass
+class LigatureFillResult:
+    """Result of fill_tounicode_ligature_gaps()."""
+    success: bool
+    fonts_scanned: int = 0
+    fonts_modified: int = 0
+    ligature_entries_added: int = 0
+    fonts_skipped_no_encoding: int = 0
+    fonts_skipped_parse_error: int = 0
+    error: str = ""
+
+
 @dataclass
 class LinkContentsResult:
     """Result of populate_link_annotation_contents()."""

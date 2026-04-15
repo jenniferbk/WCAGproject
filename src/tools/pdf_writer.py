@@ -3107,6 +3107,38 @@ def _extract_uri_from_annotation(doc: "fitz.Document", annot_xref: int) -> str:
     return ""
 
 
+def _parse_differences_array(diffs_text: str) -> dict[int, str]:
+    """Parse a PDF /Differences array string into {code: glyph_name}.
+
+    The /Differences array format is:
+        [ <int_code> /<name1> /<name2> ... <int_code2> /<nameN> ... ]
+
+    Each integer resets the current code. Each subsequent name consumes
+    one code, then increments. Returns empty dict on malformed input.
+    """
+    # Must be wrapped in brackets
+    m = re.search(r"\[(.*)\]", diffs_text, re.DOTALL)
+    if not m:
+        return {}
+    body = m.group(1)
+    # Tokenize: integers and /names
+    tokens = re.findall(r"\d+|/[^\s/\[\]()<>]+", body)
+    result: dict[int, str] = {}
+    current_code: int | None = None
+    for tok in tokens:
+        if tok.startswith("/"):
+            if current_code is None:
+                continue  # name without a prior code; skip
+            result[current_code] = tok[1:]  # strip leading slash
+            current_code += 1
+        else:
+            try:
+                current_code = int(tok)
+            except ValueError:
+                continue
+    return result
+
+
 def populate_link_annotation_contents(
     pdf_path: "str | Path",
 ) -> LinkContentsResult:

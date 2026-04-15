@@ -1826,3 +1826,29 @@ class TestFillToUnicodeLigatureGaps:
         assert r.fonts_skipped_no_encoding == 0
         assert r.fonts_skipped_parse_error == 0
         assert r.error == ""
+
+    def test_parse_differences_simple(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        # /Differences [11 /ff /fi /fl]  → codes 11, 12, 13
+        result = _parse_differences_array("[11 /ff /fi /fl]")
+        assert result == {11: "ff", 12: "fi", 13: "fl"}
+
+    def test_parse_differences_multiple_ranges(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        # Two base-code jumps
+        result = _parse_differences_array("[11 /ff /fi 20 /bullet]")
+        assert result == {11: "ff", 12: "fi", 20: "bullet"}
+
+    def test_parse_differences_extra_whitespace(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        result = _parse_differences_array("[ 11  /ff   /fi  ]")
+        assert result == {11: "ff", 12: "fi"}
+
+    def test_parse_differences_empty(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        assert _parse_differences_array("[]") == {}
+
+    def test_parse_differences_malformed(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        # No brackets — return empty, never raise
+        assert _parse_differences_array("not an array") == {}

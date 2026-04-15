@@ -3139,6 +3139,31 @@ def _parse_differences_array(diffs_text: str) -> dict[int, str]:
     return result
 
 
+def _is_pua_mapping(unicode_str: str) -> bool:
+    """Return True if the string is empty or contains any PUA codepoint.
+
+    Private Use Areas (where custom/internal glyph mappings commonly live)
+    are treated as "missing" for the purposes of ligature gap-fill: we're
+    willing to overwrite such entries with canonical Unicode.
+
+    PUA ranges (per Unicode standard):
+        - BMP PUA:              U+E000 – U+F8FF
+        - Supplementary PUA-A:  U+F0000 – U+FFFFD
+        - Supplementary PUA-B:  U+100000 – U+10FFFD
+    """
+    if not unicode_str:
+        return True
+    for ch in unicode_str:
+        cp = ord(ch)
+        if 0xE000 <= cp <= 0xF8FF:
+            return True
+        if 0xF0000 <= cp <= 0xFFFFD:
+            return True
+        if 0x100000 <= cp <= 0x10FFFD:
+            return True
+    return False
+
+
 def _parse_tounicode_cmap(stream_bytes: bytes) -> tuple[bytes, dict[int, str]]:
     """Parse a PDF /ToUnicode CMap stream into (header_bytes, entries).
 

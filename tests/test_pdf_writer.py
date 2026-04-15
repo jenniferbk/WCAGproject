@@ -2010,3 +2010,24 @@ endcodespacerange"""
         assert out.count(b"/CIDSystemInfo") == 1
         assert out.count(b"/CMapName") == 1
         assert out.count(b"/CMapType") == 1
+
+    def test_is_pua_mapping_true(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        assert _is_pua_mapping("\uE000") is True
+        assert _is_pua_mapping("\uE00B") is True  # seen in real CMaps
+        assert _is_pua_mapping("\uF8FF") is True
+
+    def test_is_pua_mapping_false(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        assert _is_pua_mapping("A") is False
+        assert _is_pua_mapping("fi") is False
+        assert _is_pua_mapping("\u0066\u0066") is False  # ff ligature
+
+    def test_is_pua_mapping_empty(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        assert _is_pua_mapping("") is True  # empty treated as missing
+
+    def test_is_pua_mapping_mixed(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        # PUA followed by normal char — still PUA (treat as missing)
+        assert _is_pua_mapping("\uE000A") is True

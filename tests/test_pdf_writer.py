@@ -1940,3 +1940,43 @@ endcmap"""
         _, entries = _parse_tounicode_cmap(cmap)
         # Should silently skip; implementation must not hang
         assert entries == {}
+
+    def test_serialize_tounicode_roundtrip(self):
+        from src.tools.pdf_writer import (
+            _parse_tounicode_cmap,
+            _serialize_tounicode_cmap,
+        )
+        header = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap"""
+        entries = {0x41: "A", 0x42: "B", 0x0C: "fi"}
+        out = _serialize_tounicode_cmap(header, entries)
+        # Round-trip must preserve entries
+        _, reparsed = _parse_tounicode_cmap(out)
+        assert reparsed == entries
+
+    def test_serialize_tounicode_multichar_unicode(self):
+        from src.tools.pdf_writer import (
+            _parse_tounicode_cmap,
+            _serialize_tounicode_cmap,
+        )
+        header = b"begincmap"
+        # ff ligature: two-codepoint mapping
+        entries = {0x0B: "ff", 0x0C: "ffi"}
+        out = _serialize_tounicode_cmap(header, entries)
+        _, reparsed = _parse_tounicode_cmap(out)
+        assert reparsed == entries
+
+    def test_serialize_tounicode_empty(self):
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {})
+        # Valid CMap with zero entries
+        assert b"endcmap" in out
+
+    def test_serialize_tounicode_contains_required_sections(self):
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {0x41: "A"})
+        assert b"codespacerange" in out
+        assert b"beginbfchar" in out
+        assert b"endbfchar" in out
+        assert b"endcmap" in out

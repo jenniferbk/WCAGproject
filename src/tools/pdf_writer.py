@@ -3257,6 +3257,59 @@ def _parse_tounicode_cmap(stream_bytes: bytes) -> tuple[bytes, dict[int, str]]:
     return header, entries
 
 
+def _serialize_tounicode_cmap(
+    header_bytes: bytes, entries: dict[int, str]
+) -> bytes:
+    """Serialize (header, entries) back into a /ToUnicode CMap stream.
+
+    Emits a single ``bfchar`` block. Each entry is a line
+    ``<HEX_CODE> <HEX_UTF16BE_UNICODE>``. The header is written verbatim;
+    if it's empty or missing ``begincmap``, a minimal header is synthesized.
+    """
+    hdr_text = header_bytes.decode("latin-1", errors="replace")
+    if "begincmap" not in hdr_text:
+        hdr_text = (
+            "/CIDInit /ProcSet findresource begin\n"
+            "12 dict begin\n"
+            "begincmap\n"
+        )
+    # Always append a codespacerange after the preserved header.
+    parts: list[str] = [hdr_text.rstrip("\n"), ""]
+    parts.append(
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) "
+        "/Supplement 0 >> def"
+    )
+    parts.append("/CMapName /Adobe-Identity-UCS def")
+    parts.append("/CMapType 2 def")
+    parts.append("1 begincodespacerange")
+    parts.append("<00> <FFFF>")
+    parts.append("endcodespacerange")
+
+    def _unicode_hex(s: str) -> str:
+        # UTF-16BE hex without BOM
+        return s.encode("utf-16-be").hex().upper()
+
+    def _code_hex(code: int) -> str:
+        # 2 hex digits if ≤0xFF else 4
+        return f"{code:02X}" if code <= 0xFF else f"{code:04X}"
+
+    sorted_entries = sorted(entries.items())
+    # bfchar blocks limit 100 entries per block per PDF spec. Chunk.
+    for i in range(0, len(sorted_entries), 100):
+        chunk = sorted_entries[i : i + 100]
+        parts.append(f"{len(chunk)} beginbfchar")
+        for code, uni in chunk:
+            parts.append(f"<{_code_hex(code)}> <{_unicode_hex(uni)}>")
+        parts.append("endbfchar")
+
+    parts.append("endcmap")
+    parts.append("CMapName currentdict /CMap defineresource pop")
+    parts.append("end")
+    parts.append("end")
+    out = "\n".join(parts) + "\n"
+    return out.encode("latin-1", errors="replace")
+
+
 def populate_link_annotation_contents(
     pdf_path: "str | Path",
 ) -> LinkContentsResult:

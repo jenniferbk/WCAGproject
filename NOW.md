@@ -71,10 +71,47 @@
 - **Blog post**: practitioner-facing writeup for remediate.jenkleiman.com
 - **TACCESS journal**: full paper, rolling submissions, adapted from arXiv
 
+### Font engineering (Project A — future)
+
+Spec: `docs/superpowers/specs/2026-04-14-cm-glyph-injection-design.md`
+
+98.2% of font violations (7.21.x) are **inherited from source PDFs**, not introduced by our pipeline. These are TeX-origin CM subset fonts with:
+- Missing ligature glyphs (ff, ffi, ffl) — visibly renders as gaps ("di erences")
+- Widths array disagreements with font program internal widths
+- Missing glyphs referenced by content stream
+
+ToUnicode CMap ligature fill (Project B, shipped 2026-04-15) writes correct CMap entries but veraPDF 7.21.7-1 checks font-program encoding, not /ToUnicode. Project A (glyph injection from cm-unicode) is needed for visual + compliance fix. Deferred to separate spec/plan.
+
 ### Other
 - **Raw-PDF detection at ceiling (80.0%)** — all 25 remaining errors are structurally unsolvable
 - **~~PDF link text validation~~** — FIXED (2026-04-12)
 - **~~Struct tree architecture~~** — FIXED (2026-04-13)
+
+## Shipped: v4c Fixes — 7.3-1 / 7.18 / ToUnicode Ligature Fill (2026-04-14/15)
+
+**Three fixes** shipped across two sessions. v4c smoke results (19 exemplar docs):
+
+| Metric | v4 (source) | v4b | v4c |
+|---|---:|---:|---:|
+| Total violations | 20,145 | 2,444 | **1,867** |
+| Reduction from source | — | 87.9% | **90.7%** |
+| Delta from v4b | — | — | **−577 (−23.6%)** |
+| Fully compliant | 0 | 4 | 4 |
+
+**What dropped:**
+- `7.18.1-2 + 7.18.5-2`: 410 → **0** — annotation-level `/Dest` link /Contents fill (`511c8c9`)
+- `7.3-1`: 169 → **0** — empty `/Alt ()` detection + fill (`ab11623`)
+- `7.21.7-1`: 199 → **199** (unchanged) — ligature ToUnicode CMap fill structurally correct but veraPDF checks font-program encoding, not /ToUnicode. Real-world benefit is for Acrobat/screen readers/search, not veraPDF.
+
+**Remaining v4c rule breakdown (1,867 total):**
+- 7.21 fonts (inherited): 1,483 (79.4%) — needs Project A (glyph injection)
+- 7.1-3 content tagging: 319 (17.1%)
+- 7.1-1/7.1-2 form xobject: 59 (3.2%)
+- Other: 6 (0.3%)
+
+**Commits:** `ab11623` (7.3-1 fix), `511c8c9` (7.18 /Dest fix), `56439bc` (benchmark --ids), `f8b0f03` (ToUnicode ligature fill merge — 12 commits, 981 lines)
+
+**Kumar collaboration update:** Anukriti offered co-authorship + meeting (2026-04-14 email). She's leading a multi-persona agentic web a11y system with direct overlap to our approach. Meeting TBD.
 
 ## Shipped: Complete Struct Tree Tagging (2026-04-13)
 

@@ -2977,6 +2977,30 @@ def _convert_suspect_bdc_to_artifact(tokens: list[Token]) -> int:
     return converted
 
 
+# Ligature glyph names (as they appear in /Encoding /Differences arrays of
+# TeX-origin fonts) mapped to the Unicode sequence that should appear in
+# /ToUnicode CMap entries. Keyed by canonical glyph name (no leading slash).
+LIGATURE_TABLE: dict[str, str] = {
+    "ff": "\u0066\u0066",
+    "fi": "\u0066\u0069",
+    "fl": "\u0066\u006c",
+    "ffi": "\u0066\u0066\u0069",
+    "ffl": "\u0066\u0066\u006c",
+}
+
+
+@dataclass
+class LigatureFillResult:
+    """Result of fill_tounicode_ligature_gaps()."""
+    success: bool
+    fonts_scanned: int = 0
+    fonts_modified: int = 0
+    ligature_entries_added: int = 0
+    fonts_skipped_no_encoding: int = 0
+    fonts_skipped_parse_error: int = 0
+    error: str = ""
+
+
 @dataclass
 class LinkContentsResult:
     """Result of populate_link_annotation_contents()."""
@@ -3081,6 +3105,273 @@ def _extract_uri_from_annotation(doc: "fitz.Document", annot_xref: int) -> str:
     except Exception:
         pass
     return ""
+
+
+def _parse_differences_array(diffs_text: str) -> dict[int, str]:
+    """Parse a PDF /Differences array string into {code: glyph_name}.
+
+    The /Differences array format is:
+        [ <int_code> /<name1> /<name2> ... <int_code2> /<nameN> ... ]
+
+    Each integer resets the current code. Each subsequent name consumes
+    one code, then increments. Returns empty dict on malformed input.
+    """
+    # Must be wrapped in brackets
+    m = re.search(r"\[(.*)\]", diffs_text, re.DOTALL)
+    if not m:
+        return {}
+    body = m.group(1)
+    # Tokenize: integers and /names
+    tokens = re.findall(r"\d+|/[^\s/\[\]()<>]+", body)
+    result: dict[int, str] = {}
+    current_code: int | None = None
+    for tok in tokens:
+        if tok.startswith("/"):
+            if current_code is None:
+                continue  # name without a prior code; skip
+            result[current_code] = tok[1:]  # strip leading slash
+            current_code += 1
+        else:
+            try:
+                current_code = int(tok)
+            except ValueError:
+                continue
+    return result
+
+
+def _is_pua_mapping(unicode_str: str) -> bool:
+    """Return True if the string is empty or contains any PUA codepoint.
+
+    Private Use Areas (where custom/internal glyph mappings commonly live)
+    are treated as "missing" for the purposes of ligature gap-fill: we're
+    willing to overwrite such entries with canonical Unicode.
+
+    PUA ranges (per Unicode standard):
+        - BMP PUA:              U+E000 – U+F8FF
+        - Supplementary PUA-A:  U+F0000 – U+FFFFD
+        - Supplementary PUA-B:  U+100000 – U+10FFFD
+    """
+    if not unicode_str:
+        return True
+    for ch in unicode_str:
+        cp = ord(ch)
+        if 0xE000 <= cp <= 0xF8FF:
+            return True
+        if 0xF0000 <= cp <= 0xFFFFD:
+            return True
+        if 0x100000 <= cp <= 0x10FFFD:
+            return True
+    return False
+
+
+def _parse_tounicode_cmap(stream_bytes: bytes) -> tuple[bytes, dict[int, str]]:
+    """Parse a PDF /ToUnicode CMap stream into (header_bytes, entries).
+
+    Returns:
+        - header_bytes: everything up to and including `begincmap`
+          (preserved verbatim on re-serialize)
+        - entries: dict mapping character code (int) → Unicode string
+
+    Both ``bfchar`` and ``bfrange`` blocks are parsed. Unicode values are
+    decoded from UTF-16BE hex (PDF CMap convention). Unrecognized or
+    malformed content returns an empty entries dict; never raises.
+    """
+    entries: dict[int, str] = {}
+    header = stream_bytes
+    try:
+        text = stream_bytes.decode("latin-1", errors="replace")
+    except Exception:
+        return header, entries
+
+    # Preserve header up to first "begincmap" if present
+    hdr_match = re.search(r"begincmap", text)
+    if hdr_match:
+        header = stream_bytes[: hdr_match.end()]
+
+    def _hex_to_unicode(hex_str: str) -> str:
+        raw = bytes.fromhex(hex_str)
+        # UTF-16BE; pad odd length (shouldn't happen but defensive)
+        if len(raw) % 2 == 1:
+            raw = raw + b"\x00"
+        return raw.decode("utf-16-be", errors="replace")
+
+    # bfchar blocks: `N beginbfchar ... endbfchar`
+    for bfchar_block in re.finditer(
+        r"beginbfchar(.*?)endbfchar", text, re.DOTALL
+    ):
+        for line in re.finditer(
+            r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", bfchar_block.group(1)
+        ):
+            try:
+                code = int(line.group(1), 16)
+                entries[code] = _hex_to_unicode(line.group(2))
+            except (ValueError, UnicodeDecodeError):
+                continue
+
+    # bfrange blocks: `N beginbfrange ... endbfrange`
+    # Two forms:
+    #   Scalar: <start> <end> <unicode_start>
+    #   Array:  <start> <end> [<u1> <u2> ... <uN>]
+    for bfrange_block in re.finditer(
+        r"beginbfrange(.*?)endbfrange", text, re.DOTALL
+    ):
+        block_text = bfrange_block.group(1)
+
+        # Process array form first to avoid scalar regex double-matching it.
+        # Pattern: <start> <end> [ <hex1> <hex2> ... ]
+        array_pattern = re.compile(
+            r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[([^\]]*)\]"
+        )
+        matched_spans: list[tuple[int, int]] = []
+        for arr_match in array_pattern.finditer(block_text):
+            try:
+                start = int(arr_match.group(1), 16)
+                end = int(arr_match.group(2), 16)
+                if end - start > 0xFFFF:
+                    matched_spans.append(arr_match.span())
+                    continue
+                hex_values = re.findall(r"<([0-9A-Fa-f]+)>", arr_match.group(3))
+                for i, hv in enumerate(hex_values):
+                    code = start + i
+                    if code > end:
+                        break
+                    try:
+                        entries[code] = _hex_to_unicode(hv)
+                    except (ValueError, UnicodeDecodeError):
+                        continue
+            except (ValueError, UnicodeDecodeError):
+                pass
+            matched_spans.append(arr_match.span())
+
+        # Remove array-form matches from block text so scalar regex won't re-match them.
+        scalar_text = block_text
+        for span_start, span_end in reversed(matched_spans):
+            scalar_text = scalar_text[:span_start] + scalar_text[span_end:]
+
+        # Scalar form: <start> <end> <unicode_start>
+        for line in re.finditer(
+            r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>",
+            scalar_text,
+        ):
+            try:
+                start = int(line.group(1), 16)
+                end = int(line.group(2), 16)
+                # Sanity cap: skip malformed ranges that would iterate billions of times
+                if end - start > 0xFFFF:
+                    continue
+                uni_start_bytes = bytes.fromhex(line.group(3))
+                if len(uni_start_bytes) % 2 == 1:
+                    uni_start_bytes += b"\x00"
+                # Decode starting Unicode value via UTF-16BE (handles surrogate pairs)
+                uni_start_str = uni_start_bytes.decode("utf-16-be", errors="replace")
+                # Use the numeric codepoint of the last char for incrementing
+                if uni_start_str:
+                    uni_start_cp = ord(uni_start_str[-1])
+                else:
+                    continue
+                for i in range(end - start + 1):
+                    cp = uni_start_cp + i
+                    if cp <= 0x10FFFF:
+                        try:
+                            entries[start + i] = chr(cp)
+                        except (ValueError, OverflowError):
+                            continue
+            except (ValueError, UnicodeDecodeError):
+                continue
+
+    return header, entries
+
+
+def _serialize_tounicode_cmap(
+    header_bytes: bytes, entries: dict[int, str]
+) -> bytes:
+    """Serialize (header, entries) back into a /ToUnicode CMap stream.
+
+    Emits a single ``bfchar`` block. Each entry is a line
+    ``<HEX_CODE> <HEX_UTF16BE_UNICODE>``. The header is written verbatim
+    up to its first ``begincmap``; a minimal header is synthesized if the
+    input lacks ``begincmap``.
+
+    Expected contract: ``header_bytes`` should end at or near
+    ``begincmap`` (as produced by :func:`_parse_tounicode_cmap`). We
+    defensively strip duplicate CMap preamble keys (``/CIDSystemInfo``,
+    ``/CMapName``, ``/CMapType``, codespacerange) from the header
+    because we always emit a fresh preamble below; callers that pass a
+    full prior CMap stream will therefore get a clean re-serialization
+    rather than a stream with duplicate declarations.
+    """
+    hdr_text = header_bytes.decode("latin-1", errors="replace")
+    if "begincmap" not in hdr_text:
+        hdr_text = (
+            "/CIDInit /ProcSet findresource begin\n"
+            "12 dict begin\n"
+            "begincmap\n"
+        )
+    # Defensive: strip any CMap-dict preamble keys that may be present in the
+    # header — we always emit a fresh preamble below. Our paired parser
+    # _parse_tounicode_cmap captures only up to `begincmap` so this is rarely
+    # needed, but it guards against other callers passing a full header.
+    hdr_text = re.sub(
+        r"/CIDSystemInfo\s*<<[^>]*>>\s*def\s*",
+        "",
+        hdr_text,
+        flags=re.DOTALL,
+    )
+    hdr_text = re.sub(r"/CMapName\s+/\S+\s+def\s*", "", hdr_text)
+    hdr_text = re.sub(r"/CMapType\s+\d+\s+def\s*", "", hdr_text)
+    hdr_text = re.sub(
+        r"\d+\s+begincodespacerange.*?endcodespacerange\s*",
+        "",
+        hdr_text,
+        flags=re.DOTALL,
+    )
+    # Determine code width from the actual entries.
+    # Simple Type1 fonts use 1-byte character codes in content streams; composite
+    # (Type0/CIDFont) fonts use 2-byte codes. The codespacerange and bfchar code
+    # widths MUST match what the content stream emits — if we emit <000B> inside a
+    # <0000><FFFF> codespace but the content stream has byte 0x0B, PDF readers
+    # treat 0x0B as an unresolved 1-byte code and text extraction fails.
+    max_code = max(entries.keys()) if entries else 0xFF
+    if max_code <= 0xFF:
+        hex_width = 2
+        codespace_low, codespace_high = "<00>", "<FF>"
+    else:
+        hex_width = 4
+        codespace_low, codespace_high = "<0000>", "<FFFF>"
+
+    parts: list[str] = [hdr_text.rstrip("\n"), ""]
+    parts.append(
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) "
+        "/Supplement 0 >> def"
+    )
+    parts.append("/CMapName /Adobe-Identity-UCS def")
+    parts.append("/CMapType 2 def")
+    parts.append("1 begincodespacerange")
+    parts.append(f"{codespace_low} {codespace_high}")
+    parts.append("endcodespacerange")
+
+    def _unicode_hex(s: str) -> str:
+        # UTF-16BE hex without BOM
+        return s.encode("utf-16-be").hex().upper()
+
+    def _code_hex(code: int) -> str:
+        return f"{code:0{hex_width}X}"
+
+    sorted_entries = sorted(entries.items())
+    # bfchar blocks limit 100 entries per block per PDF spec. Chunk.
+    for i in range(0, len(sorted_entries), 100):
+        chunk = sorted_entries[i : i + 100]
+        parts.append(f"{len(chunk)} beginbfchar")
+        for code, uni in chunk:
+            parts.append(f"<{_code_hex(code)}> <{_unicode_hex(uni)}>")
+        parts.append("endbfchar")
+
+    parts.append("endcmap")
+    parts.append("CMapName currentdict /CMap defineresource pop")
+    parts.append("end")
+    parts.append("end")
+    out = "\n".join(parts) + "\n"
+    return out.encode("latin-1", errors="replace")
 
 
 def populate_link_annotation_contents(
@@ -4134,6 +4425,145 @@ def apply_pdf_ua_tail_polish(
     except Exception as exc:
         return TailPolishResult(
             success=False, error=f"apply_pdf_ua_tail_polish: {exc}"
+        )
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+
+def fill_tounicode_ligature_gaps(
+    pdf_path: "str | Path",
+) -> LigatureFillResult:
+    """Fill missing ligature entries in fonts' /ToUnicode CMaps.
+
+    For every font with a /ToUnicode CMap and an /Encoding /Differences
+    array that names a supported ligature glyph (/ff, /fi, /fl, /ffi,
+    /ffl), ensure the CMap has a correct Unicode entry for the
+    corresponding character code. Existing non-PUA entries are preserved;
+    PUA-mapped entries are treated as missing and overwritten.
+
+    Pure CMap edit — no font-program changes, no visual impact. Safe
+    to run unconditionally; fonts that don't meet criteria are skipped.
+
+    Args:
+        pdf_path: Path to the PDF file. Modified in place via incremental
+            save.
+
+    Returns:
+        LigatureFillResult with counts.
+
+    Note on PyMuPDF text extraction:
+        PyMuPDF (MuPDF) does NOT consistently consult /ToUnicode CMaps
+        when extracting text from embedded Type1/CFF fonts — it uses the
+        font's internal glyph data (CFF charset / glyph names) directly.
+        Consequently, ``page.get_text()`` on a PDF fixed by this function
+        may still show ``di erent`` instead of ``different`` for some
+        fonts, even though the CMap is correctly updated.
+
+        The fix IS effective for spec-compliant consumers that follow
+        PDF 32000-1 §9.10.3 and PDF/UA ToUnicode lookup rules: Adobe
+        Acrobat, veraPDF, screen readers, and most assistive technology.
+        Those are the consumers that matter for accessibility. PyMuPDF
+        is used here only as a development-time diagnostic tool.
+    """
+    path = Path(pdf_path)
+    if not path.exists():
+        return LigatureFillResult(success=False, error=f"File not found: {path}")
+
+    try:
+        doc = fitz.open(str(path))
+    except Exception as exc:
+        return LigatureFillResult(success=False, error=f"Open failed: {exc}")
+
+    result = LigatureFillResult(success=True)
+    try:
+        for xref in range(1, doc.xref_length()):
+            try:
+                t = doc.xref_get_key(xref, "Type")
+            except Exception:
+                continue
+            if t[0] != "name" or t[1] != "/Font":
+                continue
+            result.fonts_scanned += 1
+
+            # Resolve /ToUnicode
+            tu_key = doc.xref_get_key(xref, "ToUnicode")
+            if tu_key[0] != "xref":
+                continue  # no CMap; skip silently (not counted)
+            try:
+                tu_xref = int(tu_key[1].split()[0])
+                tu_stream = doc.xref_stream(tu_xref) or b""
+            except Exception:
+                result.fonts_skipped_parse_error += 1
+                continue
+
+            # Resolve /Encoding /Differences
+            enc_key = doc.xref_get_key(xref, "Encoding")
+            if enc_key[0] == "xref":
+                try:
+                    enc_xref = int(enc_key[1].split()[0])
+                    enc_obj = doc.xref_object(enc_xref) or ""
+                except Exception:
+                    result.fonts_skipped_no_encoding += 1
+                    continue
+            elif enc_key[0] == "dict":
+                enc_obj = enc_key[1]
+            else:
+                # /Encoding is a name like /WinAnsiEncoding (no Differences)
+                result.fonts_skipped_no_encoding += 1
+                continue
+
+            diff_m = re.search(
+                r"/Differences\s*(\[[^\]]*\])", enc_obj, re.DOTALL
+            )
+            if not diff_m:
+                result.fonts_skipped_no_encoding += 1
+                continue
+            code_to_name = _parse_differences_array(diff_m.group(1))
+            if not code_to_name:
+                result.fonts_skipped_no_encoding += 1
+                continue
+
+            # Parse existing CMap
+            try:
+                header, entries = _parse_tounicode_cmap(tu_stream)
+            except Exception:
+                result.fonts_skipped_parse_error += 1
+                continue
+
+            # Determine entries to add
+            added_this_font = 0
+            for code, glyph_name in code_to_name.items():
+                if glyph_name not in LIGATURE_TABLE:
+                    continue
+                existing = entries.get(code, "")
+                if existing and not _is_pua_mapping(existing):
+                    continue  # already correct; preserve
+                entries[code] = LIGATURE_TABLE[glyph_name]
+                added_this_font += 1
+
+            if added_this_font == 0:
+                continue
+
+            # Serialize updated CMap and write back
+            try:
+                new_stream = _serialize_tounicode_cmap(header, entries)
+                doc.update_stream(tu_xref, new_stream)
+            except Exception:
+                result.fonts_skipped_parse_error += 1
+                continue
+
+            result.fonts_modified += 1
+            result.ligature_entries_added += added_this_font
+
+        doc.save(str(path), incremental=True, encryption=0)
+    except Exception as exc:
+        return LigatureFillResult(
+            success=False,
+            error=f"fill_tounicode_ligature_gaps: {exc}",
+            fonts_scanned=result.fonts_scanned,
         )
     finally:
         try:

@@ -1803,3 +1803,534 @@ class TestLinkAccessibleName:
         assert matching[0].text == "Example Test Page", (
             f"Expected 'Example Test Page' but got {matching[0].text!r}"
         )
+
+
+class TestFillToUnicodeLigatureGaps:
+    """Tests for fill_tounicode_ligature_gaps()."""
+
+    def test_ligature_table_has_expected_entries(self):
+        from src.tools.pdf_writer import LIGATURE_TABLE
+        assert LIGATURE_TABLE["ff"] == "\u0066\u0066"
+        assert LIGATURE_TABLE["fi"] == "\u0066\u0069"
+        assert LIGATURE_TABLE["fl"] == "\u0066\u006c"
+        assert LIGATURE_TABLE["ffi"] == "\u0066\u0066\u0069"
+        assert LIGATURE_TABLE["ffl"] == "\u0066\u0066\u006c"
+
+    def test_result_dataclass_defaults(self):
+        from src.tools.pdf_writer import LigatureFillResult
+        r = LigatureFillResult(success=True)
+        assert r.success is True
+        assert r.fonts_scanned == 0
+        assert r.fonts_modified == 0
+        assert r.ligature_entries_added == 0
+        assert r.fonts_skipped_no_encoding == 0
+        assert r.fonts_skipped_parse_error == 0
+        assert r.error == ""
+
+    def test_parse_differences_simple(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        # /Differences [11 /ff /fi /fl]  → codes 11, 12, 13
+        result = _parse_differences_array("[11 /ff /fi /fl]")
+        assert result == {11: "ff", 12: "fi", 13: "fl"}
+
+    def test_parse_differences_multiple_ranges(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        # Two base-code jumps
+        result = _parse_differences_array("[11 /ff /fi 20 /bullet]")
+        assert result == {11: "ff", 12: "fi", 20: "bullet"}
+
+    def test_parse_differences_extra_whitespace(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        result = _parse_differences_array("[ 11  /ff   /fi  ]")
+        assert result == {11: "ff", 12: "fi"}
+
+    def test_parse_differences_empty(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        assert _parse_differences_array("[]") == {}
+
+    def test_parse_differences_malformed(self):
+        from src.tools.pdf_writer import _parse_differences_array
+        # No brackets — return empty, never raise
+        assert _parse_differences_array("not an array") == {}
+
+    def test_parse_tounicode_single_bfchar_block(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        cmap = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+3 beginbfchar
+<00> <FFFD>
+<41> <0041>
+<42> <0042>
+endbfchar
+endcmap"""
+        header, entries = _parse_tounicode_cmap(cmap)
+        assert entries == {0: "\ufffd", 0x41: "A", 0x42: "B"}
+        assert b"begincmap" in header
+
+    def test_parse_tounicode_multichar_unicode(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # Ligature already mapped to fi: <0C> <00660069>
+        cmap = b"""begincmap
+1 beginbfchar
+<0C> <00660069>
+endbfchar
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries == {0x0C: "fi"}
+
+    def test_parse_tounicode_bfrange(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # <20> <7E> <0020>  means codes 0x20-0x7E map to U+0020 onward
+        cmap = b"""begincmap
+1 beginbfrange
+<20> <22> <0020>
+endbfrange
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries[0x20] == " "
+        assert entries[0x21] == "!"
+        assert entries[0x22] == '"'
+
+    def test_parse_tounicode_empty(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        _, entries = _parse_tounicode_cmap(b"begincmap endcmap")
+        assert entries == {}
+
+    def test_parse_tounicode_malformed(self):
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # Returns empty entries, never raises
+        _, entries = _parse_tounicode_cmap(b"\x00\x01\x02 garbage")
+        assert entries == {}
+
+    def test_parse_tounicode_bfrange_array_form(self):
+        """bfrange with bracketed array of individual Unicode values."""
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        cmap = b"""begincmap
+1 beginbfrange
+<20> <22> [<0041> <0042> <0043>]
+endbfrange
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries[0x20] == "A"
+        assert entries[0x21] == "B"
+        assert entries[0x22] == "C"
+
+    def test_parse_tounicode_surrogate_pair_bfchar(self):
+        """Mathematical italic A is encoded as UTF-16 surrogate pair."""
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        # U+1D434 = MATHEMATICAL ITALIC CAPITAL A, encoded in UTF-16BE
+        # as the surrogate pair D835 DC34.
+        cmap = b"""begincmap
+1 beginbfchar
+<41> <D835DC34>
+endbfchar
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        assert entries[0x41] == "\U0001D434"
+
+    def test_parse_tounicode_bfrange_oversize_capped(self):
+        """Malformed huge range is skipped, not iterated billions of times."""
+        from src.tools.pdf_writer import _parse_tounicode_cmap
+        cmap = b"""begincmap
+1 beginbfrange
+<0000> <FFFFFFFF> <0041>
+endbfrange
+endcmap"""
+        _, entries = _parse_tounicode_cmap(cmap)
+        # Should silently skip; implementation must not hang
+        assert entries == {}
+
+    def test_serialize_tounicode_roundtrip(self):
+        from src.tools.pdf_writer import (
+            _parse_tounicode_cmap,
+            _serialize_tounicode_cmap,
+        )
+        header = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap"""
+        entries = {0x41: "A", 0x42: "B", 0x0C: "fi"}
+        out = _serialize_tounicode_cmap(header, entries)
+        # Round-trip must preserve entries
+        _, reparsed = _parse_tounicode_cmap(out)
+        assert reparsed == entries
+
+    def test_serialize_tounicode_multichar_unicode(self):
+        from src.tools.pdf_writer import (
+            _parse_tounicode_cmap,
+            _serialize_tounicode_cmap,
+        )
+        header = b"begincmap"
+        # ff ligature: two-codepoint mapping
+        entries = {0x0B: "ff", 0x0C: "ffi"}
+        out = _serialize_tounicode_cmap(header, entries)
+        _, reparsed = _parse_tounicode_cmap(out)
+        assert reparsed == entries
+
+    def test_serialize_tounicode_empty(self):
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {})
+        # Valid CMap with zero entries
+        assert b"endcmap" in out
+
+    def test_serialize_tounicode_contains_required_sections(self):
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {0x41: "A"})
+        assert b"codespacerange" in out
+        assert b"beginbfchar" in out
+        assert b"endbfchar" in out
+        assert b"endcmap" in out
+
+    def test_serialize_tounicode_one_byte_codespace(self):
+        """All codes <=0xFF -> 1-byte codespace + 2-digit hex."""
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {0x41: "A", 0x0B: "ff"})
+        assert b"<00> <FF>" in out
+        assert b"<0B>" in out  # 2-digit, not <000B>
+        assert b"<41>" in out
+        # Must NOT emit 2-byte codespace for 1-byte codes
+        assert b"<0000> <FFFF>" not in out
+
+    def test_serialize_tounicode_two_byte_codespace(self):
+        """Any code >0xFF -> 2-byte codespace + 4-digit hex."""
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        out = _serialize_tounicode_cmap(b"begincmap", {0x41: "A", 0x200: "b"})
+        assert b"<0000> <FFFF>" in out
+        assert b"<0041>" in out  # now 4-digit because codespace is 2-byte
+        assert b"<0200>" in out
+
+    def test_serialize_tounicode_strips_duplicate_preamble(self):
+        """If header contains a prior /CIDSystemInfo etc., they're stripped
+        to prevent duplicate declarations in the output stream."""
+        from src.tools.pdf_writer import _serialize_tounicode_cmap
+        header_with_preamble = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (OldName) /Supplement 0 >> def
+/CMapName /Old-CMap def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange"""
+        out = _serialize_tounicode_cmap(header_with_preamble, {0x41: "A"})
+        # Should not have duplicate /CIDSystemInfo entries
+        assert out.count(b"/CIDSystemInfo") == 1
+        assert out.count(b"/CMapName") == 1
+        assert out.count(b"/CMapType") == 1
+
+    def test_is_pua_mapping_true(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        assert _is_pua_mapping("\uE000") is True
+        assert _is_pua_mapping("\uE00B") is True  # seen in real CMaps
+        assert _is_pua_mapping("\uF8FF") is True
+
+    def test_is_pua_mapping_false(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        assert _is_pua_mapping("A") is False
+        assert _is_pua_mapping("fi") is False
+        assert _is_pua_mapping("\u0066\u0066") is False  # ff ligature
+
+    def test_is_pua_mapping_empty(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        assert _is_pua_mapping("") is True  # empty treated as missing
+
+    def test_is_pua_mapping_mixed(self):
+        from src.tools.pdf_writer import _is_pua_mapping
+        # PUA followed by normal char — still PUA (treat as missing)
+        assert _is_pua_mapping("\uE000A") is True
+
+    def _make_font_pdf(self, tmp_path, differences_body: str,
+                       cmap_bytes: bytes,
+                       font_xref_out: list):
+        """Build a minimal PDF with one simple font whose /Encoding has
+        a /Differences array and /ToUnicode CMap, returning the path and
+        capturing the font xref via the out-list.
+        """
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+
+        # Encoding dict with /Differences
+        enc_xref = doc.get_new_xref()
+        doc.update_object(
+            enc_xref,
+            f"<< /Type /Encoding /BaseEncoding /WinAnsiEncoding "
+            f"/Differences {differences_body} >>",
+        )
+
+        # ToUnicode stream — must initialise as dict before update_stream
+        tu_xref = doc.get_new_xref()
+        doc.update_object(tu_xref, "<< >>")
+        doc.update_stream(tu_xref, cmap_bytes, new=True)
+
+        # Font dict
+        font_xref = doc.get_new_xref()
+        doc.update_object(
+            font_xref,
+            f"<< /Type /Font /Subtype /Type1 /BaseFont /TestFont "
+            f"/Encoding {enc_xref} 0 R /ToUnicode {tu_xref} 0 R >>",
+        )
+        font_xref_out.append(font_xref)
+
+        out_path = tmp_path / "test.pdf"
+        doc.save(str(out_path))
+        doc.close()
+        return out_path
+
+    def test_fill_adds_missing_ff_entry(self, tmp_path):
+        """Subset names /ff at code 0x0B; ToUnicode has no entry for 0x0B.
+        After fill, ToUnicode has <0B> → 'ff'."""
+        from src.tools.pdf_writer import (
+            fill_tounicode_ligature_gaps, _parse_tounicode_cmap,
+        )
+        import fitz
+        cmap = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+1 beginbfchar
+<41> <0041>
+endbfchar
+endcmap"""
+        font_xrefs: list = []
+        pdf = self._make_font_pdf(
+            tmp_path,
+            "[11 /ff /fi /fl]",  # codes 0x0B=ff 0x0C=fi 0x0D=fl
+            cmap,
+            font_xrefs,
+        )
+
+        r = fill_tounicode_ligature_gaps(pdf)
+        assert r.success is True
+        assert r.fonts_scanned == 1
+        assert r.fonts_modified == 1
+        assert r.ligature_entries_added == 3  # ff, fi, fl
+
+        # Verify the updated CMap has the entries
+        doc = fitz.open(str(pdf))
+        tu_key = doc.xref_get_key(font_xrefs[0], "ToUnicode")
+        assert tu_key[0] == "xref"
+        tu_xref = int(tu_key[1].split()[0])
+        stream = doc.xref_stream(tu_xref)
+        _, entries = _parse_tounicode_cmap(stream)
+        assert entries[0x0B] == "ff"
+        assert entries[0x0C] == "fi"
+        assert entries[0x0D] == "fl"
+        assert entries[0x41] == "A"  # preserved
+        doc.close()
+
+    def test_fill_replaces_pua_mapping(self, tmp_path):
+        """Existing CMap maps /ff code to PUA; should be overwritten."""
+        from src.tools.pdf_writer import (
+            fill_tounicode_ligature_gaps, _parse_tounicode_cmap,
+        )
+        import fitz
+        cmap = b"""begincmap
+1 beginbfchar
+<0B> <E00B>
+endbfchar
+endcmap"""
+        font_xrefs: list = []
+        pdf = self._make_font_pdf(
+            tmp_path, "[11 /ff]", cmap, font_xrefs,
+        )
+
+        r = fill_tounicode_ligature_gaps(pdf)
+        assert r.success is True
+        assert r.ligature_entries_added == 1
+
+        doc = fitz.open(str(pdf))
+        tu_xref = int(
+            doc.xref_get_key(font_xrefs[0], "ToUnicode")[1].split()[0]
+        )
+        _, entries = _parse_tounicode_cmap(doc.xref_stream(tu_xref))
+        assert entries[0x0B] == "ff"
+        doc.close()
+
+    def test_fill_preserves_correct_mapping(self, tmp_path):
+        """Existing CMap maps /ff code correctly; unchanged."""
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        cmap = b"""begincmap
+1 beginbfchar
+<0B> <00660066>
+endbfchar
+endcmap"""
+        pdf = self._make_font_pdf(tmp_path, "[11 /ff]", cmap, [])
+
+        r = fill_tounicode_ligature_gaps(pdf)
+        assert r.success is True
+        assert r.fonts_modified == 0  # no change
+        assert r.ligature_entries_added == 0
+
+    def test_fill_skips_font_without_differences(self, tmp_path):
+        """Font with /Encoding /WinAnsiEncoding (no /Differences) is
+        skipped with fonts_skipped_no_encoding."""
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        tu_xref = doc.get_new_xref()
+        doc.update_object(tu_xref, "<< >>")
+        doc.update_stream(
+            tu_xref, b"begincmap 0 beginbfchar endbfchar endcmap", new=True
+        )
+        font_xref = doc.get_new_xref()
+        doc.update_object(
+            font_xref,
+            f"<< /Type /Font /Subtype /Type1 /BaseFont /TestFont "
+            f"/Encoding /WinAnsiEncoding /ToUnicode {tu_xref} 0 R >>",
+        )
+        out_path = tmp_path / "nodiff.pdf"
+        doc.save(str(out_path))
+        doc.close()
+
+        r = fill_tounicode_ligature_gaps(out_path)
+        assert r.success is True
+        assert r.fonts_scanned == 1
+        assert r.fonts_skipped_no_encoding == 1
+        assert r.fonts_modified == 0
+
+    def test_fill_skips_font_without_tounicode(self, tmp_path):
+        """Font with no /ToUnicode at all is skipped (we don't manufacture
+        a CMap from scratch — spec scope is existing-CMap patching)."""
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        enc_xref = doc.get_new_xref()
+        doc.update_object(
+            enc_xref,
+            "<< /Type /Encoding /BaseEncoding /WinAnsiEncoding "
+            "/Differences [11 /ff] >>",
+        )
+        font_xref = doc.get_new_xref()
+        doc.update_object(
+            font_xref,
+            f"<< /Type /Font /Subtype /Type1 /BaseFont /TestFont "
+            f"/Encoding {enc_xref} 0 R >>",
+        )
+        out_path = tmp_path / "notu.pdf"
+        doc.save(str(out_path))
+        doc.close()
+
+        r = fill_tounicode_ligature_gaps(out_path)
+        assert r.success is True
+        assert r.fonts_scanned == 1
+        assert r.fonts_modified == 0
+        assert r.ligature_entries_added == 0
+
+    def test_fill_missing_file(self, tmp_path):
+        from src.tools.pdf_writer import fill_tounicode_ligature_gaps
+        r = fill_tounicode_ligature_gaps(tmp_path / "nonexistent.pdf")
+        assert r.success is False
+        assert "not found" in r.error.lower()
+
+    def test_e2e_w2991007371_structural(self, tmp_path):
+        """End-to-end: apply fill to a real TeX PDF with ff-ligature gaps.
+
+        HARD assertions (spec-level guarantees):
+          1. fill_tounicode_ligature_gaps reports success
+          2. At least one ligature entry added
+          3. At least one font's /ToUnicode CMap in the output uses 1-byte
+             codespace (<00> <FF>) and contains `<0B> <00660066>` — the
+             correct 2-digit source-code format for simple Type1 fonts
+             with 1-byte content-stream codes. This is the structural
+             proof the codespace-width fix actually landed.
+
+        SOFT diagnostic (printed, NOT asserted):
+          ff-gap count before/after via PyMuPDF text extraction. PyMuPDF
+          may or may not decrease — it uses embedded CFF glyph data, not
+          ToUnicode, for simple Type1 fonts. Acrobat / veraPDF /
+          spec-compliant screen readers DO use ToUnicode and will see
+          the fix.
+
+        Skips automatically if the benchmark corpus is not on the host.
+        """
+        import shutil, fitz, os, re
+        source = (
+            "/tmp/PDF-Accessibility-Benchmark/data/processed/"
+            "functional_hyperlinks/not_present/W2991007371.pdf"
+        )
+        if not os.path.exists(source):
+            import pytest
+            pytest.skip(f"Benchmark PDF not available at {source}")
+
+        dst = tmp_path / "W2991007371.pdf"
+        shutil.copy(source, dst)
+
+        def count_ff_gaps(p):
+            doc = fitz.open(str(p))
+            text = "".join(pg.get_text() for pg in doc)
+            doc.close()
+            patterns = [r"\bdi erent", r"\bdi erence",
+                        r"\be ect", r"\bsu cient"]
+            return sum(len(re.findall(pat, text)) for pat in patterns)
+
+        # Soft: measure gaps before (diagnostic only)
+        gaps_before = count_ff_gaps(dst)
+
+        from src.tools.pdf_writer import (
+            fill_tounicode_ligature_gaps,
+            _parse_tounicode_cmap,
+        )
+        r = fill_tounicode_ligature_gaps(dst)
+
+        # HARD assertions
+        assert r.success is True
+        assert r.ligature_entries_added > 0
+
+        # HARD: at least one font's updated CMap uses 1-byte codespace
+        # (<00> <FF>) AND has the bfchar entry `<0B> <00660066>` (2-digit
+        # source code mapping to UTF-16BE "ff"). This is the structural
+        # proof that _serialize_tounicode_cmap writes the correct format
+        # for simple Type1 fonts.
+        doc = fitz.open(str(dst))
+        found_correct_cmap = False
+        try:
+            for xref in range(1, doc.xref_length()):
+                try:
+                    obj_str = doc.xref_object(xref, compressed=False)
+                except Exception:
+                    continue
+                if "/ToUnicode" not in obj_str:
+                    continue
+                try:
+                    tu_val = doc.xref_get_key(xref, "ToUnicode")
+                    if not tu_val or tu_val[0] != "xref":
+                        continue
+                    tu_xref = int(tu_val[1].split()[0])
+                    stream = doc.xref_stream(tu_xref)
+                    if stream is None:
+                        continue
+                except Exception:
+                    continue
+
+                _, entries = _parse_tounicode_cmap(stream)
+                if entries.get(0x0B) != "ff":
+                    continue
+                # Require 1-byte codespace and 2-digit source code format.
+                if b"<00> <FF>" not in stream:
+                    continue
+                if b"<0B> <00660066>" not in stream:
+                    continue
+                found_correct_cmap = True
+                break
+        finally:
+            doc.close()
+
+        assert found_correct_cmap, (
+            "No font found with correctly-formatted ToUnicode CMap "
+            "(1-byte codespace + `<0B> <00660066>`). The serializer "
+            "codespace-width fix may have regressed."
+        )
+
+        # SOFT diagnostic: log gap counts so future developers can see
+        # whether PyMuPDF now respects the CMap on Type1/CFF fonts.
+        gaps_after = count_ff_gaps(dst)
+        print(
+            f"\n[diagnostic] PyMuPDF ff-gap count: "
+            f"before={gaps_before} after={gaps_after}. "
+            f"Note: PyMuPDF uses embedded CFF glyph data (not ToUnicode) "
+            f"for simple Type1 fonts, so this number may not change even "
+            f"though the CMap is correctly updated for spec-compliant "
+            f"readers (Acrobat, veraPDF, screen readers)."
+        )

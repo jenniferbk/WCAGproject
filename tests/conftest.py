@@ -107,7 +107,9 @@ def image_docx(tmp_path: Path) -> Path:
         if inline is not None:
             doc_pr = inline.find(qn("wp:docPr"))
             if doc_pr is not None:
-                doc_pr.set("descr", "A blue test rectangle")
+                doc_pr.set("descr",
+                    "A solid blue rectangle placeholder used to demonstrate "
+                    "inline image handling in the document parser.")
 
     doc.add_paragraph("Text after the image.")
 

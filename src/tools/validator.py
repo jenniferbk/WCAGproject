@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.models.document import DocumentModel
-from src.tools.contrast import analyze_document_contrast
+from src.tools.contrast import analyze_document_contrast, is_severe_contrast_failure
 from src.tools.headings import get_fake_heading_candidates, validate_heading_hierarchy
 from src.tools.links import analyze_links
 from src.tools.tables import analyze_all_tables
@@ -131,6 +131,20 @@ _AUTO_ALT_PATTERNS = [
     "a photo of a",
 ]
 
+_BAD_SHORT_ALT_STARTS = (
+    "figure", "fig.", "image", "picture", "photo", "chart",
+    "graph", "diagram", "table", "panel", "screenshot",
+    "flow chart", "flowchart",
+)
+
+_META_ALT_STARTS = (
+    "this is an image", "this is a", "image of", "image showing",
+    "photo of", "photograph of", "picture of",
+    "figure showing", "figure depicting", "figure illustrat",
+    "flow chart", "diagram showing", "chart showing",
+    "screenshot of",
+)
+
 
 def _is_auto_generated_alt(alt_text: str) -> bool:
     """Check if alt text looks auto-generated (e.g., Microsoft's AI captions)."""
@@ -138,12 +152,60 @@ def _is_auto_generated_alt(alt_text: str) -> bool:
     return any(pattern in lower for pattern in _AUTO_ALT_PATTERNS)
 
 
-def _check_1_1_1_alt_text(doc: DocumentModel) -> CheckResult:
-    """1.1.1 Non-text Content: All images must have alt text.
+def score_alt_text_quality(text: str) -> str:
+    """Classify a single alt text as 'good', 'borderline', or 'bad'.
 
-    Also flags auto-generated alt text (e.g., 'A close up of text on a
-    white background Description automatically generated') as these
-    do not meaningfully describe the image content.
+    Ported from scripts/benchmark.py:977 so the production validator
+    applies the same quality bar we score ourselves against.
+
+    - 'bad': missing, too short, generic label ('Figure 3'), filename,
+      or an auto-caption phrase like 'Description automatically generated'
+    - 'borderline': meta-only short descriptions ('This is an image of X')
+    - 'good': substantive description (>= ~8 words of real content)
+    """
+    text = text.strip().rstrip("\x00").strip()
+    text = text.replace("\\000", "").strip()
+    if not text:
+        return "bad"
+
+    lower = text.lower()
+    word_count = len(text.split())
+
+    if len(text) < 20 or word_count < 4:
+        return "bad"
+
+    if word_count <= 5 and any(lower.startswith(p) for p in _BAD_SHORT_ALT_STARTS):
+        return "bad"
+
+    if _is_auto_generated_alt(text):
+        return "bad"
+    if "graphical user interface" in lower:
+        return "bad"
+
+    if "." in text and " " not in text:
+        return "bad"
+
+    # Long descriptive alt text is GOOD even if it starts with a meta-phrase.
+    if word_count >= 15:
+        return "good"
+
+    if word_count < 12 and any(lower.startswith(p) for p in _META_ALT_STARTS):
+        return "borderline"
+
+    if word_count >= 8:
+        return "good"
+    if word_count >= 5:
+        return "borderline"
+    return "bad"
+
+
+def _check_1_1_1_alt_text(doc: DocumentModel) -> CheckResult:
+    """1.1.1 Non-text Content: All images must have meaningful alt text.
+
+    Three-tier scoring via score_alt_text_quality:
+    - missing / 'bad' quality -> FAIL (needs regeneration)
+    - 'borderline' quality -> WARN (meta-only, worth human review)
+    - 'good' quality -> PASS
     """
     if not doc.images:
         return CheckResult(
@@ -153,23 +215,49 @@ def _check_1_1_1_alt_text(doc: DocumentModel) -> CheckResult:
             issues=["No images found in document"],
         )
 
-    missing = [img for img in doc.images if not img.alt_text and not img.is_decorative]
-    auto_gen = [
-        img for img in doc.images
-        if img.alt_text and not img.is_decorative and _is_auto_generated_alt(img.alt_text)
-    ]
+    missing: list = []
+    bad: list[tuple] = []         # (img, alt) — present but poor quality
+    borderline: list[tuple] = []  # (img, alt) — meta-only, short
+
+    for img in doc.images:
+        if img.is_decorative:
+            continue
+        alt = (img.alt_text or "").strip()
+        if not alt:
+            missing.append(img)
+            continue
+        quality = score_alt_text_quality(alt)
+        if quality == "bad":
+            bad.append((img, alt))
+        elif quality == "borderline":
+            borderline.append((img, alt))
 
     issues = [
         f"{img.id} (in {img.paragraph_id}): missing alt text"
         for img in missing
     ]
     issues.extend(
-        f"{img.id} (in {img.paragraph_id}): auto-generated alt text needs replacement"
-        for img in auto_gen
+        f"{img.id} (in {img.paragraph_id}): low-quality alt text "
+        f"(\"{alt[:60]}\") — needs descriptive replacement"
+        for img, alt in bad
+    )
+    issues.extend(
+        f"{img.id} (in {img.paragraph_id}): borderline alt text "
+        f"(\"{alt[:60]}\") — meta-only description, worth human review"
+        for img, alt in borderline
     )
 
-    problem_count = len(missing) + len(auto_gen)
-    status = CheckStatus.PASS if not problem_count else CheckStatus.FAIL
+    fail_count = len(missing) + len(bad)
+    warn_count = len(borderline)
+    problem_count = fail_count + warn_count
+
+    if fail_count:
+        status = CheckStatus.FAIL
+    elif warn_count:
+        status = CheckStatus.WARN
+    else:
+        status = CheckStatus.PASS
+
     return CheckResult(
         criterion="1.1.1",
         name="Non-text Content",
@@ -185,7 +273,9 @@ def _check_1_3_1_structure(doc: DocumentModel) -> CheckResult:
 
     Checks:
     - Fake headings that should be real headings
-    - Tables without header rows
+    - Tables without header rows (parsed-model aggregate check)
+    - Tables with missing TH children in the PDF struct tree (per-table check;
+      catches a malformed /Table hidden among others that have plenty of TH)
     - Heading hierarchy issues
     """
     issues: list[str] = []
@@ -197,10 +287,29 @@ def _check_1_3_1_structure(doc: DocumentModel) -> CheckResult:
             f"Likely fake heading ({score:.0%}): {para.text[:60]!r}"
         )
 
-    # Table headers
+    # Table headers — aggregate parsed-model check
     table_analyses = analyze_all_tables(doc.tables)
     for analysis in table_analyses:
         issues.extend(analysis.issues)
+
+    # Per-table struct-tree TH check (PDFs only).  Aggregate counts can hide
+    # a malformed /Table element that has zero TH children when other tables
+    # in the document have plenty.  This surfaces that specific broken table
+    # as an actionable issue rather than burying it.
+    if doc.source_format == "pdf" and doc.source_path:
+        try:
+            from src.tools.struct_tree_probe import per_table_th_counts
+            th_per_table = per_table_th_counts(doc.source_path)
+            if len(th_per_table) > 1:
+                for i, th_count in enumerate(th_per_table):
+                    if th_count == 0:
+                        issues.append(
+                            f"Struct tree /Table #{i+1} of {len(th_per_table)} "
+                            f"has 0 TH children (others in doc have headers — "
+                            f"this specific table is malformed)"
+                        )
+        except Exception as e:
+            logger.debug("per_table_th_counts failed: %s", e)
 
     # Heading hierarchy
     heading_issues = validate_heading_hierarchy(doc.paragraphs)
@@ -237,11 +346,24 @@ def _check_1_4_3_contrast(doc: DocumentModel, default_bg: str) -> CheckResult:
         )
 
     contrast_issues = analyze_document_contrast(doc.paragraphs, default_bg)
-    issues = [
-        f"{ci.paragraph_id} run {ci.run_index}: {ci.foreground} on {ci.background} = "
-        f"{ci.contrast_ratio}:1 (need {ci.required_ratio}:1) — {ci.text_preview!r}"
-        for ci in contrast_issues
-    ]
+    issues: list[str] = []
+    severe_count = 0
+    for ci in contrast_issues:
+        severe = is_severe_contrast_failure(ci.foreground, ci.background, ci.contrast_ratio)
+        prefix = "SEVERE: " if severe else ""
+        if severe:
+            severe_count += 1
+        issues.append(
+            f"{prefix}{ci.paragraph_id} run {ci.run_index}: "
+            f"{ci.foreground} on {ci.background} = "
+            f"{ci.contrast_ratio}:1 (need {ci.required_ratio}:1) — {ci.text_preview!r}"
+        )
+    if severe_count:
+        issues.insert(
+            0,
+            f"⚠ {severe_count} severe contrast failure(s) (e.g. yellow on white, "
+            f"ratio < 1.5:1) — fix these first",
+        )
 
     status = CheckStatus.PASS if not contrast_issues else CheckStatus.FAIL
     return CheckResult(

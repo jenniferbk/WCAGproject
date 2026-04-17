@@ -34,7 +34,7 @@ from src.models.pipeline import (
     DocumentType,
     ElementPurpose,
 )
-from src.tools.validator import format_report, validate_document
+from src.tools.validator import format_report, score_alt_text_quality, validate_document
 
 logger = logging.getLogger(__name__)
 
@@ -347,10 +347,28 @@ def _describe_all_images(
         Tuple of (dict mapping image_id to alt text, list of ApiUsage records).
     """
     # Filter to images with actual data that aren't decorative
-    content_images = [
+    all_content = [
         img for img in doc.images
         if img.image_data and not img.is_decorative
     ]
+
+    # Skip vision pass for images that already have substantive alt text.
+    # PDFs from accessible sources (e.g., prior-remediated documents) often
+    # carry good /Alt in the struct tree; re-captioning wastes Gemini budget
+    # and risks overwriting human-authored text with a less-accurate caption.
+    content_images = []
+    already_good = 0
+    for img in all_content:
+        if img.alt_text and score_alt_text_quality(img.alt_text) == "good":
+            already_good += 1
+            continue
+        content_images.append(img)
+
+    if already_good:
+        logger.info(
+            "Skipping vision pass for %d/%d image(s) with existing good alt text",
+            already_good, len(all_content),
+        )
 
     if not content_images:
         return {}, []

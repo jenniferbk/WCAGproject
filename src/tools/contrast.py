@@ -224,6 +224,39 @@ def _binary_search_lightness(
     return best_hex
 
 
+def is_severe_contrast_failure(
+    foreground: str, background: str, ratio: float,
+) -> bool:
+    """Flag unambiguous severe contrast failures that warrant prominent display.
+
+    Ported from scripts/benchmark.py:_count_yellow_on_white_issues — these
+    combinations are accessibility failures regardless of font size or count
+    and should be surfaced above ordinary borderline contrast issues.
+
+    Current severe patterns:
+    - Yellow-ish foreground (R≥200, G≥200, B<100) on white-ish background
+      (all channels ≥240) with ratio < 1.5:1.
+      Example: #FFFF00 on #FFFFFF = 1.07:1. Pure yellow text is essentially
+      invisible against white and is a common authoring mistake.
+    """
+    try:
+        fg = foreground.lstrip("#")
+        bg = background.lstrip("#")
+        if len(fg) != 6 or len(bg) != 6:
+            return False
+        fr, fg_g, fb = int(fg[:2], 16), int(fg[2:4], 16), int(fg[4:], 16)
+        br, bg_g, bb = int(bg[:2], 16), int(bg[2:4], 16), int(bg[4:], 16)
+    except (ValueError, IndexError):
+        return False
+
+    is_yellow = fr >= 200 and fg_g >= 200 and fb < 100
+    is_whitish = br >= 240 and bg_g >= 240 and bb >= 240
+    if is_yellow and is_whitish and ratio < 1.5:
+        return True
+
+    return False
+
+
 def analyze_document_contrast(
     paragraphs: list[ParagraphInfo],
     default_bg: str = "#FFFFFF",

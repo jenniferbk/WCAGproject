@@ -3,35 +3,87 @@
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132
-- **Benchmark detection**: **96.8%** (121/125, Kumar methodology replication, beats GPT-4-Turbo 85% by 11.8pp). Raw-PDF analysis: **80.0%** (theoretical ceiling).
-- **Remediation**: **63.9% PDF/UA violation reduction** on v4 benchmark (21,623→7,797). 4 fully compliant, 116/125 improved, 9 regressed.
-- **Tests**: 1035 passing
+- **Benchmark detection (v5 raw-PDF, 2026-04-17, fresh clone)**: **80.00%** (100/125) with no dataset-specific metadata signals. Exactly matches the 2026-04-11 ceiling — predictor logic has not regressed. Per-task: functional_hyperlinks 100%, fonts_readability 93.33%, table_structure 80%, semantic_tagging 75%, color_contrast 73.33%, alt_text_quality 70%, logical_reading_order 66.67%. Benchmark data at `/tmp/PDF-Accessibility-Benchmark-fresh/`.
+- **Remediation (v5 — just completed 2026-04-17, `/tmp/remediation_bench_v5`)**: **86.1% PDF/UA violation reduction** (6,227→865, veraPDF-verified), **7/48 fully compliant**, 47 improved, 1 unchanged, **0 regressed**. Run covers 48 unique PDFs — `remediation_benchmark.py` dedups byte-identical files across the 125 Kumar items, so "48" is the real content count, not a subset. $5.87 total, $0.12/doc, 118 min wall time. This is the first full measurement since v4c fixes (7.3-1, 7.18 /Dest, ToUnicode ligature fill) — real improvement over v4's 63.9% reduction / 4 compliant / 9 regressions.
+- **Tests**: 1053 passing, 2 skipped, 3 pre-existing failures (`TestTailPolishFigureAlt`, unrelated to current session)
 - **Publication**: arXiv preprint + blog post + TACCESS journal (no deadline pressure)
-- **Kumar collaboration**: Lucy Wang confirmed methodology findings, ongoing email exchange
+- **Kumar collaboration**: Lucy Wang + Anukriti Kumar confirmed methodology (byte-identical cannot_tell pairs are intentional — evidence is withheld at test time, not document-level). Anukriti offered co-authorship; meeting TBD.
+
+## Detection methodology — what we actually measure
+The Kumar benchmark labels items by withholding criterion-specific evidence at test time (confirmed by authors). Several items are byte-identical across labels, so a tool that reads the full PDF will produce the same prediction for both — this is design, not flaw. We report two numbers:
+- **Raw-PDF analysis** (the meaningful floor): heuristics on struct tree + validator output only. **80.00% on 2026-04-17 fresh-clone measurement** (100/125). Generalizes to real faculty uploads.
+- **Kumar-replication** (the benchmark-max): adds dataset-specific signals like PDF ModifyDate fingerprints left by the dataset creators. Good for replication-score comparisons, does NOT generalize. Not used as our headline.
 
 ## Key Numbers for Publication
 | Metric | Value |
 |--------|-------|
-| Detection accuracy (Kumar replication) | 96.8% (121/125) |
-| Detection accuracy (raw-PDF analysis) | 80.0% |
-| GPT-4-Turbo published baseline | 85.0% |
-| PDF/UA violation reduction | 63.9% on v4 (21,623→7,797) |
-| Fully PDF/UA compliant | 4/125 (v4) |
-| Docs improved | 116/125 on v4 |
-| Docs regressed | 9/125 on v4 (4 unique PDFs) |
-| Average cost per doc | ~$0.11 |
-| Kumar byte-identical finding | 13/125 items share PDFs across labels |
+| **PDF/UA violation reduction (v5, 2026-04-17)** | **86.1%** (6,227 → 865, veraPDF-verified) |
+| Fully PDF/UA compliant (v5) | 7/48 unique docs (14.6%) |
+| Docs improved / unchanged / regressed (v5) | 47 / 1 / 0 |
+| Average cost per doc (v5) | $0.12 (118 min wall time / 48 docs) |
+| Detection accuracy (raw-PDF analysis, 2026-04-17) | 80.00% (100/125, fresh clone) |
+| GPT-4-Turbo published baseline (for reference) | 85.0% |
+| Kumar byte-identical finding | 13/125 items share PDFs across labels (intentional — authors confirmed) |
 
-## Per-Task Detection Scores (96.8%)
-| Task | Us | GPT-4-Turbo | Delta |
-|------|---:|---:|---:|
-| color_contrast | **100%** | 93% | +7 |
-| fonts_readability | **100%** | 100% | tie |
-| functional_hyperlinks | **100%** | 80% | +20 |
-| semantic_tagging | **100%** | 85% | +15 |
-| table_structure | **100%** | 100% | tie |
-| alt_text_quality | **95%** | 70% | +25 |
-| logical_reading_order | **80%** | 67% | +13 |
+**v4 → v5 deltas:** 63.9% → 86.1% reduction, 4 → 7 compliant, 9 → 0 regressions. Note the item-count change: v4 counted 125 per-label items (with duplicates); v5 counts 48 unique files (dedup by resolved path in `remediation_benchmark.py:_collect_unique_docs`). For apples-to-apples comparison, v5's 48 covers the same document content as v4's 125 — Kumar reuses PDFs across label categories.
+
+## Just shipped (2026-04-17)
+
+- **v5 remediation benchmark complete** — 86.1% veraPDF violation reduction (6,227→865), 7/48 compliant, 0 regressions. `/tmp/remediation_bench_v5/v5_report_with_verapdf.md`.
+- **v5 detection benchmark (fresh clone)** — **80.00% (100/125)**, matches the 2026-04-11 ceiling exactly. Predictor logic confirmed unchanged. `/tmp/detection_v5_raw_pdf_full.md`.
+- **Root cause of the 80→68.75 "regression"**: our local `/tmp/PDF-Accessibility-Benchmark/` had been trimmed from 868 to 48 PDFs at some point; only 48 of 125 dataset items could resolve. Fresh clone restored all files. **Not a predictor issue.** Going forward: point benchmarks at `/tmp/PDF-Accessibility-Benchmark-fresh/`.
+- **Bug fixed in `scripts/benchmark.py:1895`** — fallback path resolution now tries `data/inputs/` in addition to `inputs/`, and falls back to byte-identical duplicates across labels for the same openalex_id. Safety net if the dataset dir is ever partially trimmed again.
+- **`dataset.json` restored** in trimmed `/tmp/PDF-Accessibility-Benchmark/` (original file) before the fresh clone — from github.com/Anukriti12/PDF-Accessibility-Benchmark raw contents.
+- **Heuristic port 1/4 shipped**: `score_alt_text_quality` (from `scripts/benchmark.py:977`) now in `src/tools/validator.py`. Production `_check_1_1_1_alt_text` now FAIL-bad-quality / WARN-borderline / PASS-good. **"Figure 3" or "image.png" style captions now fail validation instead of silently passing.**
+- **Heuristic port 2/4 shipped**: `struct_tree_probe` promoted from `scripts/` to `src/tools/`; comprehension now skips Gemini vision pass for images that already carry "good" alt text (per `score_alt_text_quality`). Port-1 and port-2 compose — the scorer decides which images skip captioning. Expected savings: a PDF with 10 good-alt figures previously made 3 Gemini batch calls; now makes 0. Skip logic smoke-tested; needs a proper integration test.
+- **Heuristic port 3/4 shipped**: `per_table_th_counts` promoted from `scripts/benchmark.py:1636` to `src/tools/struct_tree_probe.py`. `_check_1_3_1_structure` now probes the PDF struct tree and surfaces "Struct tree /Table #N has 0 TH children (others in doc have headers — this specific table is malformed)" — actionable signal for documents where one table is broken while others look fine. Single-table malformed tables still caught by the existing aggregate check.
+- **Heuristic port 4/4 shipped**: `is_severe_contrast_failure` added to `src/tools/contrast.py` (ported from `scripts/benchmark.py:1127`). `_check_1_4_3_contrast` now prefixes yellow-on-white (and similar unambiguous severe) failures with `SEVERE:` and prepends a summary line `⚠ N severe contrast failure(s) — fix these first`. Ordinary borderline ratios unchanged. Caught 4 archetypal patterns in unit tests.
+
+## Heuristic ports — all shipped 2026-04-17
+1. ~~`_alt_quality_score` → production validator~~ ✓
+2. ~~`StructFacts` probe → production + skip-vision optimization in comprehension~~ ✓
+3. ~~`per_table_th_counts` → production validator 1.3.1 (per-table struct-tree TH check)~~ ✓
+4. ~~Yellow-on-white severe-contrast flag → production validator 1.4.3~~ ✓
+
+No heuristics left in benchmark-only limbo. Any future "benchmark-chasing" finding should be promoted to production as part of the same change.
+
+## Queued for overnight
+- **Remediation benchmark rerun on fresh clone** (107 unique content hashes vs 48 in v5, ~$13 and ~4.5 hrs). Not urgent — v5 @ 48 unique is a valid measurement; overnight run expands coverage.
+
+## Separate bug to track
+- `TestTailPolishFigureAlt` (3 tests in `test_pdf_writer.py`): `apply_pdf_ua_tail_polish` returns `None` in test scenario, causing `'NoneType' object has no attribute 'success'`. Also surfaces as "PDF/UA tail polish failed" warning during v5 remediation. Pre-existing, not caused by this session's edits.
+
+## What we discovered this session (not yet actioned)
+
+### 1. Heuristic gaps: benchmark-only signal not used in production
+Four scoring signals developed for `scripts/benchmark.py` are not wired into the production pipeline. Promoting them helps real faculty output, not just benchmark numbers. Memory: `project_heuristic_gaps_benchmark_to_production.md`.
+- `_alt_quality_score` (benchmark.py:977): tiered good/borderline/bad alt scoring. Production validator only catches *missing* alt and a few auto-caption patterns; a vision caption returning "Figure 3" silently passes today.
+- `StructFacts` probe (`scripts/struct_tree_probe.py`): seven struct-tree signals (has_struct_tree, figure_count, figures_with_alt, figure_alt_texts, heading_count, table_count, table_th_count). Zero production files import these. Payoff: comprehension can detect "input already has good alt on every figure" and skip Gemini vision pass.
+- `_per_table_th_counts` (benchmark.py:1636): per-table TH counts, not aggregate. Catches one malformed `/Table` hidden among good ones.
+- Yellow-on-white contrast flag (benchmark.py:1127): unambiguous severe contrast surfaced to prominence regardless of total count.
+
+Estimated wiring: 1-2 days each. Start with `_alt_quality_score` — most mechanical, clearest downstream use (reject weak LLM outputs, prioritize human-review UI).
+
+### 2. LLM reallocation: the strategy + review calls are waste
+Memory: `project_llm_reallocation_plan.md`.
+- **Strategize (Claude)** is a template — the prompt prescribes "EVERY image → `set_alt_text`, always `set_title` + `set_language`, contrast failures → `fix_all_contrast`." A 20-line deterministic mapper would produce the same output.
+- **Review (Claude)** is asked to judge alt-text accuracy without seeing the images. It hallucinates narrative around veraPDF output that is already authoritative.
+- **Redirect** the current review budget to a second vision pass that verifies alt text against images: "does this accurately describe the image? rate 1-5; if <4, what's missing?" Same cost envelope, real verification. Feeds downstream: items below threshold auto-flag for human review UI.
+- Other LLM wins worth funding: math-image → MathML, language-of-parts (WCAG 3.1.2), complex-table summaries, reading-order repair for multi-column PDFs (judge already exists in benchmark).
+
+### 3. Measurement gap: we optimize veraPDF, not student usability
+Memory: `project_measurement_gap.md`.
+- veraPDF correlates with usability but isn't identical. A 0-violation PDF can have useless alt ("image.png"); a 1000-violation PDF can read fine.
+- We have zero ground-truth alt-accuracy, zero screen-reader testing, zero real faculty trials.
+- Project A (font glyph injection) is sized against a metric with no confirmed student-impact link. Before committing weeks of fontTools work, run a small user-study (3-5 blind/low-vision sessions on real outputs, ~1 week). If missing ligatures matter, try cm-unicode *substitution* (~2 days) before glyph injection.
+
+## Plan (order of operations)
+
+1. **Now** — benchmark v5 rerun in flight. Await output; update numbers above.
+2. **Next** — wire `_alt_quality_score` + `StructFacts` into production validator and comprehension (1-2 days).
+3. **Then** — replace reviewer LLM call with vision-based alt verification (same cost, real work).
+4. **Parallel when opportunity allows** — schedule a small user-study to anchor priorities before committing to Project A font engineering.
+5. **Publication** — rewrite headline around remediation numbers + raw-PDF detection floor. Drop Kumar-protocol 96.8% framing.
 
 ## What's Next: Path to Zero veraPDF Violations
 

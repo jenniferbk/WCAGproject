@@ -44,9 +44,12 @@ if _env_path.exists():
 from src.tools.pdf_parser import parse_pdf
 from src.tools.validator import CheckStatus, validate_document
 
-# Local helper for raw struct-tree probing
-sys.path.insert(0, str(Path(__file__).parent))
-from struct_tree_probe import probe_struct_tree, StructFacts, _get_obj_text
+from src.tools.struct_tree_probe import (
+    probe_struct_tree,
+    StructFacts,
+    _get_obj_text,
+    per_table_th_counts as _per_table_th_counts,
+)
 
 # Optional Gemini vision for visual tasks
 _gemini_client = None
@@ -1633,61 +1636,6 @@ def _predict_semantic_tagging(report, doc_model, facts: StructFacts, pdf_path: s
     return "failed"
 
 
-def _per_table_th_counts(pdf_path: str) -> list[int]:
-    """Walk the struct tree and return the TH count for each Table element.
-
-    Aggregate TH count can hide a malformed table that has zero headers when
-    other tables in the same doc have plenty. A single empty ``/Table`` is a
-    strong ``cannot_tell`` signal.
-    """
-    try:
-        import fitz
-        doc = fitz.open(pdf_path)
-    except Exception:
-        return []
-    try:
-        cat = doc.pdf_catalog()
-        st = doc.xref_get_key(cat, "StructTreeRoot")
-        if st[0] != "xref":
-            return []
-        root = int(st[1].split()[0])
-    except Exception:
-        doc.close()
-        return []
-
-    tables: list[dict] = []
-
-    def walk(xref: int, cur_table: dict | None, seen: set, depth: int) -> None:
-        if xref in seen or depth > 300:
-            return
-        seen.add(xref)
-        obj = _get_obj_text(doc, xref)
-        if not obj:
-            return
-        m = re.search(r"/S\s*/([A-Za-z_][A-Za-z0-9_]*)", obj)
-        tag = m.group(1) if m else None
-        new_table = cur_table
-        if tag == "Table":
-            new_table = {"th": 0, "td": 0, "tr": 0}
-            tables.append(new_table)
-        elif cur_table is not None and tag in ("TH", "TD", "TR"):
-            cur_table[tag.lower()] += 1
-        single = re.search(r"/K\s+(\d+)\s+0\s+R", obj)
-        if single:
-            walk(int(single.group(1)), new_table, seen, depth + 1)
-        else:
-            arr = re.search(r"/K\s*\[([^\]]*)\]", obj, re.DOTALL)
-            if arr:
-                for rm in re.finditer(r"(\d+)\s+0\s+R", arr.group(1)):
-                    walk(int(rm.group(1)), new_table, seen, depth + 1)
-
-    try:
-        walk(root, None, set(), 0)
-    finally:
-        doc.close()
-    return [t["th"] for t in tables]
-
-
 def _predict_table_structure(report, doc_model, facts: StructFacts, pdf_path: str = "") -> str:
     """table_structure: do tables have proper headers and structure?
 
@@ -1895,13 +1843,42 @@ def run_benchmark(benchmark_dir: Path, task_filter: str | None = None, use_metad
                 pdf_rel_path = item.get("pdf_path", "")
                 pdf_path = benchmark_dir / pdf_rel_path
                 if not pdf_path.exists():
-                    # Fall back to data/inputs/<task>/<label>/<id>/<id>_0.pdf
                     item_id = item.get("openalex_id", "")
                     if item_id:
-                        fallback = benchmark_dir / "inputs" / task_name / gold_label / item_id / f"{item_id}_0.pdf"
-                        if fallback.exists():
-                            pdf_path = fallback
-                            logger.debug("Using fallback input: %s", fallback)
+                        # Fall back 1: try `data/inputs/...` and `inputs/...`
+                        # per-label/per-id layouts used by some checkouts.
+                        for candidate in (
+                            benchmark_dir / "data" / "inputs" / task_name / gold_label / item_id / f"{item_id}_0.pdf",
+                            benchmark_dir / "inputs" / task_name / gold_label / item_id / f"{item_id}_0.pdf",
+                        ):
+                            if candidate.exists():
+                                pdf_path = candidate
+                                logger.debug("Using fallback input: %s", candidate)
+                                break
+                        # Fall back 2: Kumar's benchmark has byte-identical
+                        # duplicates across labels (cannot_tell = passed, etc.)
+                        # stored as a single physical file. If the per-label
+                        # path is missing, use any other label's copy of the
+                        # same openalex_id — this matches the methodology
+                        # (same PDF, different evidence at test time).
+                        if not pdf_path.exists():
+                            search_roots = [
+                                benchmark_dir / "data" / "processed" / task_name,
+                                benchmark_dir / "data" / "inputs" / task_name,
+                                benchmark_dir / "inputs" / task_name,
+                            ]
+                            for root in search_roots:
+                                if not root.exists():
+                                    continue
+                                matches = list(root.glob(f"*/{item_id}.pdf")) + \
+                                          list(root.glob(f"*/{item_id}/{item_id}_0.pdf"))
+                                if matches:
+                                    pdf_path = matches[0]
+                                    logger.debug(
+                                        "Using byte-identical duplicate from other label: %s",
+                                        pdf_path,
+                                    )
+                                    break
                 if not pdf_path.exists():
                     results["errors"].append(f"Missing: {pdf_rel_path}")
                     continue

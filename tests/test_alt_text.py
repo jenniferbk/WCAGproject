@@ -14,7 +14,10 @@ class TestGetAltText:
         images = get_all_alt_text(doc)
         assert len(images) == 1
         assert images[0].has_alt_text
-        assert images[0].current_alt_text == "A blue test rectangle"
+        assert images[0].current_alt_text == (
+            "A solid blue rectangle placeholder used to demonstrate "
+            "inline image handling in the document parser."
+        )
 
     def test_image_without_alt_text(self, image_no_alt_docx: Path):
         doc = docx.Document(str(image_no_alt_docx))

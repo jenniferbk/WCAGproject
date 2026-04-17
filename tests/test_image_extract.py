@@ -18,7 +18,10 @@ class TestImageExtraction:
         result = parse_docx(image_docx)
         doc = result.document
         img = doc.images[0]
-        assert img.alt_text == "A blue test rectangle"
+        assert img.alt_text == (
+            "A solid blue rectangle placeholder used to demonstrate "
+            "inline image handling in the document parser."
+        )
 
     def test_image_dimensions(self, image_docx: Path):
         result = parse_docx(image_docx)

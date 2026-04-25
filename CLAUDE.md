@@ -251,6 +251,10 @@ pip install -e ".[dev]"
 # Run tests
 pytest tests/ -v
 
+# Run only the e2e regression suite (~10 seconds, mocked LLM pipeline)
+pytest tests/e2e/ -v
+pytest -m e2e -v
+
 # Run the web app (development)
 uvicorn src.web.app:app --reload --port 8000
 
@@ -304,6 +308,23 @@ RETENTION_INTERVAL_HOURS=   # default 24; cleanup loop interval
 - **Logging format.** `configure_logging()` installs a single root handler with format `"%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s"`. Idempotent.
 
 `GET /api/health` returns liveness + readiness: `status`, `db`, queue depth (queued/processing), free disk, and version. Public endpoint suitable for uptime monitors. Sensitive operational details (cost spend, user counts, file paths) live on admin-only endpoints.
+
+## E2E regression suite
+
+`tests/e2e/` exercises the full HTTP stack through FastAPI's `TestClient` while mocking the orchestrator's `process()` to avoid real LLM API calls. Cheap to run (~10s for 44 tests) and meant as the safety net for upcoming refactors (Postgres migration, ARQ queue replacement).
+
+Coverage:
+- `test_auth_flow.py` — register, login, logout, /me, password reset
+- `test_upload_flow.py` — full upload → process (mocked) → status poll → download
+- `test_caps_and_limits.py` — cost cap (kill switch + daily ceiling), per-user concurrent cap, page balance, check ordering
+- `test_admin_flow.py` — admin user list/get/update, cost-status endpoint, retention cleanup endpoint
+- `test_observability_flow.py` — request-ID middleware, health endpoint, robots/sitemap
+
+Mock pattern (`tests/e2e/conftest.py`): the `stub_process` fixture replaces `src.web.app.process` with a fast deterministic stub that writes a tiny output file and returns a `RemediationResult` with a known `cost_summary`. Tests can flip `stub_process["force_failure"] = True` to exercise the failure path.
+
+Threading: uploads return immediately and a daemon thread runs the (mocked) pipeline. The `wait_for_job(client, job_id)` helper polls until the job reaches a terminal state. With the mocked pipeline, this happens in well under a second.
+
+Mark: tests are tagged `pytest.mark.e2e` so they can be selected/excluded via `pytest -m e2e` or `pytest -m "not e2e"`.
 
 ## Storage retention
 

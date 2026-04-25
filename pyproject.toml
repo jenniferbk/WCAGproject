@@ -48,3 +48,6 @@ include = ["src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "e2e: end-to-end regression tests using FastAPI TestClient + mocked LLM pipeline",
+]

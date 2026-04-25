@@ -734,9 +734,14 @@ def _apply_pdf_action(
                 )
             prompt = prompt_template.replace("{tikz_source}", tikz_source)
 
-            # Gemini 3 Flash Preview (was Claude Haiku 4.5 until 2026-04-25 vendor
-            # bake-off — Gemini 3 wins on quality across 10 TikZ samples and is
-            # 33% cheaper. See docs/experiments/2026-04-26-vendor-bake-off.md.
+            # Gemini 3.1 Flash Lite Preview. Was Claude Haiku 4.5 originally;
+            # initial bake-off (2026-04-26) picked gemini-3-flash-preview, but
+            # that model has a tight ~20-call cap that kills production at scale.
+            # Re-bench against gemini-3.1-flash-lite-preview the same day shows
+            # it wins on quality (avg 4.7/4.7/4.7 vs Claude 3.8/4.2/4.0), is
+            # 11.4× cheaper than Claude ($0.000297/sample), faster (~3s vs 5s),
+            # and uses a separate quota bucket that wasn't getting throttled.
+            # See docs/experiments/2026-04-25-tikz-rebench-3-1-flash-lite.md.
             api_key = os.environ.get("GEMINI_API_KEY")
             if not api_key:
                 return _action_dict(action, "failed", "GEMINI_API_KEY not set — keeping placeholder")
@@ -751,7 +756,7 @@ def _apply_pdf_action(
                 for attempt in range(len(backoffs) + 1):
                     try:
                         resp = client.models.generate_content(
-                            model="gemini-3-flash-preview",
+                            model="gemini-3.1-flash-lite-preview",
                             contents=[prompt],
                             config=_genai_types.GenerateContentConfig(
                                 temperature=0.2,

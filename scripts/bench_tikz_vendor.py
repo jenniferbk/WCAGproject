@@ -33,11 +33,14 @@ logger = logging.getLogger("bench_tikz")
 PROMPT_PATH = Path(__file__).parent.parent / "src" / "prompts" / "tikz_description.md"
 OUTPUT_PATH = Path(__file__).parent.parent / "testdocs" / "strategy_experiment" / "tikz_bake_off.json"
 
-# Pricing per million tokens — current as of April 2026 verified from web search
+# Pricing per million tokens — current as of April 2026 verified from web search.
+# 3.1-flash-lite-preview pricing: pricing page didn't list it explicitly; using
+# the 2.5-flash-lite figure as a stand-in. Verify before publishing cost claims.
 PRICING = {
-    "claude-haiku-4-5-20251001":   {"input": 1.00, "output": 5.00},
-    "gemini-2.5-flash":            {"input": 0.15, "output": 0.60},
-    "gemini-3-flash-preview":      {"input": 0.50, "output": 3.00},
+    "claude-haiku-4-5-20251001":     {"input": 1.00, "output": 5.00},
+    "gemini-2.5-flash":              {"input": 0.15, "output": 0.60},
+    "gemini-3-flash-preview":        {"input": 0.50, "output": 3.00},
+    "gemini-3.1-flash-lite-preview": {"input": 0.10, "output": 0.40},  # TBD verify
 }
 
 def _t(*lines: str) -> str:
@@ -296,11 +299,27 @@ def run_claude(prompt: str, model: str = "claude-haiku-4-5-20251001") -> dict:
     }
 
 
-def run_gemini(prompt: str, model: str, max_retries: int = 4) -> dict:
-    """Call Gemini with exponential backoff retry on transient failures.
+def _parse_retry_delay(err_str: str) -> float | None:
+    """Extract Google's `retryDelay` hint from a 429 error message.
 
-    Retries on 503 UNAVAILABLE (preview-model overload) and 429 RESOURCE_EXHAUSTED
-    (rate limit). Backoff: 5s, 15s, 45s, 90s. Raises after max_retries.
+    Returns delay in seconds, or None if not found. Examples:
+        'retryDelay': '349ms'   -> 0.349
+        'retryDelay': '46s'     -> 46.0
+        'retryDelay': '0s'      -> 0.0
+    """
+    import re
+    m = re.search(r"retryDelay'?\s*:\s*'?(\d+(?:\.\d+)?)\s*(ms|s)\b", err_str)
+    if not m:
+        return None
+    n, unit = float(m.group(1)), m.group(2)
+    return n / 1000.0 if unit == "ms" else n
+
+
+def run_gemini(prompt: str, model: str, max_retries: int = 4) -> dict:
+    """Call Gemini with retry on transient failures, respecting Google's retryDelay hint.
+
+    For 429 errors, waits the API-suggested retryDelay (clamped to a sane min/max).
+    For 503 errors (no hint), uses exponential backoff [5, 15, 45, 90].
     """
     api_key = os.environ.get("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
@@ -333,12 +352,20 @@ def run_gemini(prompt: str, model: str, max_retries: int = 4) -> dict:
         except Exception as e:
             last_exc = e
             err_str = str(e)
-            transient = "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
-            if not transient or attempt >= max_retries:
+            is_429 = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+            is_503 = "503" in err_str or "UNAVAILABLE" in err_str
+            if not (is_429 or is_503) or attempt >= max_retries:
                 raise
-            wait = backoffs[min(attempt, len(backoffs) - 1)]
-            logger.warning("Gemini %s attempt %d/%d transient error, waiting %ds: %s",
-                           model, attempt + 1, max_retries + 1, wait, err_str[:120])
+            if is_429:
+                hint = _parse_retry_delay(err_str)
+                # Respect Google's hint, clamped to [1s, 90s] so we never hammer or sleep forever
+                wait = max(1.0, min(90.0, (hint or backoffs[min(attempt, len(backoffs)-1)]) + 0.5))
+                logger.warning("Gemini %s attempt %d/%d 429 (retryDelay hint=%s), waiting %.1fs",
+                               model, attempt + 1, max_retries + 1, hint, wait)
+            else:  # 503
+                wait = backoffs[min(attempt, len(backoffs) - 1)]
+                logger.warning("Gemini %s attempt %d/%d 503, waiting %ds: %s",
+                               model, attempt + 1, max_retries + 1, wait, err_str[:120])
             time.sleep(wait)
             attempt += 1
     raise last_exc if last_exc else RuntimeError("retry loop ended without result")
@@ -354,11 +381,16 @@ def main():
         prompt = build_prompt(sample["source"])
 
         runs = []
-        for runner, args in [
+        # Skipping 2.5-flash and 3-flash-preview — both burned through their
+        # daily caps earlier today and add 5+ min of retry wait per sample.
+        # 3.1-flash-lite-preview has a separate quota bucket and works.
+        INTER_CALL_DELAY = 2.0
+        for i, (runner, args) in enumerate([
             (run_claude, ("claude-haiku-4-5-20251001",)),
-            (run_gemini, ("gemini-2.5-flash",)),
-            (run_gemini, ("gemini-3-flash-preview",)),
-        ]:
+            (run_gemini, ("gemini-3.1-flash-lite-preview",)),
+        ]):
+            if i > 0:
+                time.sleep(INTER_CALL_DELAY)
             try:
                 logger.info("→ %s", args[0])
                 r = runner(prompt, *args)

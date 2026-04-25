@@ -43,6 +43,7 @@ from src.web.cost_cap import (
     ensure_cost_column,
     record_job_cost,
 )
+from src.web.retention import run_cleanup as run_retention_cleanup, start_background_loop as start_retention_loop
 from src.web.user_caps import check_user_caps
 from src.web.auth import (
     clear_session_cookie,
@@ -135,6 +136,7 @@ def startup():
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     _recover_stuck_jobs()
+    start_retention_loop(UPLOAD_DIR, OUTPUT_DIR)
 
 
 def _recover_stuck_jobs() -> None:
@@ -802,6 +804,17 @@ async def admin_list_users(admin: User = Depends(require_admin)):
 async def admin_cost_status(admin: User = Depends(require_admin)):
     """Current cost-cap status: today's spend, weekly spend, configured caps, kill switch."""
     return cost_cap_status().to_dict()
+
+
+@app.post("/api/admin/retention/cleanup")
+async def admin_retention_cleanup(admin: User = Depends(require_admin)):
+    """Run a one-shot retention cleanup pass and return the report.
+
+    Use for ad-hoc disk-space recovery or to verify retention is working.
+    The background loop runs this automatically every RETENTION_INTERVAL_HOURS.
+    """
+    report = run_retention_cleanup(UPLOAD_DIR, OUTPUT_DIR)
+    return report.to_dict()
 
 
 @app.get("/api/admin/users/{user_id}")

@@ -288,7 +288,25 @@ MAX_CONCURRENT_JOBS=        # max concurrent remediation jobs; empty = 1 (safe d
 # Optional: Per-user caps (admins exempt)
 MAX_USER_CONCURRENT_JOBS=   # default 5; max in-flight per user
 MAX_USER_JOBS_PER_HOUR=     # default 30; max submissions per hour per user
+
+# Optional: Storage retention (background cleanup of old files)
+RETENTION_ENABLED=          # "0"/"false" disables; default enabled
+RETENTION_DAYS_UPLOADS=     # default 30; age threshold for data/uploads/
+RETENTION_DAYS_OUTPUT=      # default 30; age threshold for data/output/
+RETENTION_INTERVAL_HOURS=   # default 24; cleanup loop interval
 ```
+
+## Storage retention
+
+`src/web/retention.py` deletes files older than the configured window from `data/uploads/` and `data/output/`. Behavior:
+
+- **What's deleted:** files in either directory whose mtime exceeds the threshold (default 30 days). Empty subdirectories also cleaned up.
+- **What's preserved:** files referenced by jobs in `queued` or `processing` state — never deleted regardless of age.
+- **Job records are NOT deleted.** SQLite rows are retained for cost analytics and audit. After cleanup, downloads of old jobs return 404 cleanly.
+- **When it runs:** background daemon thread on app startup, every `RETENTION_INTERVAL_HOURS` (default 24).
+- **Manual run:** `POST /api/admin/retention/cleanup` triggers a one-shot pass and returns the report (files scanned, deleted, bytes freed, errors). Admin-only.
+
+This is the implementation half of the R4/Y4 retention policy. The companion policy doc (`docs/uga/retention-audit-policy.md`) records the policy itself for the FERPA / EITS conversation.
 
 ## Per-user job caps
 

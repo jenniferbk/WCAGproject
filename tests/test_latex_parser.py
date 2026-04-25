@@ -839,20 +839,16 @@ class TestErrorCleanup:
 class TestDescribeTikzAction:
     """Tests for describe_tikz action in executor."""
 
-    @patch("anthropic.Anthropic")
-    def test_describe_tikz_updates_description(self, mock_anthropic_cls):
+    @patch("google.genai.Client")
+    def test_describe_tikz_updates_description(self, mock_genai_client_cls):
         from src.agent.executor import _apply_pdf_action
         from src.models.pipeline import RemediationAction
 
         mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        mock_genai_client_cls.return_value = mock_client
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(
-            text="This is a finite automaton with 3 states: q0 (start), q1, and q2 (accepting).",
-            type="text",
-        )]
-        mock_response.usage = MagicMock(input_tokens=100, output_tokens=50)
-        mock_client.messages.create.return_value = mock_response
+        mock_response.text = "This is a finite automaton with 3 states: q0 (start), q1, and q2 (accepting)."
+        mock_client.models.generate_content.return_value = mock_response
 
         model_dict = {
             "paragraphs": [], "images": [], "tables": [], "links": [],
@@ -872,7 +868,7 @@ class TestDescribeTikzAction:
             description="Describe TikZ diagram",
         )
 
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}):
             result = _apply_pdf_action(model_dict, action, {}, {}, {})
 
         assert result["action_type"] == "describe_tikz"

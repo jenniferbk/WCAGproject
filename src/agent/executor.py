@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -733,24 +734,50 @@ def _apply_pdf_action(
                 )
             prompt = prompt_template.replace("{tikz_source}", tikz_source)
 
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            # Gemini 3 Flash Preview (was Claude Haiku 4.5 until 2026-04-25 vendor
+            # bake-off — Gemini 3 wins on quality across 10 TikZ samples and is
+            # 33% cheaper. See docs/experiments/2026-04-26-vendor-bake-off.md.
+            api_key = os.environ.get("GEMINI_API_KEY")
             if not api_key:
-                return _action_dict(action, "failed", "ANTHROPIC_API_KEY not set — keeping placeholder")
+                return _action_dict(action, "failed", "GEMINI_API_KEY not set — keeping placeholder")
 
             try:
-                from anthropic import Anthropic
-                client = Anthropic(api_key=api_key)
-                response = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=1024,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                description = response.content[0].text.strip()
-                model_dict["math"][math_idx]["description"] = description
-                return _action_dict(action, "executed", f"TikZ described: {description[:80]}")
+                from google import genai as _genai
+                from google.genai import types as _genai_types
+                client = _genai.Client(api_key=api_key)
+                # Retry on transient overloads (503 UNAVAILABLE) and per-minute throttle (429)
+                backoffs = [5, 15, 45, 90]
+                last_exc: Exception | None = None
+                for attempt in range(len(backoffs) + 1):
+                    try:
+                        resp = client.models.generate_content(
+                            model="gemini-3-flash-preview",
+                            contents=[prompt],
+                            config=_genai_types.GenerateContentConfig(
+                                temperature=0.2,
+                                max_output_tokens=1536,
+                            ),
+                        )
+                        description = (resp.text or "").strip()
+                        if not description:
+                            raise ValueError("Gemini returned empty response")
+                        model_dict["math"][math_idx]["description"] = description
+                        return _action_dict(action, "executed", f"TikZ described: {description[:80]}")
+                    except Exception as e:
+                        last_exc = e
+                        err = str(e)
+                        transient = "503" in err or "UNAVAILABLE" in err or "429" in err or "RESOURCE_EXHAUSTED" in err
+                        if not transient or attempt >= len(backoffs):
+                            raise
+                        wait = backoffs[attempt]
+                        logger.warning("TikZ Gemini attempt %d/%d transient error, waiting %ds: %s",
+                                       attempt + 1, len(backoffs) + 1, wait, err[:120])
+                        time.sleep(wait)
+                if last_exc:
+                    raise last_exc
             except Exception as e:
                 logger.warning("TikZ description failed for %s: %s", element_id, e)
-                return _action_dict(action, "failed", f"Claude API failed: {e}")
+                return _action_dict(action, "failed", f"Gemini API failed: {e}")
 
         elif action_type == "fix_all_contrast":
             # For PDFs, check each run's color against background and fix if needed

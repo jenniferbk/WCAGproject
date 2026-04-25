@@ -284,7 +284,20 @@ COST_CAP_KILL_SWITCH=       # "1" / "true" to reject all new uploads immediately
 
 # Optional: Concurrency
 MAX_CONCURRENT_JOBS=        # max concurrent remediation jobs; empty = 1 (safe default)
+
+# Optional: Per-user caps (admins exempt)
+MAX_USER_CONCURRENT_JOBS=   # default 5; max in-flight per user
+MAX_USER_JOBS_PER_HOUR=     # default 30; max submissions per hour per user
 ```
+
+## Per-user job caps
+
+`src/web/user_caps.py` enforces, at upload time, that no single user can monopolize the queue. Two limits, both env-configurable, both bypassed for admins:
+
+- **Concurrent (queued + processing):** `MAX_USER_CONCURRENT_JOBS`, default 5. Blocks with HTTP 429 + `reason: "concurrent_cap"`.
+- **Hourly (created in trailing 60 min):** `MAX_USER_JOBS_PER_HOUR`, default 30. Blocks with HTTP 429 + `reason: "hourly_cap"`.
+
+These layer on top of (a) the per-IP `_upload_limit` rate limit, (b) per-user `pages_balance`, and (c) the system-wide cost cap. All four checks must pass for an upload to be accepted.
 
 ## Cost cap (system-wide kill switch)
 

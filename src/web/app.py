@@ -43,6 +43,7 @@ from src.web.cost_cap import (
     ensure_cost_column,
     record_job_cost,
 )
+from src.web.user_caps import check_user_caps
 from src.web.auth import (
     clear_session_cookie,
     create_reset_token,
@@ -500,6 +501,23 @@ async def upload_file(
         return JSONResponse(
             status_code=503,
             content={"error": msg, "reason": cost_status.reason},
+        )
+
+    cap_status = check_user_caps(user.id, is_admin=user.is_admin)
+    if not cap_status.allowed:
+        if cap_status.reason == "concurrent_cap":
+            msg = (
+                f"You already have {cap_status.concurrent_jobs} jobs in progress. "
+                "Please wait for them to finish before uploading more."
+            )
+        else:
+            msg = (
+                f"You've submitted {cap_status.hourly_jobs} jobs in the last hour. "
+                "Please try again later."
+            )
+        return JSONResponse(
+            status_code=429,
+            content={"error": msg, "reason": cap_status.reason, **cap_status.to_dict()},
         )
 
     # Read and check file size

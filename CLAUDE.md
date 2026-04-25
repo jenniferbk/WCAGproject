@@ -10,7 +10,7 @@ AI-powered WCAG 2.1 AA accessibility remediation for university course materials
 
 ## Project Context
 
-DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by **April 24, 2026**. Manual remediation costs $3-4/page. Existing automated tools apply generic fixes without understanding document context and don't get the job done well. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist. The core distinction is this agentic layer — the system makes context-dependent judgments that traditional deterministic pipelines cannot.
+DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content. The original compliance date was April 24, 2026; DOJ extended this to **April 26, 2027** for entities with population ≥50,000 (and to April 26, 2028 for smaller entities) via an Interim Final Rule published 2026-04-20. The underlying WCAG 2.1 AA standard and ongoing ADA obligation are unchanged. Manual remediation costs $3-4/page. Existing automated tools apply generic fixes without understanding document context and don't get the job done well. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist. The core distinction is this agentic layer — the system makes context-dependent judgments that traditional deterministic pipelines cannot.
 
 **End user experience:** Faculty log in to a web interface, upload a document (with optional course context), and receive the remediated file + compliance report. No CLI or technical knowledge required. Course context matters: knowing a document is a calculus syllabus vs. an art history lecture changes how elements are interpreted.
 
@@ -276,7 +276,65 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 MICROSOFT_CLIENT_ID=...
 MICROSOFT_CLIENT_SECRET=...
+
+# Optional: Cost cap (system-wide spend kill switch — see "Cost cap" section below)
+COST_CAP_DAILY_USD=         # daily $ ceiling on cumulative API spend; empty = unlimited
+COST_CAP_WEEKLY_USD=        # 7-day rolling $ ceiling; empty = unlimited
+COST_CAP_KILL_SWITCH=       # "1" / "true" to reject all new uploads immediately
+
+# Optional: Concurrency
+MAX_CONCURRENT_JOBS=        # max concurrent remediation jobs; empty = 1 (safe default)
+
+# Optional: Per-user caps (admins exempt)
+MAX_USER_CONCURRENT_JOBS=   # default 5; max in-flight per user
+MAX_USER_JOBS_PER_HOUR=     # default 30; max submissions per hour per user
+
+# Optional: Storage retention (background cleanup of old files)
+RETENTION_ENABLED=          # "0"/"false" disables; default enabled
+RETENTION_DAYS_UPLOADS=     # default 30; age threshold for data/uploads/
+RETENTION_DAYS_OUTPUT=      # default 30; age threshold for data/output/
+RETENTION_INTERVAL_HOURS=   # default 24; cleanup loop interval
 ```
+
+## Observability (request IDs + health endpoint)
+
+`src/web/observability.py` provides:
+
+- **Request IDs.** `RequestIdMiddleware` assigns a UUID4 to every inbound request (or honors a sane upstream `X-Request-ID` from Caddy). The ID is stored in a `ContextVar`, threaded into every log record via `RequestIdFilter`, and echoed in the response header. Lets you grep one request across user → job → API calls in `journalctl`.
+- **Logging format.** `configure_logging()` installs a single root handler with format `"%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s"`. Idempotent.
+
+`GET /api/health` returns liveness + readiness: `status`, `db`, queue depth (queued/processing), free disk, and version. Public endpoint suitable for uptime monitors. Sensitive operational details (cost spend, user counts, file paths) live on admin-only endpoints.
+
+## Storage retention
+
+`src/web/retention.py` deletes files older than the configured window from `data/uploads/` and `data/output/`. Behavior:
+
+- **What's deleted:** files in either directory whose mtime exceeds the threshold (default 30 days). Empty subdirectories also cleaned up.
+- **What's preserved:** files referenced by jobs in `queued` or `processing` state — never deleted regardless of age.
+- **Job records are NOT deleted.** SQLite rows are retained for cost analytics and audit. After cleanup, downloads of old jobs return 404 cleanly.
+- **When it runs:** background daemon thread on app startup, every `RETENTION_INTERVAL_HOURS` (default 24).
+- **Manual run:** `POST /api/admin/retention/cleanup` triggers a one-shot pass and returns the report (files scanned, deleted, bytes freed, errors). Admin-only.
+
+This is the implementation half of the R4/Y4 retention policy. The companion policy doc (`docs/uga/retention-audit-policy.md`) records the policy itself for the FERPA / EITS conversation.
+
+## Per-user job caps
+
+`src/web/user_caps.py` enforces, at upload time, that no single user can monopolize the queue. Two limits, both env-configurable, both bypassed for admins:
+
+- **Concurrent (queued + processing):** `MAX_USER_CONCURRENT_JOBS`, default 5. Blocks with HTTP 429 + `reason: "concurrent_cap"`.
+- **Hourly (created in trailing 60 min):** `MAX_USER_JOBS_PER_HOUR`, default 30. Blocks with HTTP 429 + `reason: "hourly_cap"`.
+
+These layer on top of (a) the per-IP `_upload_limit` rate limit, (b) per-user `pages_balance`, and (c) the system-wide cost cap. All four checks must pass for an upload to be accepted.
+
+## Cost cap (system-wide kill switch)
+
+`src/web/cost_cap.py` provides a system-wide spend ceiling that operates independently of per-user `pages_balance`. When the configured cap is hit (or the kill switch is set), `/api/upload` returns HTTP 503 with reason `daily_cap_exceeded`, `weekly_cap_exceeded`, or `kill_switch`.
+
+- **Storage:** actual API cost per job is recorded in `jobs.estimated_cost_usd` after each pipeline run, sourced from `result.cost_summary.estimated_cost_usd`. Pre-existing jobs default to 0.
+- **Caps:** read from env at check time, so changing `.env.production` and re-sourcing it (or restarting the service) takes effect without code changes. `0` / empty / invalid values mean unlimited.
+- **Kill switch:** truthy values are `1`, `true`, `yes`, `on` (case-insensitive). Use during incidents or maintenance windows to pause spend without changing caps.
+- **Visibility:** `GET /api/admin/cost-status` returns the current snapshot (today's spend, 7-day spend, configured caps, kill-switch state). Admin-only.
+- **Window definitions:** "daily" = since UTC midnight today; "weekly" = trailing 7 days from now.
 
 ## Build Order
 

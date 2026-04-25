@@ -80,6 +80,7 @@ class Job:
     page_count: int = 0
     started_at: str = ""
     phase_detail: str = ""
+    estimated_cost_usd: float = 0.0
 
     def to_dict(self) -> dict:
         d = {
@@ -117,6 +118,7 @@ def _row_to_job(row: sqlite3.Row) -> Job:
     d.setdefault("page_count", 0)
     d.setdefault("started_at", "")
     d.setdefault("phase_detail", "")
+    d.setdefault("estimated_cost_usd", 0.0)
     return Job(**d)
 
 

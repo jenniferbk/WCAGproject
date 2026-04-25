@@ -4,10 +4,33 @@
 A major university inquired about using the tool. This shifts priorities from research toward production-readiness for institutional deployment. Audit findings + 10-item gap inventory in `memory/project_university_inquiry.md`. Headline gaps: concurrency=1 hardcoded (`src/web/app.py:98`), no real job queue (Python threads), SQLite write contention, single-server ARM, one shared API key (just bit us with Gemini Tier 1 verification gating), no per-org quotas, no FERPA story, no SAML, no storage cleanup, no cost cap. Tackle before signing.
 
 ## Today's session (2026-04-25)
+
+**Morning — strategy mapper:**
 - **Strategy mapper experiment shipped** (`docs/experiments/2026-04-25-strategy-mapper-comparison.md`). Findings: ~70% of LLM strategy work is template-following, ~25% is judgment work that comprehension *should* do but doesn't, ~5% harmful (alt-text hallucination on images comprehension couldn't see).
 - **Comprehension prompt extension** drafted, applied, and smoke-tested on the EMAT 8030 syllabus (no images). All 3 new fields populate correctly: BCP-47 language ("en"), heading_level on every convert_to_heading (24/24), link_text_proposals (5/5 raw-URL links). Image-heavy validation blocked by Gemini identity verification (1-3 days).
 - **Mapper updated** to consume new comprehension fields. 960/961 tests pass, no regressions.
 - **Phase B (full pipeline both modes + veraPDF)** queued, blocked on verification.
+
+**Afternoon — UGA pivot + Tier 0 hardening (branch `hardening/tier0`):**
+- **DOJ extension verified** — Title II compliance moved from 2026-04-24 to **2027-04-26** by IFR published 2026-04-20 (`memory/project_doj_title_ii_deadline_extension.md`). UGA pitch reframed as "controlled rollout" instead of "deadline crisis."
+- **EITS letter drafted** (`docs/uga/eits-saml-request.md`) — Shibboleth SP registration request to `idm@uga.edu`, with Dean Spangler as originating contact. UGA EITS process verified live via WebFetch (`docs/uga/eits-process-verification.md`).
+- **Spangler confirmation email drafted** (`docs/uga/spangler-confirmation-email.md`).
+- **R4/Y4 retention + audit-log policy** drafted, Gemini-reviewed (`docs/uga/retention-audit-policy.md`). Five red-flag fixes applied: tightened FERPA framing, bounded job-record retention at 18 months, US data-residency / breach-notification commitments in subprocessor section, institutional-first incident notification, removed "best-effort" from right-to-deletion.
+- **Y5 cost cap + kill switch** shipped (`src/web/cost_cap.py`). Daily/weekly USD ceiling, env-driven, with `/api/admin/cost-status` endpoint. 19 tests.
+- **MAX_CONCURRENT_JOBS** env var — replaces hardcoded `Semaphore(1)`. Default unchanged at 1; raise after observing prod memory + Anthropic ITPM headroom. 8 tests.
+- **Per-user concurrent + hourly caps** (`src/web/user_caps.py`). Defaults 5 concurrent / 30 per hour, admins exempt. 16 tests.
+- **Storage retention loop** (`src/web/retention.py`). Background daemon deletes old uploads + outputs, never touches active-job files, retains SQLite job records. `POST /api/admin/retention/cleanup` for ad-hoc runs. 15 tests.
+- **Observability** (`src/web/observability.py`). Request-ID middleware (UUID4 or trusted upstream), threaded into log records via ContextVar + filter. Enhanced `/api/health` returns liveness + DB + queue depth + free disk + version. 12 tests.
+- **Preprint reconciliation memo** (`docs/writeup/numbers-reconciliation.md`) — preprint's 86.7% (veraPDF failedChecks, full 125) and NOW.md v5's 86.1% (orchestrator issues, 48 unique) are different metrics, not contradictory. Action items captured for the post-Gemini-verification rerun.
+- **Total**: 9 commits on `hardening/tier0`, 232 tests pass, no regressions.
+
+**Deferred / scoped for next sessions:**
+- Y1 Postgres migration (task #9) — bigger architectural shift, design conversation needed
+- R1 ARQ + Redis queue (task #10) — depends on Postgres
+- LLM retry-policy uniformization audit (task #12)
+- 18-month job-record deletion job (task #13)
+- Vertical scale OCI 2/12 → 4/24 (needs OCI console)
+- Hostname decision (UGA subdomain vs independent)
 
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/

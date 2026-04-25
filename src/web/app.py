@@ -37,6 +37,15 @@ from src.web.billing import (
     handle_webhook,
     init_billing_db,
 )
+from src.web.cost_cap import (
+    check_can_submit,
+    current_status as cost_cap_status,
+    ensure_cost_column,
+    record_job_cost,
+)
+from src.web.observability import RequestIdMiddleware, configure_logging
+from src.web.retention import run_cleanup as run_retention_cleanup, start_background_loop as start_retention_loop
+from src.web.user_caps import check_user_caps
 from src.web.auth import (
     clear_session_cookie,
     create_reset_token,
@@ -92,12 +101,33 @@ UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "data" / "output"
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Limit concurrent remediation jobs to avoid API rate limits.
-# With a 30k input tokens/min Claude rate limit, only one job
-# can safely process at a time.
-_processing_semaphore = threading.Semaphore(1)
+# Limit concurrent remediation jobs. Raised cautiously via env var.
+# Defaults to 1 — historical safe value for Anthropic Tier-1 rate limits
+# (Sonnet ~30k ITPM). Real-world bottleneck is usually ITPM, not CPU,
+# so monitor `usage` headers when raising this. Memory at 12GB ARM
+# also caps practical concurrency around 3 (each in-flight job holds
+# parsed PDF + Gemini/Claude payloads + iText/veraPDF subprocesses).
+def _read_max_concurrent_jobs() -> int:
+    raw = os.environ.get("MAX_CONCURRENT_JOBS", "").strip()
+    if not raw:
+        return 1
+    try:
+        n = int(raw)
+        if n < 1:
+            logger.warning("MAX_CONCURRENT_JOBS=%r < 1, falling back to 1", raw)
+            return 1
+        return n
+    except ValueError:
+        logger.warning("MAX_CONCURRENT_JOBS=%r is not an integer, falling back to 1", raw)
+        return 1
+
+_MAX_CONCURRENT_JOBS = _read_max_concurrent_jobs()
+_processing_semaphore = threading.Semaphore(_MAX_CONCURRENT_JOBS)
+logger.info("Concurrent job limit: %d", _MAX_CONCURRENT_JOBS)
 
 app = FastAPI(title="A11y Remediation", version="0.1.0")
+app.add_middleware(RequestIdMiddleware)
+configure_logging()
 
 
 @app.on_event("startup")
@@ -105,9 +135,11 @@ def startup():
     init_db()
     init_users_db()
     init_billing_db()
+    ensure_cost_column()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     _recover_stuck_jobs()
+    start_retention_loop(UPLOAD_DIR, OUTPUT_DIR)
 
 
 def _recover_stuck_jobs() -> None:
@@ -161,8 +193,47 @@ def _check_admin_promotion(user: User) -> User:
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint for deployment verification."""
-    return {"status": "ok"}
+    """Liveness + readiness check.
+
+    Public endpoint suitable for uptime monitors. Returns minimal information
+    by design — admin-only endpoints (cost-status, retention) carry the
+    sensitive operational details.
+    """
+    from src.web.jobs import _get_conn
+
+    status = "ok"
+    db_status = "ok"
+    queue_depth = -1
+    processing_depth = -1
+
+    try:
+        conn = _get_conn()
+        conn.execute("SELECT 1").fetchone()
+        queue_row = conn.execute(
+            "SELECT status, COUNT(*) FROM jobs WHERE status IN ('queued', 'processing') GROUP BY status"
+        ).fetchall()
+        counts = {row[0]: row[1] for row in queue_row}
+        queue_depth = counts.get("queued", 0)
+        processing_depth = counts.get("processing", 0)
+    except Exception as e:
+        logger.warning("Health check DB error: %s", e)
+        db_status = "error"
+        status = "degraded"
+
+    disk_free_mb = -1
+    try:
+        usage = shutil.disk_usage(str(UPLOAD_DIR))
+        disk_free_mb = usage.free // (1024 * 1024)
+    except Exception:
+        pass
+
+    return {
+        "status": status,
+        "db": db_status,
+        "queue": {"queued": queue_depth, "processing": processing_depth},
+        "disk_free_mb": disk_free_mb,
+        "version": app.version,
+    }
 
 
 # ── Static frontend ──────────────────────────────────────────────
@@ -465,6 +536,34 @@ async def upload_file(
             content={"error": f"Unsupported file type: {suffix}. Accepts .docx, .pdf, .pptx, .tex, .zip"},
         )
 
+    cost_status = check_can_submit()
+    if not cost_status.allowed:
+        if cost_status.reason == "kill_switch":
+            msg = "Document processing is temporarily paused for maintenance. Please try again later."
+        else:
+            msg = "Document processing is temporarily paused — daily capacity reached. Please try again tomorrow."
+        return JSONResponse(
+            status_code=503,
+            content={"error": msg, "reason": cost_status.reason},
+        )
+
+    cap_status = check_user_caps(user.id, is_admin=user.is_admin)
+    if not cap_status.allowed:
+        if cap_status.reason == "concurrent_cap":
+            msg = (
+                f"You already have {cap_status.concurrent_jobs} jobs in progress. "
+                "Please wait for them to finish before uploading more."
+            )
+        else:
+            msg = (
+                f"You've submitted {cap_status.hourly_jobs} jobs in the last hour. "
+                "Please try again later."
+            )
+        return JSONResponse(
+            status_code=429,
+            content={"error": msg, "reason": cap_status.reason, **cap_status.to_dict()},
+        )
+
     # Read and check file size
     content = await file.read()
     max_bytes = user.max_file_size_mb * 1024 * 1024
@@ -743,6 +842,23 @@ async def admin_list_users(admin: User = Depends(require_admin)):
     return {"users": [u.to_dict() for u in users]}
 
 
+@app.get("/api/admin/cost-status")
+async def admin_cost_status(admin: User = Depends(require_admin)):
+    """Current cost-cap status: today's spend, weekly spend, configured caps, kill switch."""
+    return cost_cap_status().to_dict()
+
+
+@app.post("/api/admin/retention/cleanup")
+async def admin_retention_cleanup(admin: User = Depends(require_admin)):
+    """Run a one-shot retention cleanup pass and return the report.
+
+    Use for ad-hoc disk-space recovery or to verify retention is working.
+    The background loop runs this automatically every RETENTION_INTERVAL_HOURS.
+    """
+    report = run_retention_cleanup(UPLOAD_DIR, OUTPUT_DIR)
+    return report.to_dict()
+
+
 @app.get("/api/admin/users/{user_id}")
 async def admin_get_user(user_id: str, admin: User = Depends(require_admin)):
     """Get a single user's details."""
@@ -966,6 +1082,12 @@ def _process_job_inner(job_id: str) -> None:
 
         # Save full pipeline result for analysis and improvement
         _save_result_json(job_output_dir, job_id, result)
+
+        # Record actual API cost for cost-cap accounting (success or failure)
+        try:
+            record_job_cost(job_id, result.cost_summary.estimated_cost_usd)
+        except Exception:
+            logger.exception("Failed to record cost for job %s", job_id)
 
         if result.success:
             update_job(

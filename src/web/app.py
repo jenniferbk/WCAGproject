@@ -98,10 +98,29 @@ UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "data" / "output"
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Limit concurrent remediation jobs to avoid API rate limits.
-# With a 30k input tokens/min Claude rate limit, only one job
-# can safely process at a time.
-_processing_semaphore = threading.Semaphore(1)
+# Limit concurrent remediation jobs. Raised cautiously via env var.
+# Defaults to 1 — historical safe value for Anthropic Tier-1 rate limits
+# (Sonnet ~30k ITPM). Real-world bottleneck is usually ITPM, not CPU,
+# so monitor `usage` headers when raising this. Memory at 12GB ARM
+# also caps practical concurrency around 3 (each in-flight job holds
+# parsed PDF + Gemini/Claude payloads + iText/veraPDF subprocesses).
+def _read_max_concurrent_jobs() -> int:
+    raw = os.environ.get("MAX_CONCURRENT_JOBS", "").strip()
+    if not raw:
+        return 1
+    try:
+        n = int(raw)
+        if n < 1:
+            logger.warning("MAX_CONCURRENT_JOBS=%r < 1, falling back to 1", raw)
+            return 1
+        return n
+    except ValueError:
+        logger.warning("MAX_CONCURRENT_JOBS=%r is not an integer, falling back to 1", raw)
+        return 1
+
+_MAX_CONCURRENT_JOBS = _read_max_concurrent_jobs()
+_processing_semaphore = threading.Semaphore(_MAX_CONCURRENT_JOBS)
+logger.info("Concurrent job limit: %d", _MAX_CONCURRENT_JOBS)
 
 app = FastAPI(title="A11y Remediation", version="0.1.0")
 

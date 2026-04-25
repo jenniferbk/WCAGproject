@@ -281,6 +281,9 @@ MICROSOFT_CLIENT_SECRET=...
 COST_CAP_DAILY_USD=         # daily $ ceiling on cumulative API spend; empty = unlimited
 COST_CAP_WEEKLY_USD=        # 7-day rolling $ ceiling; empty = unlimited
 COST_CAP_KILL_SWITCH=       # "1" / "true" to reject all new uploads immediately
+
+# Optional: Concurrency
+MAX_CONCURRENT_JOBS=        # max concurrent remediation jobs; empty = 1 (safe default)
 ```
 
 ## Cost cap (system-wide kill switch)

@@ -43,6 +43,7 @@ from src.web.cost_cap import (
     ensure_cost_column,
     record_job_cost,
 )
+from src.web.observability import RequestIdMiddleware, configure_logging
 from src.web.retention import run_cleanup as run_retention_cleanup, start_background_loop as start_retention_loop
 from src.web.user_caps import check_user_caps
 from src.web.auth import (
@@ -125,6 +126,8 @@ _processing_semaphore = threading.Semaphore(_MAX_CONCURRENT_JOBS)
 logger.info("Concurrent job limit: %d", _MAX_CONCURRENT_JOBS)
 
 app = FastAPI(title="A11y Remediation", version="0.1.0")
+app.add_middleware(RequestIdMiddleware)
+configure_logging()
 
 
 @app.on_event("startup")
@@ -190,8 +193,47 @@ def _check_admin_promotion(user: User) -> User:
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint for deployment verification."""
-    return {"status": "ok"}
+    """Liveness + readiness check.
+
+    Public endpoint suitable for uptime monitors. Returns minimal information
+    by design — admin-only endpoints (cost-status, retention) carry the
+    sensitive operational details.
+    """
+    from src.web.jobs import _get_conn
+
+    status = "ok"
+    db_status = "ok"
+    queue_depth = -1
+    processing_depth = -1
+
+    try:
+        conn = _get_conn()
+        conn.execute("SELECT 1").fetchone()
+        queue_row = conn.execute(
+            "SELECT status, COUNT(*) FROM jobs WHERE status IN ('queued', 'processing') GROUP BY status"
+        ).fetchall()
+        counts = {row[0]: row[1] for row in queue_row}
+        queue_depth = counts.get("queued", 0)
+        processing_depth = counts.get("processing", 0)
+    except Exception as e:
+        logger.warning("Health check DB error: %s", e)
+        db_status = "error"
+        status = "degraded"
+
+    disk_free_mb = -1
+    try:
+        usage = shutil.disk_usage(str(UPLOAD_DIR))
+        disk_free_mb = usage.free // (1024 * 1024)
+    except Exception:
+        pass
+
+    return {
+        "status": status,
+        "db": db_status,
+        "queue": {"queued": queue_depth, "processing": processing_depth},
+        "disk_free_mb": disk_free_mb,
+        "version": app.version,
+    }
 
 
 # ── Static frontend ──────────────────────────────────────────────

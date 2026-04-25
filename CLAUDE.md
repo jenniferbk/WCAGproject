@@ -296,6 +296,15 @@ RETENTION_DAYS_OUTPUT=      # default 30; age threshold for data/output/
 RETENTION_INTERVAL_HOURS=   # default 24; cleanup loop interval
 ```
 
+## Observability (request IDs + health endpoint)
+
+`src/web/observability.py` provides:
+
+- **Request IDs.** `RequestIdMiddleware` assigns a UUID4 to every inbound request (or honors a sane upstream `X-Request-ID` from Caddy). The ID is stored in a `ContextVar`, threaded into every log record via `RequestIdFilter`, and echoed in the response header. Lets you grep one request across user → job → API calls in `journalctl`.
+- **Logging format.** `configure_logging()` installs a single root handler with format `"%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s"`. Idempotent.
+
+`GET /api/health` returns liveness + readiness: `status`, `db`, queue depth (queued/processing), free disk, and version. Public endpoint suitable for uptime monitors. Sensitive operational details (cost spend, user counts, file paths) live on admin-only endpoints.
+
 ## Storage retention
 
 `src/web/retention.py` deletes files older than the configured window from `data/uploads/` and `data/output/`. Behavior:

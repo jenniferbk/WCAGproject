@@ -62,12 +62,24 @@ COMPREHENSION_SCHEMA = {
                     "is_decorative": {"type": "BOOLEAN"},
                     "suggested_action": {"type": "STRING"},
                     "confidence": {"type": "NUMBER"},
+                    "heading_level": {"type": "NUMBER"},
                 },
                 "required": ["element_id", "purpose", "is_decorative", "suggested_action", "confidence"],
             },
         },
+        "link_text_proposals": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "link_id": {"type": "STRING"},
+                    "proposed_text": {"type": "STRING"},
+                },
+                "required": ["link_id", "proposed_text"],
+            },
+        },
     },
-    "required": ["document_type", "document_summary", "audience", "element_purposes"],
+    "required": ["document_type", "document_summary", "audience", "element_purposes", "suggested_language"],
 }
 
 # Schema for image description response
@@ -122,6 +134,45 @@ The following images are from the document. Each image is preceded by its ID and
 
 # MIME types Gemini supports natively
 _GEMINI_SUPPORTED_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+# Common human-readable language names → BCP-47 codes. Backstop for the prompt;
+# the comprehension prompt instructs Gemini to emit BCP-47 directly, but if it
+# slips up ("English") we normalize here rather than passing junk downstream.
+_LANGUAGE_NAME_TO_BCP47 = {
+    "english": "en",
+    "spanish": "es",
+    "french": "fr",
+    "german": "de",
+    "italian": "it",
+    "portuguese": "pt",
+    "chinese": "zh",
+    "japanese": "ja",
+    "korean": "ko",
+    "russian": "ru",
+    "arabic": "ar",
+    "hindi": "hi",
+}
+
+
+def _normalize_language(value: str) -> str:
+    """Normalize comprehension's suggested_language to a BCP-47 code.
+
+    Map common English-language names to codes first (so "English" → "en"
+    rather than slipping through the passthrough). Then pass through anything
+    that already looks like BCP-47. Empty returns "".
+    """
+    if not value:
+        return ""
+    cleaned = value.strip()
+    # Map known language names (handles "English", "English (US)", "French, Canadian")
+    head = cleaned.lower().split(" ", 1)[0].rstrip(",.")
+    if head in _LANGUAGE_NAME_TO_BCP47:
+        return _LANGUAGE_NAME_TO_BCP47[head]
+    # Already BCP-47-ish: short, no spaces, hyphen ok
+    if len(cleaned) <= 10 and " " not in cleaned and "(" not in cleaned:
+        return cleaned
+    # Last resort: truncate to keep storage sane
+    return cleaned[:10]
 
 # Batching and rate limit settings
 IMAGES_PER_BATCH = 4           # Smaller batches = less tokens per request
@@ -519,13 +570,29 @@ def comprehend(
     # Parse element purposes
     element_purposes = []
     for ep in result_data.get("element_purposes", []):
+        hl_raw = ep.get("heading_level")
+        try:
+            heading_level = int(hl_raw) if hl_raw is not None else None
+        except (TypeError, ValueError):
+            heading_level = None
+        if heading_level is not None and heading_level not in (1, 2, 3):
+            heading_level = None
         element_purposes.append(ElementPurpose(
             element_id=ep["element_id"],
             purpose=ep["purpose"],
             is_decorative=ep.get("is_decorative", False),
             suggested_action=ep.get("suggested_action", ""),
             confidence=ep.get("confidence", 0.5),
+            heading_level=heading_level,
         ))
+
+    # Parse link text proposals (link_id -> proposed_text)
+    link_text_proposals: dict[str, str] = {}
+    for entry in result_data.get("link_text_proposals", []):
+        link_id = entry.get("link_id")
+        proposed = entry.get("proposed_text")
+        if link_id and proposed:
+            link_text_proposals[link_id] = proposed
 
     # Parse document type
     doc_type_str = result_data.get("document_type", "other")
@@ -539,9 +606,10 @@ def comprehend(
         document_summary=result_data.get("document_summary", ""),
         audience=result_data.get("audience", ""),
         suggested_title=result_data.get("suggested_title", ""),
-        suggested_language=result_data.get("suggested_language", ""),
+        suggested_language=_normalize_language(result_data.get("suggested_language", "")),
         element_purposes=element_purposes,
         image_descriptions=image_descriptions,
+        link_text_proposals=link_text_proposals,
         validation_summary=validation_text,
         validation_issues_count=validation_report.failed,
         raw_validation_report=validation_text,

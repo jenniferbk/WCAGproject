@@ -244,41 +244,8 @@ def strategize(
     for action_data in result_data.get("actions", []):
         element_id = action_data["element_id"]
         action_type = action_data["action_type"]
-        params = action_data.get("parameters", {})
-
-        # Resolve image location parameters
-        if action_type in ("set_alt_text", "set_decorative"):
-            if doc.source_format == "pdf":
-                # PDF executor uses element_id directly, no index resolution needed
-                pass
-            elif doc.source_format == "pptx" and "slide_index" not in params:
-                # Resolve slide_index and shape_index from image info
-                img = _find_image(doc, element_id)
-                if img is not None and img.slide_index is not None:
-                    params["slide_index"] = img.slide_index
-                    params["shape_index"] = img.shape_index
-            elif "paragraph_index" not in params:
-                idx = _find_image_paragraph_index(doc, element_id)
-                if idx is not None:
-                    params["paragraph_index"] = idx
-                    # Resolve correct drawing_index from image position
-                    # within its paragraph's image_ids list
-                    if "drawing_index" not in params:
-                        para = doc.paragraphs[idx]
-                        try:
-                            params["drawing_index"] = para.image_ids.index(element_id)
-                        except ValueError:
-                            params["drawing_index"] = 0
-
-        if action_type == "set_heading_level" and "paragraph_index" not in params:
-            idx = _find_paragraph_index(doc, element_id)
-            if idx is not None:
-                params["paragraph_index"] = idx
-
-        if action_type == "mark_header_rows" and "table_index" not in params:
-            idx = _find_table_index(doc, element_id)
-            if idx is not None:
-                params["table_index"] = idx
+        params = dict(action_data.get("parameters", {}))
+        _resolve_action_params(doc, element_id, action_type, params)
 
         actions.append(RemediationAction(
             element_id=element_id,
@@ -293,4 +260,207 @@ def strategize(
         items_for_human_review=result_data.get("items_for_human_review", []),
         strategy_summary=result_data.get("strategy_summary", ""),
         api_usage=[strategy_usage],
+    )
+
+
+def _resolve_action_params(
+    doc: DocumentModel,
+    element_id: str,
+    action_type: str,
+    params: dict,
+) -> None:
+    """Resolve element-id-based params to index-based params expected by executors.
+
+    Mutates `params` in place. Pure dispatch over element_id → DocumentModel
+    structure; no LLM involvement. Shared by `strategize` (LLM mode) and
+    `strategize_deterministic` (mapper mode).
+    """
+    if action_type in ("set_alt_text", "set_decorative"):
+        if doc.source_format == "pdf":
+            # PDF executor uses element_id directly, no index resolution needed
+            return
+        if doc.source_format == "pptx" and "slide_index" not in params:
+            img = _find_image(doc, element_id)
+            if img is not None and img.slide_index is not None:
+                params["slide_index"] = img.slide_index
+                params["shape_index"] = img.shape_index
+            return
+        if "paragraph_index" not in params:
+            idx = _find_image_paragraph_index(doc, element_id)
+            if idx is not None:
+                params["paragraph_index"] = idx
+                if "drawing_index" not in params:
+                    para = doc.paragraphs[idx]
+                    try:
+                        params["drawing_index"] = para.image_ids.index(element_id)
+                    except ValueError:
+                        params["drawing_index"] = 0
+        return
+
+    if action_type == "set_heading_level" and "paragraph_index" not in params:
+        idx = _find_paragraph_index(doc, element_id)
+        if idx is not None:
+            params["paragraph_index"] = idx
+        return
+
+    if action_type == "mark_header_rows" and "table_index" not in params:
+        idx = _find_table_index(doc, element_id)
+        if idx is not None:
+            params["table_index"] = idx
+        return
+
+
+def strategize_deterministic(
+    doc: DocumentModel,
+    comprehension: ComprehensionResult,
+) -> RemediationStrategy:
+    """Deterministic mapper version of `strategize` — no LLM call.
+
+    Generates the same `RemediationStrategy` shape directly from the
+    comprehension result. Used to test whether the strategy LLM is
+    doing decision work that can't be reduced to a template.
+
+    Consumes (added 2026-04-25 after the mapper experiment):
+    - `comprehension.link_text_proposals` — comprehension now generates
+      descriptive link text upstream, so the mapper can emit `set_link_text`.
+    - `comprehension.element_purposes[*].heading_level` — comprehension picks
+      H1/H2/H3; mapper falls back to H2 only if missing.
+
+    Args:
+        doc: Parsed document model.
+        comprehension: Result from comprehension phase.
+
+    Returns:
+        RemediationStrategy with planned actions, empty api_usage.
+    """
+    actions: list[RemediationAction] = []
+
+    # Index element_purposes by element_id for fast lookup
+    purpose_by_id = {ep.element_id: ep for ep in comprehension.element_purposes}
+
+    # ── 1. Metadata first (title, language) ─────────────────────
+    title = comprehension.suggested_title or doc.metadata.title or ""
+    if title:
+        actions.append(RemediationAction(
+            element_id="document",
+            action_type="set_title",
+            parameters={"title": title},
+            rationale="WCAG 2.4.2: document title from comprehension.",
+            status="planned",
+        ))
+
+    language = comprehension.suggested_language or "en"
+    actions.append(RemediationAction(
+        element_id="document",
+        action_type="set_language",
+        parameters={"language": language},
+        rationale="WCAG 3.1.1: document language from comprehension (default en).",
+        status="planned",
+    ))
+
+    # ── 2. Contrast (one bulk fix if validator found 1.4.3 failures) ─
+    val_text = comprehension.validation_summary or ""
+    if "[FAIL] 1.4.3" in val_text or "[WARN] 1.4.3" in val_text:
+        actions.append(RemediationAction(
+            element_id="document",
+            action_type="fix_all_contrast",
+            parameters={"default_bg": "#FFFFFF"},
+            rationale="WCAG 1.4.3: bulk-darken low-contrast text.",
+            status="planned",
+        ))
+
+    # ── 3. Link text — comprehension proposes descriptive replacements ─
+    # comprehension.link_text_proposals: link_id -> proposed_text. We only
+    # emit set_link_text for links comprehension proposed text for; links
+    # already with descriptive text don't appear in the dict.
+    for link_id, proposed in comprehension.link_text_proposals.items():
+        if not proposed:
+            continue
+        actions.append(RemediationAction(
+            element_id=link_id,
+            action_type="set_link_text",
+            parameters={"new_text": proposed},
+            rationale="WCAG 2.4.4: descriptive link text from comprehension.",
+            status="planned",
+        ))
+
+    # ── 4. Structure: headings (comprehension picks level; default H2) ─
+    for ep in comprehension.element_purposes:
+        if ep.suggested_action == "convert_to_heading" and ep.element_id.startswith("p_"):
+            level = ep.heading_level if ep.heading_level in (1, 2, 3) else 2
+            params: dict = {"level": level}
+            _resolve_action_params(doc, ep.element_id, "set_heading_level", params)
+            if "paragraph_index" in params:
+                actions.append(RemediationAction(
+                    element_id=ep.element_id,
+                    action_type="set_heading_level",
+                    parameters=params,
+                    rationale=f"WCAG 1.3.1/2.4.6: comprehension flagged as H{level} (confidence {ep.confidence:.2f}).",
+                    status="planned",
+                ))
+
+    # ── 5. Structure: table headers ─────────────────────────────
+    for tbl in doc.tables:
+        if tbl.header_row_count == 0 and tbl.row_count > 0:
+            params = {"header_count": 1}
+            _resolve_action_params(doc, tbl.id, "mark_header_rows", params)
+            if "table_index" in params:
+                actions.append(RemediationAction(
+                    element_id=tbl.id,
+                    action_type="mark_header_rows",
+                    parameters=params,
+                    rationale="WCAG 1.3.1: mark first row as table header (default).",
+                    status="planned",
+                ))
+
+    # ── 6. Content last: alt text for every image with a description ─
+    for img in doc.images:
+        ep = purpose_by_id.get(img.id)
+        if ep is not None and ep.is_decorative:
+            params = {}
+            _resolve_action_params(doc, img.id, "set_decorative", params)
+            actions.append(RemediationAction(
+                element_id=img.id,
+                action_type="set_decorative",
+                parameters=params,
+                rationale="WCAG 1.1.1: comprehension flagged image as decorative.",
+                status="planned",
+            ))
+            continue
+
+        description = comprehension.image_descriptions.get(img.id)
+        if description:
+            params = {"alt_text": description}
+            _resolve_action_params(doc, img.id, "set_alt_text", params)
+            actions.append(RemediationAction(
+                element_id=img.id,
+                action_type="set_alt_text",
+                parameters=params,
+                rationale="WCAG 1.1.1: vision-generated alt text from comprehension.",
+                status="planned",
+            ))
+
+    # Items for human review — collect images with no description and no
+    # decorative flag, plus anything comprehension flagged as flag_for_review.
+    review_items: list[str] = []
+    for img in doc.images:
+        ep = purpose_by_id.get(img.id)
+        if ep is not None and ep.is_decorative:
+            continue
+        if not comprehension.image_descriptions.get(img.id):
+            review_items.append(
+                f"{img.id}: no vision description available — manual review needed."
+            )
+    for ep in comprehension.element_purposes:
+        if ep.suggested_action == "flag_for_review":
+            review_items.append(f"{ep.element_id}: {ep.purpose}")
+
+    return RemediationStrategy(
+        actions=actions,
+        items_for_human_review=review_items,
+        strategy_summary=(
+            f"Deterministic mapper: {len(actions)} actions generated from "
+            f"comprehension output (no LLM call). Link-text rewriting skipped."
+        ),
+        api_usage=[],
     )

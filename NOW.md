@@ -1,8 +1,17 @@
 # NOW - Current Session State
 
+## NEW (2026-04-25): Major university inquiry — production-readiness pivot
+A major university inquired about using the tool. This shifts priorities from research toward production-readiness for institutional deployment. Audit findings + 10-item gap inventory in `memory/project_university_inquiry.md`. Headline gaps: concurrency=1 hardcoded (`src/web/app.py:98`), no real job queue (Python threads), SQLite write contention, single-server ARM, one shared API key (just bit us with Gemini Tier 1 verification gating), no per-org quotas, no FERPA story, no SAML, no storage cleanup, no cost cap. Tackle before signing.
+
+## Today's session (2026-04-25)
+- **Strategy mapper experiment shipped** (`docs/experiments/2026-04-25-strategy-mapper-comparison.md`). Findings: ~70% of LLM strategy work is template-following, ~25% is judgment work that comprehension *should* do but doesn't, ~5% harmful (alt-text hallucination on images comprehension couldn't see).
+- **Comprehension prompt extension** drafted, applied, and smoke-tested on the EMAT 8030 syllabus (no images). All 3 new fields populate correctly: BCP-47 language ("en"), heading_level on every convert_to_heading (24/24), link_text_proposals (5/5 raw-URL links). Image-heavy validation blocked by Gemini identity verification (1-3 days).
+- **Mapper updated** to consume new comprehension fields. 960/961 tests pass, no regressions.
+- **Phase B (full pipeline both modes + veraPDF)** queued, blocked on verification.
+
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
-- **Server**: Oracle Cloud ARM instance at 150.136.101.132
+- **Server**: Oracle Cloud ARM instance at 150.136.101.132 (2 OCPU / 12GB ARM — too small for university scale)
 - **Benchmark detection (v5 raw-PDF, 2026-04-17, fresh clone)**: **80.00%** (100/125) with no dataset-specific metadata signals. Exactly matches the 2026-04-11 ceiling — predictor logic has not regressed. Per-task: functional_hyperlinks 100%, fonts_readability 93.33%, table_structure 80%, semantic_tagging 75%, color_contrast 73.33%, alt_text_quality 70%, logical_reading_order 66.67%. Benchmark data at `/tmp/PDF-Accessibility-Benchmark-fresh/`.
 - **Remediation (v5 — just completed 2026-04-17, `/tmp/remediation_bench_v5`)**: **86.1% PDF/UA violation reduction** (6,227→865, veraPDF-verified), **7/48 fully compliant**, 47 improved, 1 unchanged, **0 regressed**. Run covers 48 unique PDFs — `remediation_benchmark.py` dedups byte-identical files across the 125 Kumar items, so "48" is the real content count, not a subset. $5.87 total, $0.12/doc, 118 min wall time. This is the first full measurement since v4c fixes (7.3-1, 7.18 /Dest, ToUnicode ligature fill) — real improvement over v4's 63.9% reduction / 4 compliant / 9 regressions.
 - **Tests**: 1053 passing, 2 skipped, 3 pre-existing failures (`TestTailPolishFigureAlt`, unrelated to current session)

@@ -107,6 +107,7 @@ class ElementPurpose(BaseModel, frozen=True):
     is_decorative: bool = False  # for images: decorative vs. content-bearing
     suggested_action: str = ""   # e.g. "add_alt_text", "convert_to_heading", "flag_for_review"
     confidence: float = 1.0      # 0-1, how sure the model is
+    heading_level: int | None = None  # 1, 2, or 3 — set when suggested_action == "convert_to_heading"
 
 
 class ComprehensionResult(BaseModel, frozen=True):
@@ -122,6 +123,7 @@ class ComprehensionResult(BaseModel, frozen=True):
     suggested_language: str = "" # Gemini's detected document language (e.g. "en")
     element_purposes: list[ElementPurpose] = Field(default_factory=list)
     image_descriptions: dict[str, str] = Field(default_factory=dict)  # img_id -> detailed description from Gemini vision
+    link_text_proposals: dict[str, str] = Field(default_factory=dict)  # link_id -> proposed descriptive replacement text
     validation_summary: str = "" # summary of pre-remediation validation
     validation_issues_count: int = 0
     raw_validation_report: str = ""  # full validator output for reference

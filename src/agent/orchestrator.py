@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import re
 import time
 from collections.abc import Callable
@@ -41,7 +42,7 @@ from src.tools.visual_qa import run_visual_qa
 from .comprehension import comprehend
 from .executor import execute, execute_pdf
 from .reviewer import review
-from .strategy import strategize
+from .strategy import strategize, strategize_deterministic
 
 logger = logging.getLogger(__name__)
 
@@ -537,14 +538,19 @@ def process(
         len(comprehension.element_purposes),
     )
 
-    # ── Phase 2: Strategize (Claude) ────────────────────────────────
+    # ── Phase 2: Strategize (Claude or deterministic mapper) ────────
+    strategy_mode = os.environ.get("STRATEGY_MODE", "llm").lower()
     if on_phase:
         on_phase(
             "strategizing",
             f"Planning fixes for {comprehension.document_type.value}",
         )
-    logger.info("Phase 2: Strategy (Claude)")
-    strategy = strategize(doc_model, comprehension)
+    if strategy_mode == "deterministic":
+        logger.info("Phase 2: Strategy (deterministic mapper, no LLM)")
+        strategy = strategize_deterministic(doc_model, comprehension)
+    else:
+        logger.info("Phase 2: Strategy (Claude)")
+        strategy = strategize(doc_model, comprehension)
     logger.info(
         "Strategy: %d actions, %d items for human review",
         len(strategy.actions),

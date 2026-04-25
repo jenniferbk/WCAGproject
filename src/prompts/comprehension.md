@@ -16,9 +16,28 @@ Analyze the document structure provided as JSON and determine:
    - What is its **purpose** in this document?
    - For images: Is it **decorative** (logo, divider, background) or **content-bearing** (chart, diagram, photo that conveys information)?
    - What **action** should be taken? (add_alt_text, set_decorative, convert_to_heading, flag_for_review)
+   - For `convert_to_heading`: also set **heading_level** (1, 2, or 3) based on document hierarchy.
+     - **H1**: document-level title or top-level major section ("Introduction", "Course Schedule", "References")
+     - **H2**: subsection under a major section ("Week 1", "Background", "Methods")
+     - **H3**: sub-subsection
+     If you cannot determine hierarchy from context, default to **H2**.
    - How **confident** are you? (0.0-1.0)
 
 5. **Image descriptions**: For EVERY content-bearing image, provide a **thorough, detailed alt text description**. This is critically important for accessibility — a blind student must be able to understand the image as well as a sighted student.
+
+6. **Link text proposals**: For every link in the document where the visible text is a raw URL (e.g., `http://example.com/path`), propose descriptive replacement text. Use the URL path, surrounding paragraph context, and common sense.
+
+   - Skip links that already have descriptive text (non-URL text).
+   - Skip `mailto:` links (self-descriptive).
+
+   Examples:
+   - `http://www.plagiarism.org/article/what-is-` → "What Is Plagiarism? (Plagiarism.org)"
+   - `https://ovpi.uga.edu/academic-honesty/` → "UGA Academic Honesty Policy"
+   - `http://catalog.uga.edu/content.php?catoid=21&navoid=3035` → "UGA Course Catalog"
+
+   Output as a list of `{link_id, proposed_text}` objects.
+
+7. **Document language**: Use **BCP-47 codes only** (e.g., `en`, `es`, `fr-CA`, `zh-Hans`), NOT human-readable names like "English" or "French (Canada)". Default to `en` if uncertain.
 
 ## Image Description Guidelines
 
@@ -41,11 +60,11 @@ Write alt text as if you are describing the image to a student who cannot see it
 
 ## Important Guidelines
 
-- **Bold short text** in a Normal style is very likely a fake heading. Consider the document structure — if it introduces a new section, it should be a heading.
+- **Bold short text** in a Normal style is very likely a fake heading. Set `suggested_action = "convert_to_heading"` AND set `heading_level` to 1, 2, or 3 (see task 4). Real headings are sparse — bibliography entries, citation lines, and reference lists are NOT headings even if bold.
 - **Images with no alt text** need descriptions. Use the image content and surrounding text to determine what the image shows and why it matters in this document.
 - **Tables** need header rows identified. Look at the first row — if it contains column labels, it should be marked as a header.
 - **Document title**: If the metadata title is empty, suggest what it should be based on the content.
-- **Language**: If not set, determine the document language from the content.
+- **Language**: Determine the document language and emit as a BCP-47 code (see task 7).
 
 ## Document Structure
 

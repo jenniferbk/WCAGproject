@@ -37,6 +37,12 @@ from src.web.billing import (
     handle_webhook,
     init_billing_db,
 )
+from src.web.cost_cap import (
+    check_can_submit,
+    current_status as cost_cap_status,
+    ensure_cost_column,
+    record_job_cost,
+)
 from src.web.auth import (
     clear_session_cookie,
     create_reset_token,
@@ -105,6 +111,7 @@ def startup():
     init_db()
     init_users_db()
     init_billing_db()
+    ensure_cost_column()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     _recover_stuck_jobs()
@@ -465,6 +472,17 @@ async def upload_file(
             content={"error": f"Unsupported file type: {suffix}. Accepts .docx, .pdf, .pptx, .tex, .zip"},
         )
 
+    cost_status = check_can_submit()
+    if not cost_status.allowed:
+        if cost_status.reason == "kill_switch":
+            msg = "Document processing is temporarily paused for maintenance. Please try again later."
+        else:
+            msg = "Document processing is temporarily paused — daily capacity reached. Please try again tomorrow."
+        return JSONResponse(
+            status_code=503,
+            content={"error": msg, "reason": cost_status.reason},
+        )
+
     # Read and check file size
     content = await file.read()
     max_bytes = user.max_file_size_mb * 1024 * 1024
@@ -743,6 +761,12 @@ async def admin_list_users(admin: User = Depends(require_admin)):
     return {"users": [u.to_dict() for u in users]}
 
 
+@app.get("/api/admin/cost-status")
+async def admin_cost_status(admin: User = Depends(require_admin)):
+    """Current cost-cap status: today's spend, weekly spend, configured caps, kill switch."""
+    return cost_cap_status().to_dict()
+
+
 @app.get("/api/admin/users/{user_id}")
 async def admin_get_user(user_id: str, admin: User = Depends(require_admin)):
     """Get a single user's details."""
@@ -966,6 +990,12 @@ def _process_job_inner(job_id: str) -> None:
 
         # Save full pipeline result for analysis and improvement
         _save_result_json(job_output_dir, job_id, result)
+
+        # Record actual API cost for cost-cap accounting (success or failure)
+        try:
+            record_job_cost(job_id, result.cost_summary.estimated_cost_usd)
+        except Exception:
+            logger.exception("Failed to record cost for job %s", job_id)
 
         if result.success:
             update_job(

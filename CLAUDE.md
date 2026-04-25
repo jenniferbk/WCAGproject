@@ -10,7 +10,7 @@ AI-powered WCAG 2.1 AA accessibility remediation for university course materials
 
 ## Project Context
 
-DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content by **April 24, 2026**. Manual remediation costs $3-4/page. Existing automated tools apply generic fixes without understanding document context and don't get the job done well. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist. The core distinction is this agentic layer — the system makes context-dependent judgments that traditional deterministic pipelines cannot.
+DOJ Title II ADA rule (April 2024) requires public universities to meet WCAG 2.1 Level AA for all digital content. The original compliance date was April 24, 2026; DOJ extended this to **April 26, 2027** for entities with population ≥50,000 (and to April 26, 2028 for smaller entities) via an Interim Final Rule published 2026-04-20. The underlying WCAG 2.1 AA standard and ongoing ADA obligation are unchanged. Manual remediation costs $3-4/page. Existing automated tools apply generic fixes without understanding document context and don't get the job done well. This tool automates 70-80% of the work using an agentic AI approach where the model *understands* document intent before remediating, rather than running a fixed checklist. The core distinction is this agentic layer — the system makes context-dependent judgments that traditional deterministic pipelines cannot.
 
 **End user experience:** Faculty log in to a web interface, upload a document (with optional course context), and receive the remediated file + compliance report. No CLI or technical knowledge required. Course context matters: knowing a document is a calculus syllabus vs. an art history lecture changes how elements are interpreted.
 
@@ -276,7 +276,22 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 MICROSOFT_CLIENT_ID=...
 MICROSOFT_CLIENT_SECRET=...
+
+# Optional: Cost cap (system-wide spend kill switch — see "Cost cap" section below)
+COST_CAP_DAILY_USD=         # daily $ ceiling on cumulative API spend; empty = unlimited
+COST_CAP_WEEKLY_USD=        # 7-day rolling $ ceiling; empty = unlimited
+COST_CAP_KILL_SWITCH=       # "1" / "true" to reject all new uploads immediately
 ```
+
+## Cost cap (system-wide kill switch)
+
+`src/web/cost_cap.py` provides a system-wide spend ceiling that operates independently of per-user `pages_balance`. When the configured cap is hit (or the kill switch is set), `/api/upload` returns HTTP 503 with reason `daily_cap_exceeded`, `weekly_cap_exceeded`, or `kill_switch`.
+
+- **Storage:** actual API cost per job is recorded in `jobs.estimated_cost_usd` after each pipeline run, sourced from `result.cost_summary.estimated_cost_usd`. Pre-existing jobs default to 0.
+- **Caps:** read from env at check time, so changing `.env.production` and re-sourcing it (or restarting the service) takes effect without code changes. `0` / empty / invalid values mean unlimited.
+- **Kill switch:** truthy values are `1`, `true`, `yes`, `on` (case-insensitive). Use during incidents or maintenance windows to pause spend without changing caps.
+- **Visibility:** `GET /api/admin/cost-status` returns the current snapshot (today's spend, 7-day spend, configured caps, kill-switch state). Admin-only.
+- **Window definitions:** "daily" = since UTC midnight today; "weekly" = trailing 7 days from now.
 
 ## Build Order
 

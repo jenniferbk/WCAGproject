@@ -120,6 +120,9 @@ def init_users_db() -> None:
     if "phase_detail" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN phase_detail TEXT DEFAULT ''")
         conn.commit()
+    if "estimated_cost_usd" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN estimated_cost_usd REAL DEFAULT 0")
+        conn.commit()
 
 
 def _row_to_user(row) -> User:

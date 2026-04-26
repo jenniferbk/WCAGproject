@@ -44,6 +44,7 @@ from src.web.cost_cap import (
     record_job_cost,
 )
 from src.web.observability import RequestIdMiddleware, configure_logging
+from src.web.queue import enqueue_job as arq_enqueue_job, get_backend as queue_backend
 from src.web.retention import run_cleanup as run_retention_cleanup, start_background_loop as start_retention_loop
 from src.web.user_caps import check_user_caps
 from src.web.auth import (
@@ -100,6 +101,21 @@ _general_limit = rate_limit(120, 60)             # 120/min per IP
 UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "data" / "output"
 STATIC_DIR = Path(__file__).parent / "static"
+
+def _dispatch_job(job_id: str) -> None:
+    """Dispatch a job for processing. Routes to ARQ when QUEUE_BACKEND=arq,
+    otherwise falls back to the historical threading.Thread daemon."""
+    if queue_backend() == "arq":
+        try:
+            arq_enqueue_job(job_id)
+            return
+        except Exception:
+            logger.exception(
+                "ARQ enqueue failed for job %s — falling back to threading", job_id,
+            )
+    thread = threading.Thread(target=_process_job, args=(job_id,), daemon=True)
+    thread.start()
+
 
 # Limit concurrent remediation jobs. Raised cautiously via env var.
 # Defaults to 1 — historical safe value for Anthropic Tier-1 rate limits
@@ -163,18 +179,13 @@ def _recover_stuck_jobs() -> None:
         )
     conn.commit()
 
-    # Re-enqueue all queued jobs
+    # Re-enqueue all queued jobs (router picks ARQ or threading)
     queued = conn.execute(
         "SELECT id, filename FROM jobs WHERE status = 'queued' ORDER BY created_at ASC"
     ).fetchall()
     for row in queued:
         logger.info("Re-enqueuing job %s: %s", row[0][:8], row[1])
-        thread = threading.Thread(
-            target=_process_job,
-            args=(row[0],),
-            daemon=True,
-        )
-        thread.start()
+        _dispatch_job(row[0])
 
     if queued:
         logger.info("Recovered %d jobs (%d were stuck)", len(queued), len(stuck))
@@ -615,13 +626,8 @@ async def upload_file(
 
     update_job(job.id, original_path=str(final_path), status="queued")
 
-    # Start processing in background
-    thread = threading.Thread(
-        target=_process_job,
-        args=(job.id,),
-        daemon=True,
-    )
-    thread.start()
+    # Dispatch for processing (ARQ or threading per QUEUE_BACKEND)
+    _dispatch_job(job.id)
 
     return {"job_id": job.id, "status": "queued", "filename": filename}
 

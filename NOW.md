@@ -32,6 +32,18 @@ A major university inquired about using the tool. This shifts priorities from re
 - Vertical scale OCI 2/12 → 4/24 (needs OCI console)
 - Hostname decision (UGA subdomain vs independent)
 
+**Evening — e2e suite + Postgres + ARQ (continued, all merged to master):**
+- **E2E regression suite shipped** (`tests/e2e/`, 44 tests, ~10s). Mocks the orchestrator pipeline so it runs without LLM API spend. Coverage: auth flow, upload flow, caps + limits, admin endpoints, observability. Safety net for the bigger refactors. Marked `pytest.mark.e2e` for selective running. (commit `c9a732c`)
+- **Y1 Postgres in-place migration shipped** (`src/web/db.py`, `migration/postgres-inplace`). New abstraction layer routes to SQLite (default) or Postgres (when `DATABASE_URL=postgresql://...`). `?` placeholders translated to `%s` automatically. `Row` class supports both positional and named access on both backends. Schema diffs encapsulated in `column_exists()`, `table_columns()`, `is_integrity_error()`, `begin_immediate()`. `psycopg[binary]` is an optional dep. Migration script `scripts/migrate_sqlite_to_postgres.py` verified end-to-end on real production data (2 users / 6 jobs / 1 transaction migrated cleanly). 25 unit tests + 10 live Postgres smoke tests. Not deployed — needs Postgres provisioned on Oracle host first. (commits `4079530`, `69b417c`)
+- **R1 ARQ + Redis queue shipped** (`src/web/queue.py`, `queue/arq-redis`). Gated on `QUEUE_BACKEND=arq`; default remains threading.Thread for backward compat. New `_dispatch_job()` seam in app.py routes to ARQ or threading. Defensive fallback to threading if ARQ enqueue raises. Worker entry point at `scripts/run_arq_worker.py`. Verified live against local Redis (5/5 smoke tests including dedup). 12/12 unit tests without Redis. 44/44 e2e still pass. Not deployed — needs Redis provisioned + worker systemd unit. (commits `1a4aede`, `f704d8d`)
+
+**Session totals (2026-04-25):**
+- Commits to master: 14
+- Net diff: ~3,500 lines (mostly tests + docs)
+- Test suite: 1225 SQLite tests pass + 10 Postgres + 5 ARQ live
+- Three new opt-in env vars at production-readiness boundary: `DATABASE_URL`, `QUEUE_BACKEND`, `MAX_CONCURRENT_JOBS`. All default to current behavior.
+- Architecture-significant changes (Y1, R1) staged opt-in so a single env var flip switches them on, no code redeploy required.
+
 ## Project Status
 - **Live site**: https://remediate.jenkleiman.com/
 - **Server**: Oracle Cloud ARM instance at 150.136.101.132 (2 OCPU / 12GB ARM — too small for university scale)

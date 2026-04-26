@@ -334,6 +334,35 @@ createdb a11y_remediate_test
 DATABASE_URL=postgresql:///a11y_remediate_test pytest tests/test_postgres_smoke.py -v
 ```
 
+## Job queue (threading default, ARQ + Redis in production)
+
+`src/web/queue.py` selects the backend by `QUEUE_BACKEND`:
+
+- **Default (unset / unknown):** historical `threading.Thread` daemons started directly from `/api/upload`. No new deps.
+- **`QUEUE_BACKEND=arq` (or `redis`):** enqueue jobs to ARQ via Redis. Workers run as a separate process. Requires `pip install -e ".[queue]"` and a reachable Redis.
+
+The seam in `app.py` is `_dispatch_job(job_id)` — it routes to ARQ when configured, otherwise spins up a daemon thread. Both code paths use the same `_process_job_inner` (orchestrator pipeline), so behavior is identical from the user's perspective.
+
+**Worker startup:**
+
+```bash
+QUEUE_BACKEND=arq REDIS_URL=redis://localhost:6379 python -m scripts.run_arq_worker
+```
+
+Concurrency per worker = `MAX_CONCURRENT_JOBS` (same env var as the threading path). Run multiple worker processes for horizontal scale; ARQ handles distribution.
+
+**Resilience:**
+
+- ARQ enqueue failures (Redis down) automatically fall back to the threading path so an upload never silently fails. Logged as a warning.
+- Job dedup: the same job_id won't enqueue twice (ARQ uses `_job_id="a11y:{job_id}"`).
+- `_recover_stuck_jobs()` on app startup re-dispatches queued/processing jobs through the active backend, same as before.
+
+**Tests:**
+
+- `tests/test_queue.py` — unit tests for backend selection + dispatch routing (no Redis required).
+- `tests/test_arq_smoke.py` — live integration against Redis, gated on `REDIS_URL` reachability.
+- E2E tests run on the threading path by default; the ARQ path is exercised via the smoke test.
+
 ## E2E regression suite
 
 `tests/e2e/` exercises the full HTTP stack through FastAPI's `TestClient` while mocking the orchestrator's `process()` to avoid real LLM API calls. Cheap to run (~10s for 44 tests) and meant as the safety net for upcoming refactors (Postgres migration, ARQ queue replacement).

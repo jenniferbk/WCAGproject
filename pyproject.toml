@@ -44,6 +44,10 @@ dev = [
 postgres = [
     "psycopg[binary]>=3.1",
 ]
+queue = [
+    "arq>=0.26",
+    "redis>=5.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

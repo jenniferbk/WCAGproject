@@ -1,5 +1,37 @@
 # NOW - Current Session State
 
+## ⏸ PAUSED 2026-04-25 evening — pick up when Gemini verification clears
+
+**Status:** all hardening + Y1 + R1 work merged to `master` and pushed to `origin`. Live deployment is unchanged (the merged work is opt-in via env vars). 17 commits in this push.
+
+**What's blocked on Gemini paid-tier identity verification (1-3 days):**
+- v6 benchmark rerun on `/tmp/PDF-Accessibility-Benchmark-fresh/` (107 unique PDFs, ~$13, ~4.5 hrs overnight)
+- Phase B comparison validating today's strategy-mapper migration (`d7fe400`)
+- Preprint rewrite using fresh v6 numbers (per `docs/writeup/numbers-reconciliation.md`)
+
+**First moves when resuming:**
+1. Confirm Gemini verification cleared (smoke test via `scripts/_test_gemini_31_lite.py`)
+2. Kick off the 107-doc benchmark overnight
+3. Phase B comparison the next day (validates / rolls back the mapper migration)
+4. Update preprint with v6 numbers (drop the consolidated 87.5% framing, refresh deadline references)
+5. After preprint posts: send EITS letter (Spangler email first, then `idm@uga.edu`)
+
+**Held by user instruction (not blocked, deliberately paused):**
+- Vertical scale OCI 2/12 → 4/24 (~1 hr OCI console)
+- Hostname decision (UGA subdomain vs independent project domain)
+- Sending EITS letter (held pending v6 numbers)
+- Production deploy of Postgres + ARQ (held pending review)
+
+**Still open follow-on work** (not gated on anything):
+- Task #12: audit + uniformize LLM retry policy across Gemini/Claude/OpenAI
+- Task #13: 18-month job-record deletion job (policy commits to it; small extension to retention loop)
+- SAML SP code (~1 week of work after EITS responds)
+- Faculty user study (3-5 blind/low-vision sessions — biggest gap between "strong CS tool" and "validated student-impact tool")
+
+See `memory/project_post_gemini_verification_checkpoint.md` for the full resumption brief.
+
+---
+
 ## NEW (2026-04-25): Major university inquiry — production-readiness pivot
 A major university inquired about using the tool. This shifts priorities from research toward production-readiness for institutional deployment. Audit findings + 10-item gap inventory in `memory/project_university_inquiry.md`. Headline gaps: concurrency=1 hardcoded (`src/web/app.py:98`), no real job queue (Python threads), SQLite write contention, single-server ARM, one shared API key (just bit us with Gemini Tier 1 verification gating), no per-org quotas, no FERPA story, no SAML, no storage cleanup, no cost cap. Tackle before signing.
 

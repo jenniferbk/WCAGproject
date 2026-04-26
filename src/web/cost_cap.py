@@ -21,6 +21,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from src.web.db import column_exists
 from src.web.jobs import _get_conn
 
 logger = logging.getLogger(__name__)
@@ -141,9 +142,7 @@ def record_job_cost(job_id: str, cost_usd: float) -> None:
 def ensure_cost_column() -> None:
     """Idempotent migration: add estimated_cost_usd column to jobs if missing."""
     conn = _get_conn()
-    cursor = conn.execute("PRAGMA table_info(jobs)")
-    columns = {row[1] for row in cursor.fetchall()}
-    if "estimated_cost_usd" not in columns:
+    if not column_exists(conn, "jobs", "estimated_cost_usd"):
         conn.execute("ALTER TABLE jobs ADD COLUMN estimated_cost_usd REAL DEFAULT 0")
         conn.commit()
         logger.info("Added jobs.estimated_cost_usd column")

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-import sqlite3
+from src.web.db import begin_immediate, is_integrity_error
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -251,7 +251,7 @@ def handle_webhook(payload: bytes, sig_header: str) -> dict:
     now = datetime.now(timezone.utc).isoformat()
 
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        begin_immediate(conn)
         conn.execute(
             """INSERT INTO transactions
                (id, user_id, pack_id, pages, amount_cents,
@@ -266,10 +266,12 @@ def handle_webhook(payload: bytes, sig_header: str) -> dict:
             (pages, now, user_id),
         )
         conn.commit()
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        logger.info("Webhook: session %s already processed", stripe_session_id)
-        return {"status": "already_processed"}
+    except Exception as e:
+        if is_integrity_error(e):
+            conn.rollback()
+            logger.info("Webhook: session %s already processed", stripe_session_id)
+            return {"status": "already_processed"}
+        raise
 
     # Flip tier to 'paid' on first purchase (outside critical section, idempotent)
     if user.tier == "free":

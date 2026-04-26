@@ -309,6 +309,31 @@ RETENTION_INTERVAL_HOURS=   # default 24; cleanup loop interval
 
 `GET /api/health` returns liveness + readiness: `status`, `db`, queue depth (queued/processing), free disk, and version. Public endpoint suitable for uptime monitors. Sensitive operational details (cost spend, user counts, file paths) live on admin-only endpoints.
 
+## Database backend (SQLite + Postgres)
+
+`src/web/db.py` provides a thin abstraction supporting both SQLite (default, dev/tests) and Postgres (production) backends. Selection is by `DATABASE_URL`:
+
+- **Default (no env var):** SQLite at `data/jobs.db`. Existing dev/test workflow unchanged.
+- **`DATABASE_URL=postgresql://...`:** Postgres via `psycopg[binary]>=3.1` (install with `pip install -e ".[postgres]"`).
+
+Code path: callers continue to use `_get_conn()` from `src.web.jobs`, which now routes through the abstraction. SQL is written in SQLite `?` style; the abstraction translates to `%s` for Postgres at execute time. Rows from both backends support both positional (`row[0]`) and named (`row["col"]`) access.
+
+Schema differences encapsulated in `src/web/db.py` helpers:
+- `column_exists(conn, table, column)` — `PRAGMA` on SQLite, `information_schema.columns` on Postgres
+- `table_columns(conn, table)` — same shape
+- `is_integrity_error(exc)` — checks `type(exc).__name__ == "IntegrityError"` so callers don't need to import driver-specific exceptions
+- `begin_immediate(conn)` — `BEGIN IMMEDIATE` on SQLite, plain `BEGIN` on Postgres (MVCC handles serialization)
+
+**Migration:** `scripts/migrate_sqlite_to_postgres.py` streams an existing SQLite DB into Postgres in batches. Dry-run support; refuses to overwrite a non-empty Postgres DB without `--force`.
+
+**Testing:** unit tests for the abstraction in `tests/test_db_abstraction.py`. Postgres-specific smoke tests in `tests/test_postgres_smoke.py` are skipped unless `DATABASE_URL` points at Postgres. The broader test suite continues to run on SQLite (which is faster and gives per-test file isolation).
+
+```bash
+# Run Postgres smoke tests locally:
+createdb a11y_remediate_test
+DATABASE_URL=postgresql:///a11y_remediate_test pytest tests/test_postgres_smoke.py -v
+```
+
 ## E2E regression suite
 
 `tests/e2e/` exercises the full HTTP stack through FastAPI's `TestClient` while mocking the orchestrator's `process()` to avoid real LLM API calls. Cheap to run (~10s for 44 tests) and meant as the safety net for upcoming refactors (Postgres migration, ARQ queue replacement).

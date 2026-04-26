@@ -1,32 +1,34 @@
-"""Job tracking with SQLite.
+"""Job tracking — SQLite for dev/tests, Postgres in production via DATABASE_URL.
 
 Stores upload/processing state so users can check status and
-retrieve results across page loads.
+retrieve results across page loads. The connection abstraction lives
+in src/web/db.py; this module preserves the historical `_get_conn` and
+`_local` names for back-compat with tests and other modules that import
+them directly.
 """
 
 from __future__ import annotations
 
-import sqlite3
-import threading
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
+from src.web import db as _db
+from src.web.db import _local  # re-exported for tests that monkeypatch DB_PATH
 
-_local = threading.local()
+DB_PATH = _db._DEFAULT_SQLITE_PATH
 
 
-def _get_conn() -> sqlite3.Connection:
-    """Get a thread-local SQLite connection."""
-    if not hasattr(_local, "conn") or _local.conn is None:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _local.conn = sqlite3.connect(str(DB_PATH))
-        _local.conn.row_factory = sqlite3.Row
-        _local.conn.execute("PRAGMA journal_mode=WAL")
-    return _local.conn
+def _get_conn():
+    """Get the thread-local connection (SQLite or Postgres per DATABASE_URL).
+
+    Honors `DB_PATH` for SQLite — tests monkeypatch this module attribute
+    to redirect to a temp file, so resolve it dynamically on each call.
+    """
+    # Late import of the module attr so monkeypatching `DB_PATH` here is honored
+    import src.web.jobs as _self
+    return _db.get_conn(sqlite_path=_self.DB_PATH)
 
 
 def init_db() -> None:
@@ -108,7 +110,7 @@ class Job:
         return d
 
 
-def _row_to_job(row: sqlite3.Row) -> Job:
+def _row_to_job(row) -> Job:
     d = dict(row)
     # Columns may not exist in old databases before migration
     d.setdefault("user_id", "")

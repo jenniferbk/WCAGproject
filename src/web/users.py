@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from src.web.db import table_columns
 from src.web.jobs import _get_conn
 
 
@@ -73,10 +74,11 @@ def init_users_db() -> None:
     conn.commit()
 
     # Migrate: add missing columns
-    cursor = conn.execute("PRAGMA table_info(users)")
-    user_columns = {row[1] for row in cursor.fetchall()}
+    user_columns = table_columns(conn, "users")
     if "is_admin" not in user_columns:
-        conn.execute("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0")
+        # INTEGER (0/1) for cross-DB compatibility — Postgres BOOLEAN doesn't
+        # accept DEFAULT 0. App code does bool() conversion at read time.
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
         conn.commit()
     if "password_reset_token" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN password_reset_token TEXT DEFAULT ''")
@@ -91,12 +93,11 @@ def init_users_db() -> None:
         conn.execute("ALTER TABLE users ADD COLUMN pages_used INTEGER DEFAULT 0")
         conn.commit()
     if "email_opt_in" not in user_columns:
-        conn.execute("ALTER TABLE users ADD COLUMN email_opt_in BOOLEAN DEFAULT 0")
+        conn.execute("ALTER TABLE users ADD COLUMN email_opt_in INTEGER DEFAULT 0")
         conn.commit()
 
     # Migrate: add columns to jobs if missing
-    cursor = conn.execute("PRAGMA table_info(jobs)")
-    columns = {row[1] for row in cursor.fetchall()}
+    columns = table_columns(conn, "jobs")
     if "user_id" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN user_id TEXT DEFAULT ''")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)")
